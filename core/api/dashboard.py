@@ -121,3 +121,84 @@ def save_spotify_keys(creds: SpotifyCredentials, db: Session = Depends(get_db)):
         
     db.commit()
     return {"status": "success"}
+
+# --- ROTINAS ---
+
+class RoutineCreate(BaseModel):
+    name: str
+    trigger_type: str
+    trigger_value: str
+    action_type: str
+    action_value: str
+    room_id: str
+    
+@router.get("/routines")
+def get_routines(db: Session = Depends(get_db)):
+    """Retorna todas as rotinas."""
+    routines = db.query(models.Routine).order_by(models.Routine.created_at.desc()).all()
+    return routines
+
+@router.post("/routines")
+def create_routine(payload: RoutineCreate, db: Session = Depends(get_db)):
+    """Cria uma nova rotina."""
+    new_routine = models.Routine(
+        name=payload.name,
+        trigger_type=payload.trigger_type,
+        trigger_value=payload.trigger_value,
+        action_type=payload.action_type,
+        action_value=payload.action_value,
+        room_id=payload.room_id
+    )
+    db.add(new_routine)
+    db.commit()
+    db.refresh(new_routine)
+    return new_routine
+
+@router.delete("/routines/{routine_id}")
+def delete_routine(routine_id: int, db: Session = Depends(get_db)):
+    """Exclui uma rotina."""
+    routine = db.query(models.Routine).filter(models.Routine.id == routine_id).first()
+    if routine:
+        db.delete(routine)
+        db.commit()
+    return {"status": "success"}
+
+@router.post("/routines/{routine_id}/test")
+def test_routine(routine_id: int, db: Session = Depends(get_db)):
+    """Dispara a rotina instantaneamente para testes (simulando a condição de tempo)."""
+    routine = db.query(models.Routine).filter(models.Routine.id == routine_id).first()
+    if not routine:
+        return {"error": "Routine not found"}
+        
+    # Zera a data de last_run para que o scheduler rode no próximo segundo
+    # Para testes imediatos, simplesmente mudamos o last_run e o trigger_value pro HH:MM atual
+    from datetime import datetime
+    now = datetime.now()
+    routine.trigger_value = now.strftime("%H:%M")
+    return {"status": "success", "message": "A rotina foi ajustada para rodar agora!"}
+
+# --- CONFIGURAÇÕES ---
+
+class SettingsPayload(BaseModel):
+    settings: dict
+    
+@router.get("/settings")
+def get_settings(db: Session = Depends(get_db)):
+    """Retorna todas as configurações."""
+    settings = db.query(models.Setting).all()
+    # Converte de lista de models para um dict simples {key: value}
+    settings_dict = {s.key: s.value for s in settings}
+    return settings_dict
+
+@router.post("/settings")
+def save_settings(payload: SettingsPayload, db: Session = Depends(get_db)):
+    """Salva um dicionário de configurações (atualiza se existir, cria se não)."""
+    for key, value in payload.settings.items():
+        setting = db.query(models.Setting).filter(models.Setting.key == key).first()
+        if setting:
+            setting.value = value
+        else:
+            new_setting = models.Setting(key=key, value=value)
+            db.add(new_setting)
+    db.commit()
+    return {"status": "success"}

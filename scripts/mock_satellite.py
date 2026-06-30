@@ -6,6 +6,7 @@ import pyaudio
 import audioop
 import threading
 import json
+import webbrowser
 from websockets.sync.client import connect
 
 # Configurações do Áudio (Obrigatórias pelo Vosk/Piper)
@@ -150,6 +151,13 @@ def start_websocket():
                     print("* Pressione ENTER para começar a falar (Grava por 5s)...")
                 elif data.get("type") == "weather_update":
                     print(f"\n[DISPLAY] Clima atualizado via WebSocket: {data.get('data')}")
+                elif data.get("type") == "play_audio":
+                    audio_url = data.get("url")
+                    print(f"\n[SATÉLITE] Recebi o comando de tocar um Stream de Áudio!")
+                    print(f"[SATÉLITE] URL do Áudio (Live/Música): {audio_url}")
+                    print("[SATÉLITE] Tentando abrir no seu reprodutor/navegador padrão...")
+                    # Abre no navegador/VLC nativo do Windows para comprovar que o link funciona
+                    webbrowser.open(audio_url)
     except Exception as e:
         print(f"\n[WebSocket] Desconectado ou erro: {e}")
 

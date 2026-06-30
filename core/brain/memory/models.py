@@ -93,3 +93,24 @@ class AppIntegration(Base):
     client_id = Column(String, nullable=True)
     client_secret = Column(String, nullable=True)
     is_connected = Column(Boolean, default=False)
+
+class Routine(Base):
+    __tablename__ = "routines"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False) # Ex: "Bom dia"
+    trigger_type = Column(String, nullable=False) # "time" ou "event"
+    trigger_value = Column(String, nullable=False) # "07:00" ou "user_arrived"
+    action_type = Column(String, nullable=False) # "simulate_command"
+    action_value = Column(String, nullable=False) # "como está o clima"
+    room_id = Column(String, nullable=False, index=True)
+    is_active = Column(Boolean, default=True)
+    last_run = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Setting(Base):
+    __tablename__ = "settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, unique=True, index=True, nullable=False)
+    value = Column(String, nullable=True)

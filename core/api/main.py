@@ -226,3 +226,12 @@ app.include_router(spotify_router)
 # ATENÇÃO: mount("/") deve ser o último para não sobrescrever as rotas /api/
 dashboard_path = os.path.join(os.getcwd(), "dashboard", "frontend")
 app.mount("/", StaticFiles(directory=dashboard_path, html=True), name="frontend")
+
+@app.get("/api/audio/{filename}")
+def get_audio(filename: str):
+    """Endpoint para fornecer arquivos de áudio gerados pelo TTS para o hardware baixar."""
+    temp_dir = os.path.join(os.getcwd(), "tmp")
+    filepath = os.path.join(temp_dir, filename)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Audio file not found")
+    return FileResponse(filepath, media_type="audio/wav")

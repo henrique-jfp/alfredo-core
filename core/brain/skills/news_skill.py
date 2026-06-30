@@ -15,10 +15,18 @@ class NewsSkill(Skill):
         return intent == "NEWS"
 
     def execute(self, text: str, context: Dict[str, Any]) -> str:
-        url = "https://g1.globo.com/rss/g1/"
+        db = context.get("db")
+        if not db:
+            return "Erro: banco de dados não disponível."
+            
+        from core.brain.memory import models
+        settings = db.query(models.Setting).all()
+        config = {s.key: s.value for s in settings}
+        
+        url = config.get("news_rss_url", "https://g1.globo.com/rss/g1/")
         
         try:
-            logger.info("Buscando notícias no feed RSS do G1...")
+            logger.info(f"Buscando notícias no feed RSS: {url}")
             # Headers para evitar bloqueio por ser bot
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'

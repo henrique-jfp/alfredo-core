@@ -21,6 +21,7 @@ SQLAlchemy>=2.0.25
 # Integrations
 httpx>=0.26.0
 spotipy>=2.23.0
+yt-dlp>=2023.12.30
 
 # Utils
 python-dotenv>=1.0.0

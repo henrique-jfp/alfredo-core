@@ -257,4 +257,187 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ==========================================
+    // ROUTINES (ROTINAS AUTOMÁTICAS)
+    // ==========================================
+    const routinesList = document.getElementById('routines-list');
+    const btnSaveRoutine = document.getElementById('btn-save-routine');
+
+    async function fetchRoutines() {
+        if (!routinesList) return;
+        try {
+            const res = await fetch('/api/dashboard/routines');
+            const data = await res.json();
+            
+            routinesList.innerHTML = '';
+            
+            if (data.length === 0) {
+                routinesList.innerHTML = '<div class="empty-list">Nenhuma rotina criada ainda.</div>';
+                return;
+            }
+            
+            data.forEach(rt => {
+                const rtEl = document.createElement('div');
+                rtEl.className = 'routine-item glass-panel';
+                rtEl.style.marginBottom = '10px';
+                rtEl.style.padding = '15px';
+                rtEl.style.display = 'flex';
+                rtEl.style.justifyContent = 'space-between';
+                rtEl.style.alignItems = 'center';
+                
+                rtEl.innerHTML = `
+                    <div>
+                        <h3 style="margin: 0; font-size: 16px;">${rt.name}</h3>
+                        <p style="margin: 5px 0 0; font-size: 13px; color: var(--text-secondary);">
+                            ⏰ ${rt.trigger_value} - ${rt.room_id} <br>
+                            🗣️ "<em>${rt.action_value}</em>"
+                        </p>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="glass-btn btn-test-rt" data-id="${rt.id}">Testar Agora</button>
+                        <button class="glass-btn btn-del-rt" data-id="${rt.id}" style="color: #ef4444;">Excluir</button>
+                    </div>
+                `;
+                routinesList.appendChild(rtEl);
+            });
+            
+            // Attach Events
+            document.querySelectorAll('.btn-test-rt').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const id = e.target.dataset.id;
+                    e.target.textContent = "...";
+                    await fetch(`/api/dashboard/routines/${id}/test`, { method: 'POST' });
+                    e.target.textContent = "Testado!";
+                    setTimeout(() => fetchRoutines(), 2000);
+                });
+            });
+            
+            document.querySelectorAll('.btn-del-rt').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const id = e.target.dataset.id;
+                    if(confirm('Tem certeza que deseja excluir esta rotina?')) {
+                        await fetch(`/api/dashboard/routines/${id}`, { method: 'DELETE' });
+                        fetchRoutines();
+                    }
+                });
+            });
+            
+        } catch (error) {
+            console.error('Erro ao buscar rotinas:', error);
+            routinesList.innerHTML = '<div class="empty-list">Erro ao carregar rotinas.</div>';
+        }
+    }
+
+    if (btnSaveRoutine) {
+        btnSaveRoutine.addEventListener('click', async () => {
+            const name = document.getElementById('rt-name').value.trim();
+            const time = document.getElementById('rt-time').value;
+            const room = document.getElementById('rt-room').value.trim();
+            const action = document.getElementById('rt-action').value.trim();
+            
+            if (!name || !time || !room || !action) {
+                alert("Preencha todos os campos da rotina.");
+                return;
+            }
+            
+            btnSaveRoutine.textContent = "Salvando...";
+            
+            const payload = {
+                name: name,
+                trigger_type: "time",
+                trigger_value: time,
+                action_type: "simulate_command",
+                action_value: action,
+                room_id: room
+            };
+            
+            try {
+                await fetch('/api/dashboard/routines', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                // Limpa form
+                document.getElementById('rt-name').value = '';
+                document.getElementById('rt-action').value = '';
+                document.getElementById('rt-time').value = '';
+                
+                fetchRoutines();
+            } catch (e) {
+                alert("Erro ao criar rotina");
+            } finally {
+                btnSaveRoutine.textContent = "Salvar Rotina";
+            }
+        });
+    }
+
+    // Adicionar fetchRoutines no updateAll
+    const oldUpdateAll = updateAll;
+    updateAll = function() {
+        oldUpdateAll();
+        const tabRotinas = document.getElementById('tab-rotinas');
+        if (tabRotinas && tabRotinas.style.display !== 'none') {
+            fetchRoutines();
+        }
+    };
+    
+    // ==========================================
+    // SETTINGS (CONFIGURAÇÕES GERAIS)
+    // ==========================================
+    const btnSaveSettings = document.getElementById('btn-save-settings');
+
+    async function fetchSettings() {
+        try {
+            const res = await fetch('/api/dashboard/settings');
+            const data = await res.json();
+            
+            document.getElementById('set-city').value = data.weather_city || '';
+            document.getElementById('set-home-lat').value = data.home_lat || '';
+            document.getElementById('set-home-lon').value = data.home_lon || '';
+            document.getElementById('set-work-lat').value = data.work_lat || '';
+            document.getElementById('set-work-lon').value = data.work_lon || '';
+            document.getElementById('set-gmaps-key').value = data.google_maps_api_key || '';
+            document.getElementById('set-news-rss').value = data.news_rss_url || '';
+        } catch (error) {
+            console.error('Erro ao buscar configurações:', error);
+        }
+    }
+
+    if (btnSaveSettings) {
+        btnSaveSettings.addEventListener('click', async () => {
+            btnSaveSettings.textContent = "Salvando...";
+            
+            const payload = {
+                settings: {
+                    weather_city: document.getElementById('set-city').value.trim(),
+                    home_lat: document.getElementById('set-home-lat').value.trim(),
+                    home_lon: document.getElementById('set-home-lon').value.trim(),
+                    work_lat: document.getElementById('set-work-lat').value.trim(),
+                    work_lon: document.getElementById('set-work-lon').value.trim(),
+                    google_maps_api_key: document.getElementById('set-gmaps-key').value.trim(),
+                    news_rss_url: document.getElementById('set-news-rss').value.trim()
+                }
+            };
+            
+            try {
+                await fetch('/api/dashboard/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                alert("Configurações salvas com sucesso!");
+            } catch (e) {
+                alert("Erro ao salvar configurações.");
+            } finally {
+                btnSaveSettings.textContent = "Salvar Configurações";
+            }
+        });
+    }
+
+    // Carregar configurações quando a aba for aberta
+    document.querySelector('.menu-item[data-tab="configuracoes"]').addEventListener('click', () => {
+        fetchSettings();
+    });
+
 });

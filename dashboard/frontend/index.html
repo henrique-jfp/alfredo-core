@@ -23,9 +23,10 @@
             <nav class="menu">
                 <a href="#" class="menu-item active" data-tab="visao-geral">Visão Geral</a>
                 <a href="#" class="menu-item" data-tab="integracoes">Integrações</a>
+                <a href="#" class="menu-item" data-tab="rotinas">Rotinas</a>
                 <a href="#" class="menu-item disabled">Satélites</a>
                 <a href="#" class="menu-item disabled">Inteligência</a>
-                <a href="#" class="menu-item disabled">Configurações</a>
+                <a href="#" class="menu-item" data-tab="configuracoes">Configurações</a>
             </nav>
             <div class="sidebar-footer">
                 <p>Versão 1.0.0</p>
@@ -126,6 +127,112 @@
                         <p class="integration-desc">Controle suas músicas, playlists e alto-falantes pela voz em toda a casa.</p>
                         <button class="glass-btn primary-btn" id="btn-connect-spotify">Configurar</button>
                     </div>
+                </div>
+            </div>
+            
+            <!-- Rotinas Tab -->
+            <div id="tab-rotinas" class="tab-content" style="display: none;">
+                <header class="topbar">
+                    <div>
+                        <h1>Rotinas Automáticas</h1>
+                        <p class="subtitle">Ensine o Alfredo a ter iniciativa própria com regras de automação.</p>
+                    </div>
+                </header>
+                
+                <div class="content-grid">
+                    <section class="history-section glass-panel flex-col">
+                        <div class="section-header">
+                            <h2>Minhas Rotinas</h2>
+                        </div>
+                        <div id="routines-list" class="routines-list">
+                            <div class="loading">Carregando rotinas...</div>
+                        </div>
+                    </section>
+                    
+                    <section class="glass-panel">
+                        <div class="section-header">
+                            <h2>Nova Rotina</h2>
+                        </div>
+                        <div class="routine-form">
+                            <div class="form-group">
+                                <label>Nome da Rotina</label>
+                                <input type="text" id="rt-name" class="glass-input" placeholder="Ex: Bom dia">
+                            </div>
+                            <div class="form-group">
+                                <label>Quando (Horário HH:MM)</label>
+                                <input type="time" id="rt-time" class="glass-input">
+                            </div>
+                            <div class="form-group">
+                                <label>Sala (Room ID)</label>
+                                <input type="text" id="rt-room" class="glass-input" placeholder="Ex: ROOM_LIVING" value="ROOM_LIVING">
+                            </div>
+                            <div class="form-group">
+                                <label>Ação (Comando Simulado)</label>
+                                <input type="text" id="rt-action" class="glass-input" placeholder="Ex: como está o clima">
+                            </div>
+                            <button id="btn-save-routine" class="glass-btn primary-btn full-width">Salvar Rotina</button>
+                        </div>
+                    </section>
+                </div>
+            </div>
+            
+            <!-- Configurações Tab -->
+            <div id="tab-configuracoes" class="tab-content" style="display: none;">
+                <header class="topbar">
+                    <div>
+                        <h1>Configurações do Sistema</h1>
+                        <p class="subtitle">Ajuste os parâmetros globais de localização e chaves de API.</p>
+                    </div>
+                </header>
+                
+                <div class="content-grid">
+                    <section class="glass-panel" style="grid-column: span 1;">
+                        <div class="section-header">
+                            <h2>📍 Localização (Trânsito e Clima)</h2>
+                        </div>
+                        <div class="routine-form">
+                            <div class="form-group">
+                                <label>Cidade Atual (Para Clima)</label>
+                                <input type="text" id="set-city" class="glass-input" placeholder="Ex: São Paulo">
+                            </div>
+                            <div class="form-group">
+                                <label>Casa - Latitude</label>
+                                <input type="text" id="set-home-lat" class="glass-input" placeholder="-23.550520">
+                            </div>
+                            <div class="form-group">
+                                <label>Casa - Longitude</label>
+                                <input type="text" id="set-home-lon" class="glass-input" placeholder="-46.633308">
+                            </div>
+                            <div class="form-group">
+                                <label>Trabalho - Latitude</label>
+                                <input type="text" id="set-work-lat" class="glass-input" placeholder="-23.561684">
+                            </div>
+                            <div class="form-group">
+                                <label>Trabalho - Longitude</label>
+                                <input type="text" id="set-work-lon" class="glass-input" placeholder="-46.655981">
+                            </div>
+                        </div>
+                    </section>
+                    
+                    <section class="glass-panel" style="grid-column: span 1;">
+                        <div class="section-header">
+                            <h2>🔑 APIs e Conteúdo</h2>
+                        </div>
+                        <div class="routine-form">
+                            <div class="form-group">
+                                <label>Chave API do Google Maps (Opcional)</label>
+                                <input type="password" id="set-gmaps-key" class="glass-input" placeholder="AIzaSy...">
+                                <small style="color: var(--text-secondary); display: block; margin-top: 5px;">Se deixado em branco, o sistema usará o OSRM (Gratuito).</small>
+                            </div>
+                            <div class="form-group" style="margin-top: 15px;">
+                                <label>URL do Feed RSS de Notícias</label>
+                                <input type="text" id="set-news-rss" class="glass-input" placeholder="https://g1.globo.com/rss/g1/">
+                                <small style="color: var(--text-secondary); display: block; margin-top: 5px;">Padrão: G1 Globo.</small>
+                            </div>
+                            
+                            <button id="btn-save-settings" class="glass-btn primary-btn full-width" style="margin-top: 20px;">Salvar Configurações</button>
+                        </div>
+                    </section>
                 </div>
             </div>
             

@@ -11,6 +11,7 @@ from core.brain.skills.news_skill import NewsSkill
 from core.brain.skills.calendar_skill import CalendarSkill
 from core.brain.skills.traffic_skill import TrafficSkill
 from core.brain.skills.music_skill import MusicSkill
+from core.brain.skills.youtube_skill import YouTubeSkill
 from core.brain.skills.fallback_skill import FallbackSkill
 
 logger = logging.getLogger("alfredo.router")
@@ -34,6 +35,7 @@ class IntentRouter:
             CalendarSkill(),
             TrafficSkill(),
             MusicSkill(),
+            YouTubeSkill(),
             FallbackSkill() # Sempre a última a ser processada
         ]
 
@@ -67,8 +69,14 @@ class IntentRouter:
         if "trânsito" in text_lower or "transito" in text_lower or "trabalho" in text_lower or "rota" in text_lower or "viagem" in text_lower:
             return "TRAFFIC"
             
-        if "tocar" in text_lower or "toca " in text_lower or "toque " in text_lower or "pausar" in text_lower or "pare a música" in text_lower or "próxima música" in text_lower or "parar música" in text_lower or "para de tocar" in text_lower or "próxima" in text_lower or "passar" in text_lower:
+        if "tocar" in text_lower or "toca " in text_lower or "toque " in text_lower or "reproduza" in text_lower or "reproduzir" in text_lower or "pausar" in text_lower or "pare a música" in text_lower or "próxima música" in text_lower or "parar música" in text_lower or "para de tocar" in text_lower:
+            # Se for youtube especifico, tem prioridade
+            if "youtube" in text_lower or "live da" in text_lower or "live do" in text_lower or "último vídeo" in text_lower or "ultimo video" in text_lower or "vídeo do canal" in text_lower:
+                return "YOUTUBE"
             return "MUSIC"
+            
+        if "youtube" in text_lower or "último vídeo" in text_lower or "ultimo video" in text_lower:
+            return "YOUTUBE"
             
         # TODO: Adicionar heurísticas de Automação (Ligar luz, etc).
         

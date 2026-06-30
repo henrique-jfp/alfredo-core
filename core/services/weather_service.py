@@ -41,6 +41,11 @@ def get_current_weather(db: Session = None) -> dict:
     lon = os.getenv("WEATHER_LONGITUDE", "-46.6333")
     
     if db:
+        settings = db.query(models.Setting).all()
+        config = {s.key: s.value for s in settings}
+        lat = config.get("home_lat", lat)
+        lon = config.get("home_lon", lon)
+        
         # Verifica cache
         half_hour_ago = datetime.now(timezone.utc) - timedelta(minutes=30)
         cached = db.query(models.WeatherCache).filter(
