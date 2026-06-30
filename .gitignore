@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+.env
+logs/*.log
+build/
+alfredo_memory.db
+tmp/
+*.wav
+.spotify_cache
+core/voice/stt/models/
+core/voice/tts/models/
