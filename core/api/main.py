@@ -169,8 +169,14 @@ async def process_voice(
     # 5. Sintetizar áudio de resposta com Piper
     output_filepath = os.path.join(temp_dir, f"out_{int(time.time())}.wav")
     try:
+        # Busca a voz configurada no banco (se não houver, usa faber padrão)
+        voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
+        chosen_voice = voice_setting.value if voice_setting else "pt_BR-faber-medium"
+        
         tts_engine = get_tts_engine()
+        tts_engine.reload_voice(chosen_voice)
         tts_engine.synthesize_wav(response_text, output_filepath)
+        
         interaction.output_text = response_text
         db.commit()
     except Exception as e:

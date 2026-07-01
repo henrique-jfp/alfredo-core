@@ -392,6 +392,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/dashboard/settings');
             const data = await res.json();
             
+            document.getElementById('set-assistant-name').value = data.assistant_name || 'alfredo';
+            document.getElementById('set-assistant-voice').value = data.assistant_voice || 'pt_BR-faber-medium';
+            
             document.getElementById('set-city').value = data.weather_city || '';
             document.getElementById('set-home-lat').value = data.home_lat || '';
             document.getElementById('set-home-lon').value = data.home_lon || '';
@@ -410,6 +413,8 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const payload = {
                 settings: {
+                    assistant_name: document.getElementById('set-assistant-name').value.trim(),
+                    assistant_voice: document.getElementById('set-assistant-voice').value,
                     weather_city: document.getElementById('set-city').value.trim(),
                     home_lat: document.getElementById('set-home-lat').value.trim(),
                     home_lon: document.getElementById('set-home-lon').value.trim(),
@@ -439,5 +444,49 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelector('.menu-item[data-tab="configuracoes"]').addEventListener('click', () => {
         fetchSettings();
     });
+
+    // Lógica para Testar a Voz do Assistente
+    const btnTestVoice = document.getElementById('btn-test-voice');
+    const audioPreview = document.getElementById('audio-preview');
+    
+    if (btnTestVoice) {
+        btnTestVoice.addEventListener('click', async () => {
+            const selectedVoice = document.getElementById('set-assistant-voice').value;
+            const originalText = btnTestVoice.textContent;
+            
+            btnTestVoice.textContent = "Baixando/Gerando... (pode demorar se for voz nova)";
+            btnTestVoice.disabled = true;
+            
+            try {
+                const res = await fetch('/api/dashboard/tts/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ voice_name: selectedVoice })
+                });
+                
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const audioUrl = URL.createObjectURL(blob);
+                    audioPreview.src = audioUrl;
+                    audioPreview.play();
+                    btnTestVoice.textContent = "▶ Reproduzindo...";
+                    
+                    audioPreview.onended = () => {
+                        btnTestVoice.textContent = originalText;
+                        btnTestVoice.disabled = false;
+                    };
+                } else {
+                    alert("Erro ao testar voz. Veja os logs do servidor.");
+                    btnTestVoice.textContent = originalText;
+                    btnTestVoice.disabled = false;
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Erro ao conectar com a API de voz.");
+                btnTestVoice.textContent = originalText;
+                btnTestVoice.disabled = false;
+            }
+        });
+    }
 
 });

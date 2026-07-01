@@ -93,11 +93,14 @@ class TimerSkill(Skill):
         
         reminder_msg = self._extract_message(text)
         
+        is_alarm = "alarme" in text_lower or "acorde" in text_lower or "desperte" in text_lower or "às" in text_lower
+        
         new_timer = models.Timer(
             room_id=room_id,
             duration_seconds=duration_seconds,
             expires_at=expires_at,
             message=reminder_msg,
+            timer_type="alarm" if is_alarm else "timer",
             is_active=True
         )
         db.add(new_timer)
@@ -115,8 +118,6 @@ class TimerSkill(Skill):
                     "message": reminder_msg or "Timer iniciado"
                 }
             })
-        
-        is_alarm = "alarme" in text_lower or "acorde" in text_lower or "desperte" in text_lower or "às" in text_lower
         
         logger.info(f"Timer criado para a sala {room_id} (Duração: {duration_seconds}s)")
         

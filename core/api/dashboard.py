@@ -2,9 +2,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import socket
+import os
+import time
 from sqlalchemy import func
 from core.brain.memory import models
 from core.brain.memory.database import get_db
+from fastapi.responses import FileResponse
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
@@ -191,14 +194,59 @@ def get_settings(db: Session = Depends(get_db)):
     return settings_dict
 
 @router.post("/settings")
-def save_settings(payload: SettingsPayload, db: Session = Depends(get_db)):
-    """Salva um dicionário de configurações (atualiza se existir, cria se não)."""
+async def save_settings(payload: SettingsPayload, db: Session = Depends(get_db)):
+    """Salva um dicionário de configurações e avisa satélites se o nome mudar."""
+    name_changed = False
+    new_name = ""
+    
     for key, value in payload.settings.items():
         setting = db.query(models.Setting).filter(models.Setting.key == key).first()
         if setting:
+            if key == "assistant_name" and setting.value != value:
+                name_changed = True
+                new_name = value
             setting.value = value
         else:
+            if key == "assistant_name":
+                name_changed = True
+                new_name = value
             new_setting = models.Setting(key=key, value=value)
             db.add(new_setting)
+            
     db.commit()
+    
+    # Se o nome do assistente mudou, avisa todos os satélites via WebSocket
+    if name_changed:
+        from core.api.main import get_active_connections
+        active_conns = get_active_connections()
+        for device_id, ws in active_conns.items():
+            try:
+                await ws.send_json({
+                    "type": "update_wake_word",
+                    "wake_word": new_name
+                })
+            except Exception:
+                pass
+                
     return {"status": "success"}
+
+class VoiceTestPayload(BaseModel):
+    voice_name: str
+
+@router.post("/tts/test")
+def test_tts(payload: VoiceTestPayload):
+    """Testa uma voz específica e retorna o áudio."""
+    from core.voice.tts.engine import get_tts_engine
+    
+    temp_dir = os.path.join(os.getcwd(), "tmp")
+    os.makedirs(temp_dir, exist_ok=True)
+    output_filepath = os.path.join(temp_dir, f"test_{int(time.time())}.wav")
+    
+    try:
+        # A TTSEngine foi atualizada para aceitar troca de voz dinâmica
+        tts = get_tts_engine()
+        tts.reload_voice(payload.voice_name)
+        tts.synthesize_wav("Olá, eu sou o seu assistente. Como posso ajudar hoje?", output_filepath)
+        return FileResponse(output_filepath, media_type="audio/wav")
+    except Exception as e:
+        return {"error": str(e)}

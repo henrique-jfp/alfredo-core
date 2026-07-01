@@ -71,11 +71,11 @@ class IntentRouter:
             
         if "tocar" in text_lower or "toca " in text_lower or "toque " in text_lower or "reproduza" in text_lower or "reproduzir" in text_lower or "pausar" in text_lower or "pare a música" in text_lower or "próxima música" in text_lower or "parar música" in text_lower or "para de tocar" in text_lower:
             # Se for youtube especifico, tem prioridade
-            if "youtube" in text_lower or "live da" in text_lower or "live do" in text_lower or "último vídeo" in text_lower or "ultimo video" in text_lower or "vídeo do canal" in text_lower:
+            if "youtube" in text_lower or "live da" in text_lower or "live do" in text_lower or "último vídeo" in text_lower or "ultimo video" in text_lower or "canal" in text_lower or "ao vivo" in text_lower:
                 return "YOUTUBE"
             return "MUSIC"
             
-        if "youtube" in text_lower or "último vídeo" in text_lower or "ultimo video" in text_lower:
+        if "youtube" in text_lower or "último vídeo" in text_lower or "ultimo video" in text_lower or "canal" in text_lower or "ao vivo" in text_lower:
             return "YOUTUBE"
             
         # TODO: Adicionar heurísticas de Automação (Ligar luz, etc).

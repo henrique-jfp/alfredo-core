@@ -43,22 +43,58 @@ class SchedulerManager:
                 logger.info(f"Timer {timer.id} expirou para a sala {timer.room_id}!")
                 timer.is_active = False
                 
-                # Procura todos os devices dessa sala para notificar
+                # Gera notificação
                 devices = db.query(models.Device).filter(models.Device.room_id == timer.room_id).all()
                 active_connections = self.get_active_connections_cb()
+                
+                # Se for "timer", gera o áudio TTS. Se for "alarm", o satélite cuida do som.
+                tts_filename = None
+                if timer.timer_type == "timer":
+                    text_to_speak = "Com licença, o seu cronômetro foi finalizado."
+                    if timer.message:
+                        text_to_speak = f"Com licença, estou passando para lembrar de: {timer.message}."
+                    
+                    tts_filename = f"timer_{timer.id}_{int(time.time())}.wav"
+                    temp_dir = os.path.join(os.getcwd(), "tmp")
+                    os.makedirs(temp_dir, exist_ok=True)
+                    output_filepath = os.path.join(temp_dir, tts_filename)
+                    
+                    try:
+                        tts_engine = get_tts_engine()
+                        # Usa a voz configurada no banco se houver
+                        voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
+                        chosen_voice = voice_setting.value if voice_setting else "pt_BR-faber-medium"
+                        tts_engine.reload_voice(chosen_voice)
+                        tts_engine.synthesize_wav(text_to_speak, output_filepath)
+                    except Exception as e:
+                        logger.error(f"Erro ao gerar áudio do cronômetro: {e}")
+                        tts_filename = None
                 
                 for device in devices:
                     ws = active_connections.get(device.device_id)
                     if ws:
                         try:
-                            await ws.send_json({
-                                "type": "timer_expired",
-                                "message": timer.message or "BIP BIP! Tempo esgotado!",
-                                "duration_seconds": timer.duration_seconds
-                            })
-                            logger.info(f"Notificação de timer enviada ao device {device.device_id}")
+                            if timer.timer_type == "alarm":
+                                await ws.send_json({
+                                    "type": "play_alarm",
+                                    "message": timer.message or "Despertador tocando!"
+                                })
+                            else:
+                                if tts_filename:
+                                    await ws.send_json({
+                                        "type": "play_audio",
+                                        "url": f"http://127.0.0.1:10001/api/audio/{tts_filename}"
+                                    })
+                                else:
+                                    # Fallback
+                                    await ws.send_json({
+                                        "type": "timer_expired",
+                                        "message": timer.message or "Tempo esgotado!",
+                                        "duration_seconds": timer.duration_seconds
+                                    })
+                            logger.info(f"Notificação enviada ao device {device.device_id}")
                         except Exception as e:
-                            logger.error(f"Erro ao enviar aviso de timer para o device {device.device_id}: {e}")
+                            logger.error(f"Erro ao enviar aviso para o device {device.device_id}: {e}")
                             
             if expired_timers:
                 db.commit()
@@ -112,7 +148,7 @@ class SchedulerManager:
                             try:
                                 await ws.send_json({
                                     "type": "play_audio",
-                                    "url": f"/api/audio/{filename}"
+                                    "url": f"http://127.0.0.1:10001/api/audio/{filename}"
                                 })
                                 logger.info(f"Comando de rotina enviado ao device {device.device_id}")
                                 

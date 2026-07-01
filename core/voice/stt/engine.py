@@ -1,89 +1,53 @@
 import os
-import wave
-import json
 import logging
-from vosk import Model, KaldiRecognizer
+from groq import Groq
 
 logger = logging.getLogger("alfredo.stt")
 
 class STTEngine:
     def __init__(self, model_path: str = None):
-        if not model_path:
-            model_path = os.getenv("VOSK_MODEL_PATH")
-            
-        if not model_path:
-            base_dir = os.path.join(os.getcwd(), "core", "voice", "stt", "models")
-            large_path = os.path.join(base_dir, "vosk-model-pt-fb-v0.1.1-20220516_2113")
-            small_path = os.path.join(base_dir, "vosk-model-small-pt-0.3")
-            
-            # O modelo large atual está corrompido, então vamos tentar o small primeiro
-            if os.path.exists(small_path):
-                model_path = small_path
-            else:
-                model_path = large_path
-            
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Modelo VOSK não encontrado em: {model_path}")
-            
-        logger.info(f"Carregando modelo VOSK de: {model_path} ...")
+        # O model_path é mantido na assinatura para retrocompatibilidade, mas não é usado.
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            logger.warning("GROQ_API_KEY não encontrada. A transcrição de voz (Whisper) falhará.")
+        
         try:
-            self.model = Model(model_path)
-            logger.info("Modelo VOSK carregado com sucesso.")
+            self.client = Groq(api_key=api_key)
+            logger.info("Motor STT (Groq Whisper Large V3) inicializado com sucesso.")
         except Exception as e:
-            logger.error(f"Erro ao carregar o modelo VOSK {model_path}: {e}")
-            if model_path == large_path and os.path.exists(small_path):
-                logger.info("Tentando carregar o modelo small como fallback...")
-                self.model = Model(small_path)
-                logger.info("Modelo VOSK small carregado com sucesso.")
-            else:
-                raise
+            logger.error(f"Erro ao inicializar o cliente Groq para STT: {e}")
+            raise
 
     def transcribe_wav(self, audio_filepath: str) -> str:
         """
-        Recebe o caminho de um arquivo WAV e retorna o texto transcrito.
-        O arquivo deve ser mono, 16kHz, 16bit.
+        Recebe o caminho de um arquivo WAV e retorna o texto transcrito usando a API da Groq (Whisper).
         """
-        import audioop
-        import warnings
-        
-        # Ignorar o warning de depreciação do audioop
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=DeprecationWarning)
+        if not os.path.exists(audio_filepath):
+            raise FileNotFoundError(f"Arquivo de áudio não encontrado: {audio_filepath}")
             
-            wf = wave.open(audio_filepath, "rb")
+        logger.info(f"Enviando áudio para Groq Whisper API: {audio_filepath}")
+        try:
+            with open(audio_filepath, "rb") as file:
+                transcription = self.client.audio.transcriptions.create(
+                  file=(os.path.basename(audio_filepath), file.read()),
+                  model="whisper-large-v3",
+                  response_format="text",
+                  language="pt" # Força o português mas ele entende perfeitamente termos em inglês juntos
+                )
             
-            # Validar formato de áudio para o Vosk
-            if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getcomptype() != "NONE":
-                raise ValueError("O arquivo de áudio deve ser WAV mono PCM.")
-                
-            rec = KaldiRecognizer(self.model, wf.getframerate())
-            rec.SetWords(True)
+            # A API retorna o texto diretamente quando response_format="text"
+            final_text = str(transcription).strip().lower()
             
-            # Lê todo o áudio para normalização
-            data_all = wf.readframes(wf.getnframes())
-            if len(data_all) > 0:
-                max_val = audioop.max(data_all, 2)
-                # Normaliza apenas se o volume estiver baixo, mas não zerado
-                if max_val > 0 and max_val < 25000:
-                    factor = 25000.0 / max_val
-                    data_all = audioop.mul(data_all, 2, factor)
-                    logger.info(f"Áudio normalizado automaticamente. Ganho: {factor:.2f}x (Pico original: {max_val})")
+            # Remove pontuações comuns que o Whisper gosta de adicionar (vírgulas, pontos)
+            import string
+            final_text = final_text.translate(str.maketrans('', '', string.punctuation))
             
-            results = []
-            chunk_size = 8000 # 4000 frames * 2 bytes
-            for i in range(0, len(data_all), chunk_size):
-                chunk = data_all[i:i+chunk_size]
-                if rec.AcceptWaveform(chunk):
-                    part_result = json.loads(rec.Result())
-                    results.append(part_result.get("text", ""))
-                    
-            part_result = json.loads(rec.FinalResult())
-            results.append(part_result.get("text", ""))
-
-            # Juntar e limpar texto final
-            final_text = " ".join(results).strip()
-            logger.info(f"Transcrição concluída: '{final_text}'")
+            logger.info(f"Transcrição concluída via Groq Whisper: '{final_text}'")
             return final_text
+            
+        except Exception as e:
+            logger.error(f"Erro na transcrição via Groq Whisper: {e}")
+            return ""
 
 # Singleton opcional para carregar o modelo apenas uma vez durante o tempo de vida do servidor
 _stt_instance = None

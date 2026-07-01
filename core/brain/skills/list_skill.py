@@ -27,8 +27,15 @@ class ListSkill(Skill):
         # Determina o tipo de lista (tarefas é o padrão caso não fale compras)
         list_type = "compras" if "compra" in text_lower else "tarefas"
 
-        # Identifica a ação
-        if "limpe" in text_lower or "apague" in text_lower or "esvazie" in text_lower:
+        # Verifica se é remoção de item específico
+        remove_match = re.search(r'(?:apague|apagar|remova|remover|exclua|excluir|tire|tirar|risque|riscar)\s+(?:o\s+|a\s+|os\s+|as\s+)?(.*?)\s+(?:da|de|na)\s+lista', text_lower)
+        if remove_match:
+            item_name = remove_match.group(1).strip()
+            if item_name and item_name not in ["tudo", "tudo da", "toda a", "tudo de"]:
+                return self._remove_item(db, room_id, list_type, item_name)
+
+        # Identifica a ação geral
+        if "limpe" in text_lower or "apague a lista" in text_lower or "esvazie" in text_lower or "limpar" in text_lower or "apagar tudo" in text_lower:
             return self._clear_list(db, room_id, list_type)
         elif "adicione" in text_lower or "coloque" in text_lower or "anote" in text_lower or "ponha" in text_lower or "inclua" in text_lower or "comprar" in text_lower:
             return self._add_item(db, room_id, list_type, text_lower)
@@ -47,6 +54,24 @@ class ListSkill(Skill):
         db.commit()
         logger.info(f"Lista de {list_type} esvaziada para a sala {room_id}")
         return f"A sua lista de {list_type} foi esvaziada."
+
+    def _remove_item(self, db, room_id, list_type, item_name) -> str:
+        # Busca o item usando ilike para ignorar case e aceitar correspondência parcial
+        item = db.query(models.ListItem).filter(
+            models.ListItem.room_id == room_id,
+            models.ListItem.list_type == list_type,
+            models.ListItem.content.ilike(f"%{item_name}%")
+        ).first()
+        
+        if item:
+            content_name = item.content
+            db.delete(item)
+            db.commit()
+            logger.info(f"Item '{content_name}' removido da lista de {list_type} na sala {room_id}")
+            return f"Pronto, apaguei {content_name} da sua lista de {list_type}."
+        else:
+            return f"Não encontrei {item_name} na sua lista de {list_type}."
+
 
     def _read_list(self, db, room_id, list_type) -> str:
         items = db.query(models.ListItem).filter(

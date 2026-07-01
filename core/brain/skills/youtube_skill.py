@@ -21,16 +21,9 @@ class YouTubeSkill(Skill):
         # Ex: "tocar o video do jovem nerd no youtube" -> "jovem nerd"
         # "coloca a live da cnn" -> "cnn"
         
-        # Verifica se quer o "último vídeo" para mudar o tipo de busca
-        is_latest = False
-        if "último vídeo" in text_lower or "ultimo video" in text_lower or "último" in text_lower or "ultimo" in text_lower:
-            is_latest = True
-            
         remove_words = [
             "reproduza", "reproduzir", "tocar", "toque", "coloque", "coloca", "rola", "rolar",
-            "o último vídeo", "o ultimo video", "último vídeo", "ultimo video",
-            "o vídeo", "o video", "um vídeo", "um video", "vídeo", "video",
-            "a live", "live", "do canal", "canal", "do", "da", "de", "no", "youtube"
+            "abrir", "canal", "ao vivo", "no youtube", "na twitch"
         ]
         
         query = text_lower
@@ -54,18 +47,97 @@ class YouTubeSkill(Skill):
         }
         
         try:
+            # Se o usuário pediu explicitamente "ao vivo", usamos a API interna do YouTube para garantir o filtro de Live
+            if "ao vivo" in text_lower:
+                import requests
+                url = "https://www.youtube.com/youtubei/v1/search"
+                payload = {
+                    "context": {
+                        "client": {
+                            "clientName": "WEB",
+                            "clientVersion": "2.20210721.00.00"
+                        }
+                    },
+                    "query": query,
+                    "params": "EgJAAQ==" # Filtro exclusivo para transmissões "Ao Vivo"
+                }
+                
+                try:
+                    response = requests.post(url, json=payload, timeout=5)
+                    data = response.json()
+                    
+                    import unicodedata
+                    
+                    def normalize_text(s):
+                        if not s: return ""
+                        # Remove acentos e espaços para comparação exata (ex: caze tv -> cazetv)
+                        s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+                        return s.replace(" ", "").lower()
+                    
+                    candidates = []
+                    contents = data.get('contents', {}).get('twoColumnSearchResultsRenderer', {}).get('primaryContents', {}).get('sectionListRenderer', {}).get('contents', [])
+                    for content in contents:
+                        items = content.get('itemSectionRenderer', {}).get('contents', [])
+                        for item in items:
+                            video = item.get('videoRenderer', {})
+                            if video:
+                                v_id = video.get('videoId')
+                                title = video.get('title', {}).get('runs', [{}])[0].get('text', '').lower()
+                                uploader = video.get('ownerText', {}).get('runs', [{}])[0].get('text', '').lower()
+                                if v_id:
+                                    candidates.append({"id": v_id, "title": title, "uploader": uploader})
+                    
+                    video_id = None
+                    if candidates:
+                        norm_query = normalize_text(query)
+                        best_match = None
+                        best_score = -1
+                        
+                        for c in candidates:
+                            score = 0
+                            norm_uploader = normalize_text(c['uploader'])
+                            norm_title = normalize_text(c['title'])
+                            
+                            # Se o nome do canal bate perfeitamente
+                            if norm_query and norm_query in norm_uploader:
+                                score += 100
+                            # Se o título contém o nome buscado
+                            if norm_query and norm_query in norm_title:
+                                score += 20
+                                
+                            if score > best_score:
+                                best_score = score
+                                best_match = c
+                                
+                        # Se achou uma pontuação alta (indicando que é o canal certo)
+                        if best_match and best_score > 0:
+                            video_id = best_match["id"]
+                        else:
+                            # Se não deu match forte, não abre nada para não abrir canal errado
+                            video_id = None
+                            
+                    if not video_id:
+                        return "Não encontrei nenhuma transmissão ao vivo acontecendo neste momento para esse canal."
+                        
+                    search_url = f"https://www.youtube.com/watch?v={video_id}"
+                except Exception as req_err:
+                    logger.error(f"Erro ao buscar live na API do YouTube: {req_err}")
+                    return "Ocorreu um erro ao buscar transmissões ao vivo."
+            else:
+                # Busca normal para vídeos gravados
+                search_url = f"ytsearch1:{query}"
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                search_prefix = "ytsearchdate1:" if is_latest else "ytsearch1:"
-                info = ydl.extract_info(f"{search_prefix}{query}", download=False)
+                info = ydl.extract_info(search_url, download=False)
                 
                 if 'entries' in info and len(info['entries']) > 0:
                     entry = info['entries'][0]
+                else:
+                    entry = info # Caso tenha sido URL direta (live), o dicionário já é o próprio vídeo
+                    
+                if entry:
                     title = entry.get('title', 'Vídeo Desconhecido')
                     stream_url = entry.get('url')
-                    
-                    if not stream_url:
-                        return f"Encontrei '{title}', mas não consegui extrair o link do áudio."
-                    
                     # Envia para a fila do WebSocket para a placa tocar
                     if "ws_tasks" in context and "device_id" in context:
                         context["ws_tasks"].append({

@@ -3,10 +3,10 @@ import zipfile
 import os
 import sys
 
-URL = "https://alphacephei.com/vosk/models/vosk-model-pt-fb-v0.1.1-20220516_2113.zip"
-ZIP_PATH = "vosk-large.zip"
+URL = "https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip"
+ZIP_PATH = "vosk-small.zip"
 EXTRACT_DIR = os.path.join("core", "voice", "stt", "models")
-MODEL_DIR = os.path.join(EXTRACT_DIR, "vosk-model-pt-fb-v0.1.1-20220516_2113")
+MODEL_DIR = os.path.join(EXTRACT_DIR, "vosk-model-small-pt-0.3")
 
 def download_model():
     print(f"Limpando resquícios do modelo corrompido...")

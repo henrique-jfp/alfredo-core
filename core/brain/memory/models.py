@@ -64,6 +64,7 @@ class Timer(Base):
     duration_seconds = Column(Integer, nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
     message = Column(String, nullable=True)
+    timer_type = Column(String, default="timer")
     is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

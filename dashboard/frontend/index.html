@@ -216,6 +216,32 @@
                     
                     <section class="glass-panel" style="grid-column: span 1;">
                         <div class="section-header">
+                            <h2>🗣️ Assistente (Nome e Voz)</h2>
+                        </div>
+                        <div class="routine-form">
+                            <div class="form-group">
+                                <label>Nome de Ativação (Wake Word)</label>
+                                <input type="text" id="set-assistant-name" class="glass-input" placeholder="Ex: Alfredo" value="alfredo">
+                            </div>
+                            
+                            <div class="form-group" style="margin-top: 15px;">
+                                <label>Voz do Assistente</label>
+                                <select id="set-assistant-voice" class="glass-input">
+                                    <option value="pt_BR-cadu-medium">Cadu (Masculino BR)</option>
+                                    <option value="pt_BR-edresson-low">Edresson (Masculino BR - Leve)</option>
+                                    <option value="pt_BR-faber-medium" selected>Faber (Masculino BR - Suave)</option>
+                                    <option value="pt_BR-jeff-medium">Jeff (Masculino BR - Grave)</option>
+                                    <option value="pt_PT-tugão-medium">Tugão (Masculino PT-PT)</option>
+                                </select>
+                            </div>
+                            
+                            <button id="btn-test-voice" class="glass-btn full-width" style="margin-top: 10px;">▶ Ouvir Prévia</button>
+                            <audio id="audio-preview" style="display: none;"></audio>
+                        </div>
+                    </section>
+                    
+                    <section class="glass-panel" style="grid-column: span 1;">
+                        <div class="section-header">
                             <h2>🔑 APIs e Conteúdo</h2>
                         </div>
                         <div class="routine-form">
