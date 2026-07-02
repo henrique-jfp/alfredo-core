@@ -79,6 +79,31 @@ def get_lists(db: Session = Depends(get_db)):
         "tarefas": tarefas
     }
 
+@router.get("/timers")
+def get_timers(db: Session = Depends(get_db)):
+    """Retorna todos os timers e lembretes ativos."""
+    timers = db.query(models.Timer).filter(models.Timer.is_active == True).order_by(models.Timer.expires_at.asc()).all()
+    
+    return [
+        {
+            "id": t.id,
+            "room_id": t.room_id,
+            "duration_seconds": t.duration_seconds,
+            "expires_at": t.expires_at.isoformat() if t.expires_at else None,
+            "message": t.message,
+            "timer_type": t.timer_type
+        } for t in timers
+    ]
+
+@router.delete("/timers/{timer_id}")
+def delete_timer(timer_id: int, db: Session = Depends(get_db)):
+    """Exclui ou cancela um timer ativo."""
+    timer = db.query(models.Timer).filter(models.Timer.id == timer_id).first()
+    if timer:
+        db.delete(timer)
+        db.commit()
+    return {"status": "success"}
+
 class SpotifyCredentials(BaseModel):
     client_id: str
     client_secret: str
@@ -234,7 +259,7 @@ class VoiceTestPayload(BaseModel):
     voice_name: str
 
 @router.post("/tts/test")
-def test_tts(payload: VoiceTestPayload):
+async def test_tts(payload: VoiceTestPayload):
     """Testa uma voz específica e retorna o áudio."""
     from core.voice.tts.engine import get_tts_engine
     
@@ -243,10 +268,68 @@ def test_tts(payload: VoiceTestPayload):
     output_filepath = os.path.join(temp_dir, f"test_{int(time.time())}.wav")
     
     try:
-        # A TTSEngine foi atualizada para aceitar troca de voz dinâmica
+        # A TTSEngine foi atualizada para aceitar troca de voz dinâmica via nuvem
         tts = get_tts_engine()
         tts.reload_voice(payload.voice_name)
-        tts.synthesize_wav("Olá, eu sou o seu assistente. Como posso ajudar hoje?", output_filepath)
+        await tts.synthesize_wav("Olá, eu sou o seu assistente. Como posso ajudar hoje?", output_filepath)
         return FileResponse(output_filepath, media_type="audio/wav")
     except Exception as e:
         return {"error": str(e)}
+
+# --- ENDEREÇOS SALVOS ---
+
+class LocationCreate(BaseModel):
+    name: str
+    latitude: str
+    longitude: str
+    icon: str = "pin"
+
+@router.get("/locations")
+def get_locations(db: Session = Depends(get_db)):
+    """Retorna todos os endereços salvos."""
+    locations = db.query(models.SavedLocation).order_by(models.SavedLocation.created_at.desc()).all()
+    return [
+        {
+            "id": loc.id,
+            "name": loc.name,
+            "latitude": loc.latitude,
+            "longitude": loc.longitude,
+            "icon": loc.icon,
+            "created_at": loc.created_at.isoformat() if loc.created_at else None
+        } for loc in locations
+    ]
+
+@router.post("/locations")
+def create_location(payload: LocationCreate, db: Session = Depends(get_db)):
+    """Cria um novo endereço salvo."""
+    new_loc = models.SavedLocation(
+        name=payload.name,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        icon=payload.icon
+    )
+    db.add(new_loc)
+    db.commit()
+    db.refresh(new_loc)
+    return {"status": "success", "id": new_loc.id}
+
+@router.delete("/locations/{location_id}")
+def delete_location(location_id: int, db: Session = Depends(get_db)):
+    """Exclui um endereço salvo."""
+    loc = db.query(models.SavedLocation).filter(models.SavedLocation.id == location_id).first()
+    if loc:
+        db.delete(loc)
+        db.commit()
+    return {"status": "success"}
+
+# --- TOGGLE ROTINA ---
+
+@router.patch("/routines/{routine_id}/toggle")
+def toggle_routine(routine_id: int, db: Session = Depends(get_db)):
+    """Ativa/desativa uma rotina."""
+    routine = db.query(models.Routine).filter(models.Routine.id == routine_id).first()
+    if not routine:
+        return {"error": "Routine not found"}
+    routine.is_active = not routine.is_active
+    db.commit()
+    return {"status": "success", "is_active": routine.is_active}

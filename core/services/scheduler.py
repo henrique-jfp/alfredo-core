@@ -52,7 +52,7 @@ class SchedulerManager:
                 if timer.timer_type == "timer":
                     text_to_speak = "Com licença, o seu cronômetro foi finalizado."
                     if timer.message:
-                        text_to_speak = f"Com licença, estou passando para lembrar de: {timer.message}."
+                        text_to_speak = f"Com licença! O seu timer '{timer.message}' finalizou!"
                     
                     tts_filename = f"timer_{timer.id}_{int(time.time())}.wav"
                     temp_dir = os.path.join(os.getcwd(), "tmp")
@@ -63,9 +63,9 @@ class SchedulerManager:
                         tts_engine = get_tts_engine()
                         # Usa a voz configurada no banco se houver
                         voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
-                        chosen_voice = voice_setting.value if voice_setting else "pt_BR-faber-medium"
+                        chosen_voice = voice_setting.value if voice_setting else "pt-BR-FranciscaNeural"
                         tts_engine.reload_voice(chosen_voice)
-                        tts_engine.synthesize_wav(text_to_speak, output_filepath)
+                        await tts_engine.synthesize_wav(text_to_speak, output_filepath)
                     except Exception as e:
                         logger.error(f"Erro ao gerar áudio do cronômetro: {e}")
                         tts_filename = None
@@ -137,7 +137,7 @@ class SchedulerManager:
                     output_filepath = os.path.join(temp_dir, filename)
                     
                     tts_engine = get_tts_engine()
-                    tts_engine.synthesize_wav(response_text, output_filepath)
+                    await tts_engine.synthesize_wav(response_text, output_filepath)
                     
                     devices = db.query(models.Device).filter(models.Device.room_id == routine.room_id).all()
                     active_connections = self.get_active_connections_cb()

@@ -3,116 +3,160 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alfredo Home OS - Painel de Controle</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;800&display=swap" rel="stylesheet">
+    <title>Alfredo Home OS — Painel de Controle</title>
+    <meta name="description" content="Dashboard de controle do assistente doméstico inteligente Alfredo Home OS.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
+    <!-- Animated Background -->
     <div class="bg-shape shape-1"></div>
     <div class="bg-shape shape-2"></div>
     <div class="bg-shape shape-3"></div>
-    
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
     <div class="dashboard-container">
-        <!-- Barra Lateral -->
+        <!-- Sidebar -->
         <aside class="sidebar glass-panel">
             <div class="logo">
                 <div class="logo-circle">A</div>
                 <h2>Alfredo OS</h2>
             </div>
             <nav class="menu">
-                <a href="#" class="menu-item active" data-tab="visao-geral">Visão Geral</a>
-                <a href="#" class="menu-item" data-tab="integracoes">Integrações</a>
-                <a href="#" class="menu-item" data-tab="rotinas">Rotinas</a>
-                <a href="#" class="menu-item disabled">Satélites</a>
-                <a href="#" class="menu-item disabled">Inteligência</a>
-                <a href="#" class="menu-item" data-tab="configuracoes">Configurações</a>
+                <a href="#" class="menu-item active" data-tab="visao-geral">
+                    <span class="menu-icon">📊</span> Visão Geral
+                </a>
+                <a href="#" class="menu-item" data-tab="integracoes">
+                    <span class="menu-icon">🔗</span> Integrações
+                </a>
+                <a href="#" class="menu-item" data-tab="rotinas">
+                    <span class="menu-icon">⏰</span> Rotinas
+                </a>
+                <a href="#" class="menu-item disabled">
+                    <span class="menu-icon">📡</span> Satélites
+                </a>
+                <a href="#" class="menu-item disabled">
+                    <span class="menu-icon">🧠</span> Inteligência
+                </a>
+                <a href="#" class="menu-item" data-tab="configuracoes">
+                    <span class="menu-icon">⚙️</span> Configurações
+                </a>
             </nav>
             <div class="sidebar-footer">
-                <p>Versão 1.0.0</p>
+                <p>Alfredo Home OS v2.0</p>
             </div>
         </aside>
 
-        <!-- Área Principal -->
+        <!-- Main Content -->
         <main class="main-content">
             
-            <!-- Visão Geral Tab -->
+            <!-- ============================
+                 VISÃO GERAL TAB
+                 ============================ -->
             <div id="tab-visao-geral" class="tab-content">
                 <header class="topbar">
-                <div>
-                    <h1>Visão Geral</h1>
-                    <p class="subtitle">Bem-vindo ao centro de controle da sua casa.</p>
-                </div>
-                <div class="status-indicator">
-                    <span class="pulse-dot"></span>
-                    <span>Sistema Online</span>
-                </div>
-            </header>
-
-            <!-- Cards de KPI -->
-            <section class="kpi-grid">
-                <div class="kpi-card glass-panel">
-                    <div class="kpi-title">Total de Conversas</div>
-                    <div class="kpi-value" id="kpi-interactions">-</div>
-                </div>
-                <div class="kpi-card glass-panel">
-                    <div class="kpi-title">Timers Ativos</div>
-                    <div class="kpi-value" id="kpi-timers">-</div>
-                </div>
-                <div class="kpi-card glass-panel">
-                    <div class="kpi-title">Satélites Conectados</div>
-                    <div class="kpi-value" id="kpi-devices">-</div>
-                </div>
-                <div class="kpi-card glass-panel">
-                    <div class="kpi-title">Tokens de IA Consumidos</div>
-                    <div class="kpi-value" id="kpi-tokens">-</div>
-                </div>
-            </section>
-
-            <!-- Sessão Inferior: Histórico e Listas -->
-            <div class="content-grid">
-                
-                <!-- Histórico -->
-                <section class="history-section glass-panel flex-col">
-                    <div class="section-header">
-                        <h2>Logs de Conversas</h2>
-                        <button id="refresh-btn" class="glass-btn">Atualizar</button>
+                    <div>
+                        <h1>Visão Geral</h1>
+                        <p class="subtitle">Centro de controle da sua casa inteligente.</p>
                     </div>
-                    <div id="history-container" class="history-list">
-                        <div class="loading">Carregando histórico...</div>
-                        <!-- Itens injetados via JS -->
+                    <div class="status-indicator">
+                        <span class="pulse-dot"></span>
+                        <span>Sistema Online</span>
+                    </div>
+                </header>
+
+                <!-- KPI Cards -->
+                <section class="kpi-grid">
+                    <div class="kpi-card glass-panel" id="kpi-card-conversations">
+                        <div class="kpi-icon icon-conversations">💬</div>
+                        <div class="kpi-info">
+                            <div class="kpi-title">Conversas</div>
+                            <div class="kpi-value" id="kpi-interactions">—</div>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass-panel" id="kpi-card-timers">
+                        <div class="kpi-icon icon-timers">⏱️</div>
+                        <div class="kpi-info">
+                            <div class="kpi-title">Timers Ativos</div>
+                            <div class="kpi-value" id="kpi-timers">—</div>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass-panel" id="kpi-card-devices">
+                        <div class="kpi-icon icon-devices">📡</div>
+                        <div class="kpi-info">
+                            <div class="kpi-title">Satélites</div>
+                            <div class="kpi-value" id="kpi-devices">—</div>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass-panel" id="kpi-card-tokens">
+                        <div class="kpi-icon icon-tokens">🤖</div>
+                        <div class="kpi-info">
+                            <div class="kpi-title">Tokens IA</div>
+                            <div class="kpi-value" id="kpi-tokens">—</div>
+                        </div>
                     </div>
                 </section>
 
-                <!-- Listas -->
-                <section class="lists-column">
-                    <div class="list-card glass-panel">
-                        <div class="section-header">
-                            <h2>🛒 Compras</h2>
+                <!-- Conversation Logs + Lists -->
+                <div class="content-grid">
+                    <section class="history-section glass-panel flex-col">
+                        <div class="section-header" style="flex-wrap: wrap; gap: 12px;">
+                            <h2>💬 Conversas Recentes</h2>
+                            <div style="flex: 1; min-width: 200px; display: flex; gap: 8px;">
+                                <input type="text" id="virtual-mic-input" class="glass-input" placeholder="Digite um comando para o Alfredo testar..." style="flex: 1;">
+                                <button id="btn-virtual-mic" class="glass-btn primary-btn">Enviar</button>
+                            </div>
+                            <button id="refresh-btn" class="glass-btn">↻ Atualizar</button>
                         </div>
-                        <ul id="shopping-list" class="items-list">
-                            <li class="empty-list">Nenhum item adicionado.</li>
-                        </ul>
-                    </div>
-                    
-                    <div class="list-card glass-panel mt-4">
-                        <div class="section-header">
-                            <h2>✅ Tarefas</h2>
+                        <div id="virtual-mic-audio-container" style="display: none;">
+                            <audio id="virtual-mic-player" controls autoplay style="width: 100%; height: 30px; margin-bottom: 10px;"></audio>
                         </div>
-                        <ul id="todo-list" class="items-list">
-                            <li class="empty-list">Nenhuma tarefa pendente.</li>
-                        </ul>
-                    </div>
-                </section>
+                        <div id="history-container" class="history-list">
+                            <div class="loading">Carregando histórico...</div>
+                        </div>
+                    </section>
 
+                    <div class="lists-column">
+                        <div class="list-card glass-panel">
+                            <div class="section-header">
+                                <h2>🛒 Compras</h2>
+                            </div>
+                            <ul id="shopping-list" class="items-list">
+                                <li class="empty-list">Nenhum item adicionado.</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="list-card glass-panel">
+                            <div class="section-header">
+                                <h2>✅ Tarefas</h2>
+                            </div>
+                            <ul id="todo-list" class="items-list">
+                                <li class="empty-list">Nenhuma tarefa pendente.</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="list-card glass-panel">
+                            <div class="section-header">
+                                <h2>⏰ Lembretes Ativos</h2>
+                            </div>
+                            <ul id="timers-list" class="items-list timers-list-ui">
+                                <li class="empty-list">Nenhum lembrete ativo.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
             </div>
-            </div> <!-- Fim Visão Geral -->
-            
-            <!-- Integrações Tab -->
+
+            <!-- ============================
+                 INTEGRAÇÕES TAB
+                 ============================ -->
             <div id="tab-integracoes" class="tab-content" style="display: none;">
                 <header class="topbar">
                     <div>
-                        <h1>Integrações e Apps</h1>
+                        <h1>Integrações</h1>
                         <p class="subtitle">Conecte serviços externos para expandir os poderes do Alfredo.</p>
                     </div>
                 </header>
@@ -121,16 +165,20 @@
                     <div class="integration-card glass-panel" id="card-spotify">
                         <div class="integration-header">
                             <div class="integration-icon spotify-icon">🎵</div>
-                            <h2>Spotify</h2>
+                            <div>
+                                <h2>Spotify</h2>
+                            </div>
                             <span class="status-badge" id="spotify-status-badge">Carregando...</span>
                         </div>
-                        <p class="integration-desc">Controle suas músicas, playlists e alto-falantes pela voz em toda a casa.</p>
+                        <p class="integration-desc">Controle músicas, playlists e alto-falantes pela voz em toda a casa.</p>
                         <button class="glass-btn primary-btn" id="btn-connect-spotify">Configurar</button>
                     </div>
                 </div>
             </div>
-            
-            <!-- Rotinas Tab -->
+
+            <!-- ============================
+                 ROTINAS TAB
+                 ============================ -->
             <div id="tab-rotinas" class="tab-content" style="display: none;">
                 <header class="topbar">
                     <div>
@@ -140,18 +188,18 @@
                 </header>
                 
                 <div class="content-grid">
-                    <section class="history-section glass-panel flex-col">
+                    <section class="glass-panel flex-col" style="padding: 22px;">
                         <div class="section-header">
-                            <h2>Minhas Rotinas</h2>
+                            <h2>⏰ Minhas Rotinas</h2>
                         </div>
                         <div id="routines-list" class="routines-list">
                             <div class="loading">Carregando rotinas...</div>
                         </div>
                     </section>
                     
-                    <section class="glass-panel">
+                    <section class="glass-panel" style="padding: 22px;">
                         <div class="section-header">
-                            <h2>Nova Rotina</h2>
+                            <h2>➕ Nova Rotina</h2>
                         </div>
                         <div class="routine-form">
                             <div class="form-group">
@@ -159,15 +207,20 @@
                                 <input type="text" id="rt-name" class="glass-input" placeholder="Ex: Bom dia">
                             </div>
                             <div class="form-group">
-                                <label>Quando (Horário HH:MM)</label>
+                                <label>Horário (HH:MM)</label>
                                 <input type="time" id="rt-time" class="glass-input">
                             </div>
                             <div class="form-group">
-                                <label>Sala (Room ID)</label>
-                                <input type="text" id="rt-room" class="glass-input" placeholder="Ex: ROOM_LIVING" value="ROOM_LIVING">
+                                <label>Sala</label>
+                                <select id="rt-room" class="glass-input">
+                                    <option value="ROOM_LIVING">Sala de Estar</option>
+                                    <option value="ROOM_BEDROOM">Quarto</option>
+                                    <option value="ROOM_KITCHEN">Cozinha</option>
+                                    <option value="ROOM_OFFICE">Escritório</option>
+                                </select>
                             </div>
                             <div class="form-group">
-                                <label>Ação (Comando Simulado)</label>
+                                <label>Comando Simulado</label>
                                 <input type="text" id="rt-action" class="glass-input" placeholder="Ex: como está o clima">
                             </div>
                             <button id="btn-save-routine" class="glass-btn primary-btn full-width">Salvar Rotina</button>
@@ -175,56 +228,35 @@
                     </section>
                 </div>
             </div>
-            
-            <!-- Configurações Tab -->
+
+            <!-- ============================
+                 CONFIGURAÇÕES TAB
+                 ============================ -->
             <div id="tab-configuracoes" class="tab-content" style="display: none;">
                 <header class="topbar">
                     <div>
-                        <h1>Configurações do Sistema</h1>
-                        <p class="subtitle">Ajuste os parâmetros globais de localização e chaves de API.</p>
+                        <h1>Configurações</h1>
+                        <p class="subtitle">Ajuste parâmetros globais, endereços e chaves de API.</p>
                     </div>
                 </header>
                 
-                <div class="content-grid">
-                    <section class="glass-panel" style="grid-column: span 1;">
-                        <div class="section-header">
-                            <h2>📍 Localização (Trânsito e Clima)</h2>
-                        </div>
-                        <div class="routine-form">
-                            <div class="form-group">
-                                <label>Cidade Atual (Para Clima)</label>
-                                <input type="text" id="set-city" class="glass-input" placeholder="Ex: São Paulo">
-                            </div>
-                            <div class="form-group">
-                                <label>Casa - Latitude</label>
-                                <input type="text" id="set-home-lat" class="glass-input" placeholder="-23.550520">
-                            </div>
-                            <div class="form-group">
-                                <label>Casa - Longitude</label>
-                                <input type="text" id="set-home-lon" class="glass-input" placeholder="-46.633308">
-                            </div>
-                            <div class="form-group">
-                                <label>Trabalho - Latitude</label>
-                                <input type="text" id="set-work-lat" class="glass-input" placeholder="-23.561684">
-                            </div>
-                            <div class="form-group">
-                                <label>Trabalho - Longitude</label>
-                                <input type="text" id="set-work-lon" class="glass-input" placeholder="-46.655981">
-                            </div>
-                        </div>
-                    </section>
+                <div class="settings-grid">
                     
-                    <section class="glass-panel" style="grid-column: span 1;">
-                        <div class="section-header">
-                            <h2>🗣️ Assistente (Nome e Voz)</h2>
+                    <!-- Assistente (Nome e Voz) -->
+                    <div class="settings-card glass-panel">
+                        <div class="settings-card-header">
+                            <div class="settings-icon" style="background: rgba(99, 102, 241, 0.12); color: var(--accent-indigo);">🗣️</div>
+                            <div>
+                                <h2>Assistente</h2>
+                                <p>Nome de ativação e voz</p>
+                            </div>
                         </div>
                         <div class="routine-form">
                             <div class="form-group">
-                                <label>Nome de Ativação (Wake Word)</label>
+                                <label>Nome (Wake Word)</label>
                                 <input type="text" id="set-assistant-name" class="glass-input" placeholder="Ex: Alfredo" value="alfredo">
                             </div>
-                            
-                            <div class="form-group" style="margin-top: 15px;">
+                            <div class="form-group">
                                 <label>Voz do Assistente</label>
                                 <select id="set-assistant-voice" class="glass-input">
                                     <option value="pt_BR-cadu-medium">Cadu (Masculino BR)</option>
@@ -234,44 +266,93 @@
                                     <option value="pt_PT-tugão-medium">Tugão (Masculino PT-PT)</option>
                                 </select>
                             </div>
-                            
-                            <button id="btn-test-voice" class="glass-btn full-width" style="margin-top: 10px;">▶ Ouvir Prévia</button>
+                            <div class="voice-preview-section">
+                                <button id="btn-test-voice" class="glass-btn full-width">▶ Ouvir Prévia</button>
+                            </div>
                             <audio id="audio-preview" style="display: none;"></audio>
                         </div>
-                    </section>
-                    
-                    <section class="glass-panel" style="grid-column: span 1;">
-                        <div class="section-header">
-                            <h2>🔑 APIs e Conteúdo</h2>
+                    </div>
+
+                    <!-- APIs e Conteúdo -->
+                    <div class="settings-card glass-panel">
+                        <div class="settings-card-header">
+                            <div class="settings-icon" style="background: rgba(245, 158, 11, 0.12); color: var(--accent-amber);">🔑</div>
+                            <div>
+                                <h2>APIs e Conteúdo</h2>
+                                <p>Chaves externas e feeds</p>
+                            </div>
                         </div>
                         <div class="routine-form">
                             <div class="form-group">
-                                <label>Chave API do Google Maps (Opcional)</label>
+                                <label>Chave API Google Maps</label>
                                 <input type="password" id="set-gmaps-key" class="glass-input" placeholder="AIzaSy...">
-                                <small style="color: var(--text-secondary); display: block; margin-top: 5px;">Se deixado em branco, o sistema usará o OSRM (Gratuito).</small>
+                                <span class="input-hint">Opcional. Se vazio, usa OSRM (gratuito).</span>
                             </div>
-                            <div class="form-group" style="margin-top: 15px;">
-                                <label>URL do Feed RSS de Notícias</label>
+                            <div class="form-group">
+                                <label>URL Feed RSS de Notícias</label>
                                 <input type="text" id="set-news-rss" class="glass-input" placeholder="https://g1.globo.com/rss/g1/">
-                                <small style="color: var(--text-secondary); display: block; margin-top: 5px;">Padrão: G1 Globo.</small>
+                                <span class="input-hint">Padrão: G1 Globo.</span>
                             </div>
-                            
-                            <button id="btn-save-settings" class="glass-btn primary-btn full-width" style="margin-top: 20px;">Salvar Configurações</button>
+                            <div class="form-group">
+                                <label>Cidade (Para Clima)</label>
+                                <input type="text" id="set-city" class="glass-input" placeholder="Ex: Rio de Janeiro">
+                            </div>
+                            <button id="btn-save-settings" class="glass-btn primary-btn full-width" style="margin-top: 8px;">Salvar Configurações</button>
                         </div>
-                    </section>
+                    </div>
+
+                    <!-- Endereços Salvos (FULL SPAN) -->
+                    <div class="settings-card glass-panel full-span">
+                        <div class="settings-card-header">
+                            <div class="settings-icon" style="background: rgba(20, 184, 166, 0.12); color: var(--accent-teal);">📍</div>
+                            <div>
+                                <h2>Meus Endereços</h2>
+                                <p>Localizações salvas para trânsito e clima</p>
+                            </div>
+                        </div>
+                        
+                        <div id="locations-list" class="locations-list">
+                            <div class="loading">Carregando endereços...</div>
+                        </div>
+
+                        <button id="btn-add-location" class="glass-btn full-width" style="margin-bottom: 12px;">
+                            ＋ Adicionar Endereço
+                        </button>
+                        
+                        <div id="add-location-form" class="add-location-form">
+                            <div class="form-group" style="margin-bottom: 8px;">
+                                <label>Nome do Endereço</label>
+                                <input type="text" id="loc-name" class="glass-input" placeholder="Ex: Casa, Trabalho, Estádio...">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group" style="margin-bottom: 8px;">
+                                    <label>Latitude</label>
+                                    <input type="text" id="loc-lat" class="glass-input" placeholder="-22.9738">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 8px;">
+                                    <label>Longitude</label>
+                                    <input type="text" id="loc-lon" class="glass-input" placeholder="-43.1868">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <button id="btn-cancel-location" class="glass-btn full-width">Cancelar</button>
+                                <button id="btn-save-location" class="glass-btn primary-btn full-width">Salvar</button>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
             
         </main>
     </div>
     
-    <!-- Modal de Configuração do Spotify -->
+    <!-- Spotify Modal -->
     <div id="spotify-modal" class="modal-overlay" style="display: none;">
         <div class="modal-content glass-panel">
             <button class="close-btn" id="close-spotify-modal">&times;</button>
             <h2>Conectar Spotify</h2>
             
-            <!-- Passo 1: Formulário de Chaves -->
             <div id="spotify-step-1">
                 <p class="modal-desc">Crie um app no <a href="https://developer.spotify.com/dashboard" target="_blank">Dashboard do Spotify</a>, coloque o Redirect URI apontando para <strong>http://<span id="local-ip-hint">IP</span>:10001/api/spotify/callback</strong> e cole as chaves abaixo.</p>
                 
@@ -279,16 +360,13 @@
                     <label>Client ID</label>
                     <input type="text" id="spotify-client-id" class="glass-input" placeholder="Cole o Client ID">
                 </div>
-                
                 <div class="form-group">
                     <label>Client Secret</label>
                     <input type="password" id="spotify-client-secret" class="glass-input" placeholder="Cole o Client Secret">
                 </div>
-                
                 <button class="glass-btn primary-btn full-width" id="btn-save-spotify">Salvar e Gerar QR Code</button>
             </div>
             
-            <!-- Passo 2: QR Code -->
             <div id="spotify-step-2" style="display: none; text-align: center;">
                 <p class="modal-desc">Aponte a câmera do seu celular para autenticar com a sua conta.</p>
                 <div id="spotify-qrcode" class="qrcode-container"></div>

@@ -1,6 +1,7 @@
 import re
 import logging
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Dict, Any
 from core.brain.skills.base import Skill
 from core.brain.memory import models
@@ -28,16 +29,21 @@ class TimerSkill(Skill):
         }
         
         # 1. Tentar capturar horas absolutas (ex: "alarme para as 8 horas")
-        is_alarm_intent = "alarme" in text_lower or "acorde" in text_lower or "desperte" in text_lower or "às" in text_lower
+        is_alarm_intent = "alarme" in text_lower or "acorde" in text_lower or "desperte" in text_lower or "às" in text_lower or "as" in text_lower
         if is_alarm_intent:
-            match = re.search(r'(?:às|as|para as)\s+(\d+)(?:\s*horas?|h)?', text_lower)
+            match = re.search(r'(?:às|as|para as)\s+(\d+)(?:\s*horas?|h|da manhã|da tarde|da noite)?', text_lower)
             if match:
                 target_hour = int(match.group(1))
-                now = datetime.now()
+                if "tarde" in text_lower or "noite" in text_lower:
+                    if target_hour < 12:
+                        target_hour += 12
+                        
+                tz = ZoneInfo("America/Sao_Paulo")
+                now = datetime.now(tz)
                 target_time = now.replace(hour=target_hour, minute=0, second=0, microsecond=0)
                 
-                # Se o horário já passou hoje, agenda para amanhã
-                if target_time <= now:
+                # Se tem 'amanhã' ou se o horário já passou hoje
+                if "amanhã" in text_lower or "amanha" in text_lower or target_time <= now:
                     target_time += timedelta(days=1)
                     
                 duration_seconds = int((target_time - now).total_seconds())
@@ -69,7 +75,7 @@ class TimerSkill(Skill):
     def _extract_message(self, text: str) -> str:
         """Extrai a mensagem do lembrete, se houver."""
         text_lower = text.lower()
-        match = re.search(r'(?:lembra de|lembre de|lembrar de|lembrete de)\s+(.*?)(?:\s+(?:daqui a|em|às|as|para as)\b|$)', text_lower)
+        match = re.search(r'(?:lembra de|lembre de|lembrar de|lembrete de)\s+(.*?)(?:\s+(?:daqui a|em|às|as|para as|amanhã|amanha)\b|$)', text_lower)
         if match:
             return match.group(1).strip()
         return None
@@ -82,6 +88,16 @@ class TimerSkill(Skill):
         if not db or not room_id:
             logger.error("Contexto sem DB ou room_id na TimerSkill")
             return "Desculpe, não consegui acessar o banco de dados para criar o temporizador."
+            
+        if "quais" in text_lower and "lembrete" in text_lower:
+            timers = db.query(models.Timer).filter(models.Timer.is_active == True, models.Timer.room_id == room_id).all()
+            if not timers:
+                return "Você não tem nenhum lembrete ou alarme ativo."
+            
+            resp = []
+            for t in timers:
+                resp.append(f"um {'alarme' if t.timer_type == 'alarm' else 'lembrete'} para {t.message or 'avisar o tempo'}")
+            return "Você tem " + ", ".join(resp) + "."
             
         duration_seconds = self._extract_duration_or_absolute(text)
         
@@ -124,7 +140,7 @@ class TimerSkill(Skill):
         if reminder_msg:
             return f"Combinado! Vou te lembrar de {reminder_msg}."
         elif is_alarm:
-            target_dt = datetime.now() + timedelta(seconds=duration_seconds)
+            target_dt = datetime.now(ZoneInfo("America/Sao_Paulo")) + timedelta(seconds=duration_seconds + 5)
             return f"Entendido, alarme configurado para às {target_dt.hour} horas."
         else:
             # Formata o tempo para a resposta falada
@@ -137,4 +153,74 @@ class TimerSkill(Skill):
                 hrs = duration_seconds // 3600
                 time_str = f"{hrs} hora{'s' if hrs > 1 else ''}"
                 
+                
             return f"Entendido, cronômetro de {time_str} iniciado."
+
+    def execute_tool(self, kwargs: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+        db = context.get("db")
+        room_id = context.get("room_id")
+        action = kwargs.get("action")
+        
+        if not db or not room_id:
+            return {"error": "Sem contexto de banco ou sala"}
+            
+        if action == "list":
+            timers = db.query(models.Timer).filter(models.Timer.is_active == True, models.Timer.room_id == room_id).all()
+            if not timers:
+                return {"message": "Nenhum timer ativo"}
+            return {"active_timers": [{"id": t.id, "type": t.timer_type, "message": t.message, "expires_in_seconds": (t.expires_at - datetime.now(timezone.utc)).total_seconds()} for t in timers]}
+            
+        elif action == "delete":
+            return {"error": "Deleção via voz não está autorizada por enquanto, instrua o usuário a usar o painel web."}
+            
+        elif action == "create":
+            dur = kwargs.get("duration_seconds")
+            target = kwargs.get("target_hour")
+            msg = kwargs.get("message", "")
+            
+            tz = ZoneInfo("America/Sao_Paulo")
+            now_sp = datetime.now(tz)
+            
+            if dur is not None:
+                duration_seconds = dur
+                is_alarm = False
+            elif target is not None:
+                is_alarm = True
+                target_time = now_sp.replace(hour=target, minute=0, second=0, microsecond=0)
+                if target_time <= now_sp:
+                    target_time += timedelta(days=1)
+                duration_seconds = int((target_time - now_sp).total_seconds())
+            else:
+                return {"error": "Faltam parâmetros de tempo"}
+                
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=duration_seconds)
+            
+            new_timer = models.Timer(
+                room_id=room_id,
+                duration_seconds=duration_seconds,
+                expires_at=expires_at,
+                message=msg,
+                timer_type="alarm" if is_alarm else "timer",
+                is_active=True
+            )
+            db.add(new_timer)
+            db.commit()
+            
+            ws_tasks = context.get("ws_tasks")
+            device_id = context.get("device_id")
+            if ws_tasks is not None and device_id:
+                ws_tasks.append({
+                    "device_id": device_id,
+                    "payload": {
+                        "type": "timer_start",
+                        "duration_seconds": duration_seconds,
+                        "message": msg or "Timer iniciado"
+                    }
+                })
+                
+            return {
+                "status": "success",
+                "type": "alarm" if is_alarm else "timer",
+                "duration_seconds": duration_seconds,
+                "message": msg
+            }

@@ -171,11 +171,11 @@ async def process_voice(
     try:
         # Busca a voz configurada no banco (se não houver, usa faber padrão)
         voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
-        chosen_voice = voice_setting.value if voice_setting else "pt_BR-faber-medium"
+        chosen_voice = voice_setting.value if voice_setting else "pt-BR-FranciscaNeural"
         
         tts_engine = get_tts_engine()
         tts_engine.reload_voice(chosen_voice)
-        tts_engine.synthesize_wav(response_text, output_filepath)
+        await tts_engine.synthesize_wav(response_text, output_filepath)
         
         interaction.output_text = response_text
         db.commit()
@@ -183,7 +183,98 @@ async def process_voice(
         logger.error(f"Erro no Piper TTS: {e}")
         # Retorna erro genérico se falhar
         raise HTTPException(status_code=500, detail="Erro na síntese de voz.")
+    return FileResponse(output_filepath, media_type="audio/wav")
+
+@app.post("/api/voice/transcribe")
+async def process_voice_transcribe(
+    file: UploadFile = File(...),
+    authorization: str = Header(None)
+):
+    """
+    Endpoint leve apenas para STT. Usado pelo satélite para detecção contínua usando Whisper.
+    """
+    temp_dir = os.path.join(os.getcwd(), "tmp")
+    os.makedirs(temp_dir, exist_ok=True)
+    input_filepath = os.path.join(temp_dir, f"transcribe_{int(time.time())}.wav")
     
+    with open(input_filepath, "wb") as buffer:
+        buffer.write(await file.read())
+        
+    try:
+        stt_engine = get_stt_engine()
+        transcribed_text = stt_engine.transcribe_wav(input_filepath)
+        return {"text": transcribed_text}
+    except Exception as e:
+        logger.error(f"Erro no VOSK/Whisper: {e}")
+        return {"text": ""}
+
+from pydantic import BaseModel
+
+class TextCommandRequest(BaseModel):
+    text: str
+    device_id: str = "dashboard-virtual-mic"
+    room_id: str = "ROOM_LIVING"
+
+@app.post("/api/voice/text")
+async def process_voice_text(
+    payload: TextCommandRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint para envio de comandos de texto via Dashboard (Virtual Mic).
+    Retorna o arquivo de áudio de resposta.
+    """
+    logger.info(f"Comando de texto via Dashboard: {payload.text}")
+    
+    # 1. Registrar interação
+    interaction = models.Interaction(
+        device_id=payload.device_id,
+        room_id=payload.room_id,
+        input_text=payload.text,
+        output_text=None
+    )
+    db.add(interaction)
+    db.commit()
+    
+    # 2. Roteamento e execução
+    try:
+        router = get_router()
+        context = {
+            "device_id": payload.device_id,
+            "room_id": payload.room_id,
+            "db": db,
+            "ws_tasks": []
+        }
+        response_text = router.process(payload.text, context)
+        
+        for task in context["ws_tasks"]:
+            target_ws = active_connections.get(task["device_id"])
+            if target_ws:
+                await target_ws.send_json(task["payload"])
+                
+    except Exception as e:
+        logger.error(f"Erro no Router (Text): {e}")
+        response_text = "Tive um problema interno ao processar o texto."
+        
+    # 3. Sintetizar áudio
+    temp_dir = os.path.join(os.getcwd(), "tmp")
+    os.makedirs(temp_dir, exist_ok=True)
+    output_filepath = os.path.join(temp_dir, f"out_text_{int(time.time())}.wav")
+    
+    try:
+        voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
+        chosen_voice = voice_setting.value if voice_setting else "pt-BR-FranciscaNeural"
+        
+        tts_engine = get_tts_engine()
+        tts_engine.reload_voice(chosen_voice)
+        await tts_engine.synthesize_wav(response_text, output_filepath)
+        
+        interaction.output_text = response_text
+        db.commit()
+    except Exception as e:
+        logger.error(f"Erro no Piper TTS (Text): {e}")
+        raise HTTPException(status_code=500, detail="Erro na síntese de voz.")
+        
     return FileResponse(output_filepath, media_type="audio/wav")
 
 from core.services.weather_service import get_current_weather

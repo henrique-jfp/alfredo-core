@@ -8,12 +8,11 @@ websockets>=12.0
 # Voice / Audio Processing
 soundfile>=0.12.1
 numpy>=1.26.0
-# Piper TTS será instalado via binário ou wrapper pip (ex: piper-tts)
-piper-tts>=1.2.0
+# Microsoft Edge TTS para vozes hiper realistas na nuvem
+edge-tts>=0.14.0
 groq>=0.36.0
 
-# NLP & Intent Routing
-spacy>=3.7.2
+# NLP & Intent Routing (Substituído pelo Gemini Agent)
 
 # Database & Memory
 SQLAlchemy>=2.0.25

@@ -30,3 +30,15 @@ class WeatherSkill(Skill):
         except Exception as e:
             logger.error(f"Erro na execução da WeatherSkill: {e}")
             return "Desculpe, não consegui consultar a previsão do tempo no momento."
+
+    def execute_tool(self, kwargs: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+        from core.services.weather_service import get_weather_data_for_tool
+        db = context.get("db")
+        location = kwargs.get("location")
+        date_str = kwargs.get("date", "hoje")
+        
+        try:
+            return get_weather_data_for_tool(db, location, date_str)
+        except Exception as e:
+            logger.error(f"Erro no execute_tool do WeatherSkill: {e}")
+            return {"error": str(e)}

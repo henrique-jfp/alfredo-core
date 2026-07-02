@@ -160,47 +160,62 @@ def start_websocket():
 
 def record_and_send():
     RECORD_SECONDS = 5
-    print("\n🔴 [GRAVANDO] Pode falar! (Gravando por 5 segundos...)")
-    
-    # Usa o arecord para gravar 5 segundos exatos em 16kHz Mono 16-bit
-    cmd = [
-        'arecord', 
-        '-q', 
-        '-d', str(RECORD_SECONDS),
-        '-f', 'S16_LE', 
-        '-c', '1', 
-        '-r', str(RATE), 
-        WAVE_OUTPUT_FILENAME
-    ]
+    print("\n🔴 [GRAVANDO] Pode falar o comando! (Gravando por 5 segundos...)")
     
     try:
+        subprocess.run(['play', '-q', '-n', 'synth', '0.15', 'sine', '880'], check=False)
+    except:
+        pass
+    
+    cmd = [
+        'arecord', '-q', '-d', str(RECORD_SECONDS),
+        '-f', 'S16_LE', '-c', '1', '-r', str(RATE), 
+        WAVE_OUTPUT_FILENAME
+    ]
+    try:
         subprocess.run(cmd, check=True)
-        print("⏹️ [GRAVAÇÃO CONCLUÍDA] Processando...")
-        send_audio_and_play(WAVE_OUTPUT_FILENAME)
+        print("⏹️ [GRAVAÇÃO CONCLUÍDA] Processando comando...")
+        
+        url = f"{SERVER_URL}/api/voice"
+        headers = {
+            "X-Device-ID": DEVICE_ID,
+            "X-Room-ID": ROOM_ID,
+            "Authorization": "Bearer mock-token-123"
+        }
+        
+        with open(WAVE_OUTPUT_FILENAME, 'rb') as f:
+            files = {'file': ('audio.wav', f, 'audio/wav')}
+            start_time = time.time()
+            response = requests.post(url, headers=headers, files=files)
+            
+        if response.status_code == 200:
+            latency = time.time() - start_time
+            print(f"Resposta recebida em {latency:.2f} segundos!")
+            with open(WAVE_RESPONSE_FILENAME, 'wb') as f:
+                f.write(response.content)
+            play_audio(WAVE_RESPONSE_FILENAME)
+        else:
+            print(f"Erro do servidor: {response.status_code} - {response.text}")
     except Exception as e:
-        print(f"Erro ao gravar com arecord: {e}")
+        print(f"Erro ao gravar com arecord ou enviar: {e}")
 
 def main_loop():
-    # Caminho do modelo leve do Vosk
     model_path = os.path.join(os.path.dirname(__file__), "..", "core", "voice", "stt", "models", "vosk-model-small-pt-0.3")
     
     if not os.path.exists(model_path):
         print(f"❌ Modelo Vosk não encontrado em {model_path}.")
-        print("Para ativar a palavra de ativação, baixe o modelo rodando: python scripts/download_vosk.py")
         sys.exit(1)
 
-    print("🧠 Carregando inteligência de Wake Word (Vosk Local)...")
-    # Esconde logs excessivos do Vosk
+    print("🧠 Carregando inteligência de Wake Word (Vosk Local Leve)...")
     import logging
     logging.getLogger("vosk").setLevel(logging.ERROR)
     
     model = Model(model_path)
     recognizer = KaldiRecognizer(model, RATE)
     
-    print(f"\n🎧 [Satélite da Sala] ONLINE e ouvindo silenciosamente...")
+    print(f"\n🎧 [Satélite da Sala] MODO VOSK (Contínuo Offline) ONLINE e ouvindo silenciosamente...")
     print(f"👉 Diga '{WAKE_WORD.upper()}' para me chamar!\n")
     
-    # Inicia o arecord em background lendo do microfone infinitamente
     record_cmd = ['arecord', '-q', '-f', 'S16_LE', '-c', '1', '-r', str(RATE), '-t', 'raw']
     process = None
     
@@ -217,19 +232,14 @@ def main_loop():
                 text = result.get('text', '').lower()
                 
                 if WAKE_WORD in text:
-                    print(f"🔔 Palavra de ativação '{WAKE_WORD.upper()}' detectada!")
+                    print(f"🔔 Palavra de ativação '{WAKE_WORD.upper()}' detectada pelo Vosk!")
                     
-                    # Para o alarme se estiver tocando
                     stop_alarm()
-                    
-                    # Para o arecord de vigia
                     process.terminate()
                     process.wait()
                     
-                    # Grava o que a pessoa falar DEPOIS do Alfredo e manda pro servidor
                     record_and_send()
                     
-                    # Reinicia o arecord de vigia
                     process = subprocess.Popen(record_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
                     print(f"\n🎧 Voltando a dormir... Diga '{WAKE_WORD.upper()}' para chamar novamente.")
     except KeyboardInterrupt:

@@ -115,3 +115,13 @@ class Setting(Base):
     id = Column(Integer, primary_key=True, index=True)
     key = Column(String, unique=True, index=True, nullable=False)
     value = Column(String, nullable=True)
+
+class SavedLocation(Base):
+    __tablename__ = "saved_locations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)          # "Casa", "Trabalho", "Estádio"
+    latitude = Column(String, nullable=False)
+    longitude = Column(String, nullable=False)
+    icon = Column(String, default="pin")            # "home", "work", "school", "stadium", "pin"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

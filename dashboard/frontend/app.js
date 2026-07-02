@@ -1,5 +1,45 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // DOM Elements
+    // ==========================================
+    // TOAST NOTIFICATION SYSTEM
+    // ==========================================
+    const toastContainer = document.getElementById('toast-container');
+
+    function showToast(message, type = 'success', duration = 3500) {
+        const icons = { success: '✓', error: '✕', info: 'ℹ' };
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerHTML = `<span>${icons[type] || ''}</span> ${message}`;
+        toastContainer.appendChild(toast);
+
+        setTimeout(() => {
+            toast.classList.add('toast-exit');
+            toast.addEventListener('animationend', () => toast.remove());
+        }, duration);
+    }
+
+    // ==========================================
+    // ICON MAPPING FOR LOCATIONS
+    // ==========================================
+    const LOCATION_ICONS = {
+        'casa': '🏠', 'home': '🏠', 'lar': '🏠',
+        'trabalho': '💼', 'work': '💼', 'escritório': '💼', 'escritorio': '💼', 'office': '💼',
+        'escola': '🏫', 'school': '🏫', 'faculdade': '🎓', 'universidade': '🎓',
+        'estádio': '🏟️', 'estadio': '🏟️', 'stadium': '🏟️',
+        'academia': '🏋️', 'gym': '🏋️',
+        'hospital': '🏥', 'médico': '🏥', 'medico': '🏥',
+        'mercado': '🛒', 'supermercado': '🛒',
+        'restaurante': '🍽️', 'praia': '🏖️', 'aeroporto': '✈️',
+        'igreja': '⛪', 'museu': '🏛️', 'parque': '🌳', 'shopping': '🏬',
+    };
+
+    function getLocationIcon(name) {
+        const key = name.toLowerCase().trim();
+        return LOCATION_ICONS[key] || '📍';
+    }
+
+    // ==========================================
+    // DOM ELEMENTS
+    // ==========================================
     const elInteractions = document.getElementById('kpi-interactions');
     const elTimers = document.getElementById('kpi-timers');
     const elDevices = document.getElementById('kpi-devices');
@@ -7,23 +47,40 @@ document.addEventListener('DOMContentLoaded', () => {
     const elHistory = document.getElementById('history-container');
     const elShopping = document.getElementById('shopping-list');
     const elTodo = document.getElementById('todo-list');
+    const elTimersList = document.getElementById('timers-list');
     const btnRefresh = document.getElementById('refresh-btn');
 
-    // Fetch Stats
+    // ==========================================
+    // FETCH STATS
+    // ==========================================
     async function fetchStats() {
         try {
             const res = await fetch('/api/dashboard/stats');
             const data = await res.json();
-            elInteractions.textContent = data.interactions;
-            elTimers.textContent = data.active_timers;
-            elDevices.textContent = data.devices;
-            elTokens.textContent = data.tokens_used.toLocaleString();
+            animateValue(elInteractions, data.interactions);
+            animateValue(elTimers, data.active_timers);
+            animateValue(elDevices, data.devices);
+            animateValue(elTokens, data.tokens_used.toLocaleString('pt-BR'));
         } catch (error) {
             console.error('Erro ao buscar stats:', error);
         }
     }
 
-    // Fetch History
+    function animateValue(el, newValue) {
+        if (el.textContent === String(newValue)) return;
+        el.style.transition = 'opacity 150ms, transform 150ms';
+        el.style.opacity = '0';
+        el.style.transform = 'translateY(-4px)';
+        setTimeout(() => {
+            el.textContent = newValue;
+            el.style.opacity = '1';
+            el.style.transform = 'translateY(0)';
+        }, 150);
+    }
+
+    // ==========================================
+    // FETCH HISTORY
+    // ==========================================
     async function fetchHistory() {
         try {
             const res = await fetch('/api/dashboard/history');
@@ -32,7 +89,11 @@ document.addEventListener('DOMContentLoaded', () => {
             elHistory.innerHTML = '';
             
             if (data.length === 0) {
-                elHistory.innerHTML = '<div class="loading">Nenhuma conversa registrada ainda.</div>';
+                elHistory.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">💬</div>
+                        <p>Nenhuma conversa registrada ainda.</p>
+                    </div>`;
                 return;
             }
 
@@ -45,7 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 logItem.innerHTML = `
                     <div class="log-meta">
-                        <span>${item.room_id} (${item.device_id})</span>
+                        <span>${item.room_id} · ${item.device_id}</span>
                         <span>${timeString}</span>
                     </div>
                     <div class="log-user">${item.input_text}</div>
@@ -56,51 +117,159 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         } catch (error) {
             console.error('Erro ao buscar histórico:', error);
-            elHistory.innerHTML = '<div class="loading" style="color:#ef4444;">Erro ao carregar histórico. Servidor offline?</div>';
+            elHistory.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">⚠️</div>
+                    <p>Erro ao carregar histórico. Servidor offline?</p>
+                </div>`;
         }
     }
 
-    // Fetch Lists
+    // ==========================================
+    // VIRTUAL MIC
+    // ==========================================
+    const virtualMicInput = document.getElementById('virtual-mic-input');
+    const btnVirtualMic = document.getElementById('btn-virtual-mic');
+    const virtualMicPlayer = document.getElementById('virtual-mic-player');
+    const virtualMicContainer = document.getElementById('virtual-mic-audio-container');
+
+    async function sendVirtualMic() {
+        const text = virtualMicInput.value.trim();
+        if (!text) return;
+        
+        btnVirtualMic.textContent = 'Processando...';
+        btnVirtualMic.disabled = true;
+        
+        try {
+            const res = await fetch('/api/voice/text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+            
+            if (res.ok) {
+                const blob = await res.blob();
+                const audioUrl = URL.createObjectURL(blob);
+                virtualMicContainer.style.display = 'block';
+                virtualMicPlayer.src = audioUrl;
+                virtualMicInput.value = '';
+                showToast('Comando processado com sucesso!', 'success');
+                setTimeout(fetchHistory, 1000);
+            } else {
+                showToast('Erro no processamento do comando.', 'error');
+            }
+        } catch(err) {
+            console.error(err);
+            showToast('Erro de conexão ao enviar comando.', 'error');
+        } finally {
+            btnVirtualMic.textContent = 'Enviar';
+            btnVirtualMic.disabled = false;
+        }
+    }
+
+    if (btnVirtualMic && virtualMicInput) {
+        btnVirtualMic.addEventListener('click', sendVirtualMic);
+        virtualMicInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendVirtualMic();
+        });
+    }
+
+    // ==========================================
+    // FETCH LISTS
+    // ==========================================
     async function fetchLists() {
         try {
             const res = await fetch('/api/dashboard/lists');
             const data = await res.json();
             
-            // Render Compras
-            elShopping.innerHTML = '';
-            if (data.compras.length === 0) {
-                elShopping.innerHTML = '<li class="empty-list">Nenhum item adicionado.</li>';
-            } else {
-                data.compras.forEach(item => {
-                    const li = document.createElement('li');
-                    li.textContent = item.content;
-                    elShopping.appendChild(li);
-                });
-            }
-
-            // Render Tarefas
-            elTodo.innerHTML = '';
-            if (data.tarefas.length === 0) {
-                elTodo.innerHTML = '<li class="empty-list">Nenhuma tarefa pendente.</li>';
-            } else {
-                data.tarefas.forEach(item => {
-                    const li = document.createElement('li');
-                    li.textContent = item.content;
-                    elTodo.appendChild(li);
-                });
-            }
+            renderList(elShopping, data.compras, 'Nenhum item adicionado.');
+            renderList(elTodo, data.tarefas, 'Nenhuma tarefa pendente.');
         } catch (error) {
             console.error('Erro ao buscar listas:', error);
         }
     }
 
-    // Main Update Loop
+    function renderList(el, items, emptyMsg) {
+        el.innerHTML = '';
+        if (items.length === 0) {
+            el.innerHTML = `<li class="empty-list">${emptyMsg}</li>`;
+        } else {
+            items.forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = item.content;
+                el.appendChild(li);
+            });
+        }
+    }
+
+    // ==========================================
+    // FETCH TIMERS (REMIDERS)
+    // ==========================================
+    async function fetchTimers() {
+        try {
+            const res = await fetch('/api/dashboard/timers');
+            const data = await res.json();
+            
+            elTimersList.innerHTML = '';
+            
+            if (data.length === 0) {
+                elTimersList.innerHTML = `<li class="empty-list">Nenhum lembrete ativo.</li>`;
+                return;
+            }
+            
+            data.forEach(t => {
+                const li = document.createElement('li');
+                li.style.display = 'flex';
+                li.style.justifyContent = 'space-between';
+                li.style.alignItems = 'center';
+                li.style.gap = '8px';
+                
+                const isAlarm = t.timer_type === 'alarm';
+                const msg = t.message || (isAlarm ? 'Alarme' : 'Timer');
+                
+                // Formatar hora
+                const expDate = new Date(t.expires_at + "Z"); // Add Z to parse UTC correctly
+                const timeStr = expDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                
+                li.innerHTML = `
+                    <div>
+                        <strong>${timeStr}</strong>: ${msg}
+                    </div>
+                    <button class="glass-btn icon-btn danger-btn btn-del-timer" data-id="${t.id}" title="Excluir Lembrete">🗑️</button>
+                `;
+                elTimersList.appendChild(li);
+            });
+            
+            // Attach delete events
+            document.querySelectorAll('.btn-del-timer').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const id = e.target.closest('.btn-del-timer').dataset.id;
+                    if (confirm('Cancelar este lembrete/alarme?')) {
+                        try {
+                            await fetch(`/api/dashboard/timers/${id}`, { method: 'DELETE' });
+                            showToast('Lembrete cancelado.', 'success');
+                            fetchTimers();
+                        } catch(err) {
+                            showToast('Erro ao cancelar lembrete.', 'error');
+                        }
+                    }
+                });
+            });
+            
+        } catch (error) {
+            console.error('Erro ao buscar timers:', error);
+        }
+    }
+
+    // ==========================================
+    // UPDATE ALL
+    // ==========================================
     function updateAll() {
         fetchStats();
         fetchHistory();
         fetchLists();
+        fetchTimers();
         
-        // Atualiza status do app se a aba estiver ativa ou modal aberto
         const tabIntegracoes = document.getElementById('tab-integracoes');
         const modalSpotify = document.getElementById('spotify-modal');
         if (tabIntegracoes && (tabIntegracoes.style.display !== 'none' || modalSpotify.style.display === 'flex')) {
@@ -108,17 +277,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Bind Refresh button
     btnRefresh.addEventListener('click', () => {
-        btnRefresh.textContent = "Atualizando...";
+        btnRefresh.innerHTML = '↻ Atualizando...';
         updateAll();
-        setTimeout(() => btnRefresh.textContent = "Atualizar", 800);
+        setTimeout(() => btnRefresh.innerHTML = '↻ Atualizar', 800);
     });
 
-    // Initial load
     updateAll();
-
-    // Auto-refresh a cada 5 segundos para parecer Real-Time
     setInterval(updateAll, 5000);
 
     // ==========================================
@@ -131,16 +296,23 @@ document.addEventListener('DOMContentLoaded', () => {
         item.addEventListener('click', (e) => {
             e.preventDefault();
             
-            // Remove active de todos
             menuItems.forEach(mi => mi.classList.remove('active'));
             tabContents.forEach(tc => tc.style.display = 'none');
             
-            // Adiciona ativo no clicado
             item.classList.add('active');
             const targetTab = document.getElementById(`tab-${item.dataset.tab}`);
             if (targetTab) {
                 targetTab.style.display = 'block';
+                // Re-trigger animation
+                targetTab.style.animation = 'none';
+                targetTab.offsetHeight; // force reflow
+                targetTab.style.animation = '';
             }
+
+            // Lazy load tab data
+            if (item.dataset.tab === 'rotinas') fetchRoutines();
+            if (item.dataset.tab === 'configuracoes') { fetchSettings(); fetchLocations(); }
+            if (item.dataset.tab === 'integracoes') fetchIntegrations();
         });
     });
 
@@ -158,7 +330,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     let currentLocalIp = "localhost";
     
-    // Check Integrations Status
     async function fetchIntegrations() {
         try {
             const res = await fetch('/api/dashboard/integrations');
@@ -172,9 +343,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusBadge.className = "status-badge connected";
                 btnConnectSpotify.textContent = "Reconfigurar";
                 
-                // Se o modal estiver aberto na tela 2 (QR code) e conectou via cel
                 if (modalSpotify.style.display === 'flex' && document.getElementById('spotify-step-2').style.display === 'block') {
-                    alert("Sucesso! O Spotify foi autenticado pelo seu celular.");
+                    showToast('Spotify autenticado com sucesso!', 'success');
                     modalSpotify.style.display = 'none';
                 }
             } else if (data.spotify.is_configured) {
@@ -191,10 +361,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Open Modal
     btnConnectSpotify.addEventListener('click', () => {
         modalSpotify.style.display = 'flex';
-        
         if (statusBadge.textContent === "Chaves Salvas") {
             showQrCodeStep();
         } else {
@@ -203,7 +371,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Close Modal
     btnCloseSpotify.addEventListener('click', () => {
         modalSpotify.style.display = 'none';
     });
@@ -212,13 +379,12 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('spotify-step-2').style.display = 'none';
     });
 
-    // Save Keys and Show QR Code
     btnSaveSpotify.addEventListener('click', async () => {
         const clientId = document.getElementById('spotify-client-id').value.trim();
         const clientSecret = document.getElementById('spotify-client-secret').value.trim();
         
         if (!clientId || !clientSecret) {
-            alert("Preencha as duas chaves para continuar.");
+            showToast('Preencha as duas chaves para continuar.', 'error');
             return;
         }
         
@@ -230,10 +396,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ client_id: clientId, client_secret: clientSecret })
             });
-            
             showQrCodeStep();
         } catch (e) {
-            alert("Erro ao salvar chaves");
+            showToast('Erro ao salvar chaves.', 'error');
         } finally {
             btnSaveSpotify.textContent = "Salvar e Gerar QR Code";
         }
@@ -243,7 +408,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('spotify-step-1').style.display = 'none';
         document.getElementById('spotify-step-2').style.display = 'block';
         
-        // Clear and Generate QR Code
         qrContainer.innerHTML = '';
         const loginUrl = `http://${currentLocalIp}:10001/api/spotify/login`;
         
@@ -251,14 +415,14 @@ document.addEventListener('DOMContentLoaded', () => {
             text: loginUrl,
             width: 180,
             height: 180,
-            colorDark : "#000000",
-            colorLight : "#ffffff",
-            correctLevel : QRCode.CorrectLevel.H
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.H
         });
     }
 
     // ==========================================
-    // ROUTINES (ROTINAS AUTOMÁTICAS)
+    // ROUTINES
     // ==========================================
     const routinesList = document.getElementById('routines-list');
     const btnSaveRoutine = document.getElementById('btn-save-routine');
@@ -272,51 +436,76 @@ document.addEventListener('DOMContentLoaded', () => {
             routinesList.innerHTML = '';
             
             if (data.length === 0) {
-                routinesList.innerHTML = '<div class="empty-list">Nenhuma rotina criada ainda.</div>';
+                routinesList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">⏰</div>
+                        <p>Nenhuma rotina criada ainda. Crie sua primeira rotina ao lado!</p>
+                    </div>`;
                 return;
             }
             
             data.forEach(rt => {
+                const isActive = rt.is_active !== false;
                 const rtEl = document.createElement('div');
-                rtEl.className = 'routine-item glass-panel';
-                rtEl.style.marginBottom = '10px';
-                rtEl.style.padding = '15px';
-                rtEl.style.display = 'flex';
-                rtEl.style.justifyContent = 'space-between';
-                rtEl.style.alignItems = 'center';
+                rtEl.className = `routine-item glass-panel ${isActive ? '' : 'inactive'}`;
                 
                 rtEl.innerHTML = `
-                    <div>
-                        <h3 style="margin: 0; font-size: 16px;">${rt.name}</h3>
-                        <p style="margin: 5px 0 0; font-size: 13px; color: var(--text-secondary);">
-                            ⏰ ${rt.trigger_value} - ${rt.room_id} <br>
-                            🗣️ "<em>${rt.action_value}</em>"
+                    <div class="routine-icon-wrap">⏰</div>
+                    <div class="routine-info">
+                        <h3>${rt.name}</h3>
+                        <p>
+                            <span class="routine-tag">🕐 ${rt.trigger_value}</span>
+                            <span class="routine-tag">📍 ${rt.room_id}</span>
+                        </p>
+                        <p style="margin-top: 4px; font-size: 12px; color: var(--text-muted);">
+                            🗣️ "${rt.action_value}"
                         </p>
                     </div>
-                    <div style="display: flex; gap: 8px;">
-                        <button class="glass-btn btn-test-rt" data-id="${rt.id}">Testar Agora</button>
-                        <button class="glass-btn btn-del-rt" data-id="${rt.id}" style="color: #ef4444;">Excluir</button>
+                    <div class="routine-actions">
+                        <label class="toggle-switch" title="Ativar/Desativar">
+                            <input type="checkbox" ${isActive ? 'checked' : ''} data-id="${rt.id}" class="toggle-routine">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <button class="glass-btn icon-btn btn-test-rt" data-id="${rt.id}" title="Testar Agora">▶</button>
+                        <button class="glass-btn icon-btn danger-btn btn-del-rt" data-id="${rt.id}" title="Excluir">🗑️</button>
                     </div>
                 `;
                 routinesList.appendChild(rtEl);
             });
             
             // Attach Events
+            document.querySelectorAll('.toggle-routine').forEach(input => {
+                input.addEventListener('change', async (e) => {
+                    const id = e.target.dataset.id;
+                    try {
+                        await fetch(`/api/dashboard/routines/${id}/toggle`, { method: 'PATCH' });
+                        fetchRoutines();
+                    } catch(err) {
+                        showToast('Erro ao alterar rotina.', 'error');
+                    }
+                });
+            });
+
             document.querySelectorAll('.btn-test-rt').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     const id = e.target.dataset.id;
                     e.target.textContent = "...";
-                    await fetch(`/api/dashboard/routines/${id}/test`, { method: 'POST' });
-                    e.target.textContent = "Testado!";
-                    setTimeout(() => fetchRoutines(), 2000);
+                    try {
+                        await fetch(`/api/dashboard/routines/${id}/test`, { method: 'POST' });
+                        showToast('Rotina testada com sucesso!', 'info');
+                    } catch(err) {
+                        showToast('Erro ao testar rotina.', 'error');
+                    }
+                    setTimeout(() => { e.target.textContent = "▶"; fetchRoutines(); }, 2000);
                 });
             });
             
             document.querySelectorAll('.btn-del-rt').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
-                    const id = e.target.dataset.id;
-                    if(confirm('Tem certeza que deseja excluir esta rotina?')) {
+                    const id = e.target.closest('.btn-del-rt').dataset.id;
+                    if (confirm('Tem certeza que deseja excluir esta rotina?')) {
                         await fetch(`/api/dashboard/routines/${id}`, { method: 'DELETE' });
+                        showToast('Rotina excluída.', 'success');
                         fetchRoutines();
                     }
                 });
@@ -324,7 +513,11 @@ document.addEventListener('DOMContentLoaded', () => {
             
         } catch (error) {
             console.error('Erro ao buscar rotinas:', error);
-            routinesList.innerHTML = '<div class="empty-list">Erro ao carregar rotinas.</div>';
+            routinesList.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">⚠️</div>
+                    <p>Erro ao carregar rotinas.</p>
+                </div>`;
         }
     }
 
@@ -336,14 +529,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const action = document.getElementById('rt-action').value.trim();
             
             if (!name || !time || !room || !action) {
-                alert("Preencha todos os campos da rotina.");
+                showToast('Preencha todos os campos da rotina.', 'error');
                 return;
             }
             
             btnSaveRoutine.textContent = "Salvando...";
             
             const payload = {
-                name: name,
+                name,
                 trigger_type: "time",
                 trigger_value: time,
                 action_type: "simulate_command",
@@ -358,32 +551,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify(payload)
                 });
                 
-                // Limpa form
                 document.getElementById('rt-name').value = '';
                 document.getElementById('rt-action').value = '';
                 document.getElementById('rt-time').value = '';
                 
+                showToast('Rotina criada com sucesso!', 'success');
                 fetchRoutines();
             } catch (e) {
-                alert("Erro ao criar rotina");
+                showToast('Erro ao criar rotina.', 'error');
             } finally {
                 btnSaveRoutine.textContent = "Salvar Rotina";
             }
         });
     }
 
-    // Adicionar fetchRoutines no updateAll
-    const oldUpdateAll = updateAll;
-    updateAll = function() {
-        oldUpdateAll();
-        const tabRotinas = document.getElementById('tab-rotinas');
-        if (tabRotinas && tabRotinas.style.display !== 'none') {
-            fetchRoutines();
-        }
-    };
-    
     // ==========================================
-    // SETTINGS (CONFIGURAÇÕES GERAIS)
+    // SETTINGS
     // ==========================================
     const btnSaveSettings = document.getElementById('btn-save-settings');
 
@@ -394,12 +577,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             document.getElementById('set-assistant-name').value = data.assistant_name || 'alfredo';
             document.getElementById('set-assistant-voice').value = data.assistant_voice || 'pt_BR-faber-medium';
-            
             document.getElementById('set-city').value = data.weather_city || '';
-            document.getElementById('set-home-lat').value = data.home_lat || '';
-            document.getElementById('set-home-lon').value = data.home_lon || '';
-            document.getElementById('set-work-lat').value = data.work_lat || '';
-            document.getElementById('set-work-lon').value = data.work_lon || '';
             document.getElementById('set-gmaps-key').value = data.google_maps_api_key || '';
             document.getElementById('set-news-rss').value = data.news_rss_url || '';
         } catch (error) {
@@ -416,10 +594,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     assistant_name: document.getElementById('set-assistant-name').value.trim(),
                     assistant_voice: document.getElementById('set-assistant-voice').value,
                     weather_city: document.getElementById('set-city').value.trim(),
-                    home_lat: document.getElementById('set-home-lat').value.trim(),
-                    home_lon: document.getElementById('set-home-lon').value.trim(),
-                    work_lat: document.getElementById('set-work-lat').value.trim(),
-                    work_lon: document.getElementById('set-work-lon').value.trim(),
                     google_maps_api_key: document.getElementById('set-gmaps-key').value.trim(),
                     news_rss_url: document.getElementById('set-news-rss').value.trim()
                 }
@@ -431,21 +605,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                alert("Configurações salvas com sucesso!");
+                showToast('Configurações salvas com sucesso!', 'success');
             } catch (e) {
-                alert("Erro ao salvar configurações.");
+                showToast('Erro ao salvar configurações.', 'error');
             } finally {
                 btnSaveSettings.textContent = "Salvar Configurações";
             }
         });
     }
 
-    // Carregar configurações quando a aba for aberta
-    document.querySelector('.menu-item[data-tab="configuracoes"]').addEventListener('click', () => {
-        fetchSettings();
-    });
-
-    // Lógica para Testar a Voz do Assistente
+    // Voice preview
     const btnTestVoice = document.getElementById('btn-test-voice');
     const audioPreview = document.getElementById('audio-preview');
     
@@ -454,7 +623,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const selectedVoice = document.getElementById('set-assistant-voice').value;
             const originalText = btnTestVoice.textContent;
             
-            btnTestVoice.textContent = "Baixando/Gerando... (pode demorar se for voz nova)";
+            btnTestVoice.textContent = "⏳ Gerando...";
             btnTestVoice.disabled = true;
             
             try {
@@ -469,24 +638,148 @@ document.addEventListener('DOMContentLoaded', () => {
                     const audioUrl = URL.createObjectURL(blob);
                     audioPreview.src = audioUrl;
                     audioPreview.play();
-                    btnTestVoice.textContent = "▶ Reproduzindo...";
+                    btnTestVoice.textContent = "🔊 Reproduzindo...";
                     
                     audioPreview.onended = () => {
                         btnTestVoice.textContent = originalText;
                         btnTestVoice.disabled = false;
                     };
                 } else {
-                    alert("Erro ao testar voz. Veja os logs do servidor.");
+                    showToast('Erro ao testar voz. Verifique os logs.', 'error');
                     btnTestVoice.textContent = originalText;
                     btnTestVoice.disabled = false;
                 }
             } catch (e) {
                 console.error(e);
-                alert("Erro ao conectar com a API de voz.");
+                showToast('Erro ao conectar com a API de voz.', 'error');
                 btnTestVoice.textContent = originalText;
                 btnTestVoice.disabled = false;
             }
         });
     }
+
+    // ==========================================
+    // SAVED LOCATIONS (CRUD)
+    // ==========================================
+    const locationsList = document.getElementById('locations-list');
+    const btnAddLocation = document.getElementById('btn-add-location');
+    const addLocationForm = document.getElementById('add-location-form');
+    const btnCancelLocation = document.getElementById('btn-cancel-location');
+    const btnSaveLocation = document.getElementById('btn-save-location');
+
+    async function fetchLocations() {
+        try {
+            const res = await fetch('/api/dashboard/locations');
+            const data = await res.json();
+            
+            locationsList.innerHTML = '';
+            
+            if (data.length === 0) {
+                locationsList.innerHTML = `
+                    <div class="locations-empty">
+                        📍 Nenhum endereço salvo. Adicione seu primeiro endereço abaixo.
+                    </div>`;
+                return;
+            }
+
+            data.forEach(loc => {
+                const icon = getLocationIcon(loc.name);
+                const item = document.createElement('div');
+                item.className = 'location-item';
+                
+                item.innerHTML = `
+                    <div class="location-icon">${icon}</div>
+                    <div class="location-info">
+                        <div class="location-name">${loc.name}</div>
+                        <div class="location-coords">${loc.latitude}, ${loc.longitude}</div>
+                    </div>
+                    <button class="location-delete" data-id="${loc.id}" title="Excluir endereço">🗑️</button>
+                `;
+                locationsList.appendChild(item);
+            });
+
+            // Attach delete events
+            document.querySelectorAll('.location-delete').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const id = btn.dataset.id;
+                    if (confirm('Excluir este endereço?')) {
+                        try {
+                            await fetch(`/api/dashboard/locations/${id}`, { method: 'DELETE' });
+                            showToast('Endereço excluído.', 'success');
+                            fetchLocations();
+                        } catch(err) {
+                            showToast('Erro ao excluir endereço.', 'error');
+                        }
+                    }
+                });
+            });
+        } catch (error) {
+            console.error('Erro ao buscar locations:', error);
+            locationsList.innerHTML = '<div class="locations-empty">Erro ao carregar endereços.</div>';
+        }
+    }
+
+    // Toggle add-location form
+    btnAddLocation.addEventListener('click', () => {
+        addLocationForm.classList.toggle('visible');
+        btnAddLocation.style.display = addLocationForm.classList.contains('visible') ? 'none' : '';
+    });
+
+    btnCancelLocation.addEventListener('click', () => {
+        addLocationForm.classList.remove('visible');
+        btnAddLocation.style.display = '';
+        document.getElementById('loc-name').value = '';
+        document.getElementById('loc-lat').value = '';
+        document.getElementById('loc-lon').value = '';
+    });
+
+    btnSaveLocation.addEventListener('click', async () => {
+        const name = document.getElementById('loc-name').value.trim();
+        const lat = document.getElementById('loc-lat').value.trim();
+        const lon = document.getElementById('loc-lon').value.trim();
+
+        if (!name || !lat || !lon) {
+            showToast('Preencha todos os campos do endereço.', 'error');
+            return;
+        }
+
+        btnSaveLocation.textContent = 'Salvando...';
+
+        try {
+            const icon = getLocationIcon(name);
+            await fetch('/api/dashboard/locations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, latitude: lat, longitude: lon, icon: name.toLowerCase() })
+            });
+
+            showToast(`Endereço "${name}" salvo com sucesso!`, 'success');
+
+            // Reset form
+            document.getElementById('loc-name').value = '';
+            document.getElementById('loc-lat').value = '';
+            document.getElementById('loc-lon').value = '';
+            addLocationForm.classList.remove('visible');
+            btnAddLocation.style.display = '';
+
+            fetchLocations();
+        } catch(err) {
+            showToast('Erro ao salvar endereço.', 'error');
+        } finally {
+            btnSaveLocation.textContent = 'Salvar';
+        }
+    });
+
+    // ==========================================
+    // ROUTINES tab lazy load
+    // ==========================================
+    const oldUpdateAll = updateAll;
+    updateAll = function() {
+        oldUpdateAll();
+        const tabRotinas = document.getElementById('tab-rotinas');
+        if (tabRotinas && tabRotinas.style.display !== 'none') {
+            fetchRoutines();
+        }
+    };
 
 });
