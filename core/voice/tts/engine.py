@@ -22,14 +22,18 @@ class TTSEngine:
         Gera o áudio a partir do texto usando edge-tts e salva no formato WAV especificado.
         Como o edge-tts gera MP3 nativamente, usaremos o ffmpeg para converter para WAV 16kHz mono.
         """
-        logger.info(f"Sintetizando áudio na nuvem para o texto: '{text}'")
+        import re
+        # Limpa emojis e símbolos especiais antes de enviar para a voz
+        clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+        
+        logger.info(f"Sintetizando áudio na nuvem para o texto: '{clean_text}'")
         
         # Gerar arquivo temporário MP3
         tmp_mp3_path = output_filepath.replace(".wav", ".mp3")
         
         try:
             # Chama a API da Microsoft via edge-tts
-            communicate = edge_tts.Communicate(text, self.current_voice_name)
+            communicate = edge_tts.Communicate(clean_text, self.current_voice_name)
             await communicate.save(tmp_mp3_path)
             
             # Converte o MP3 para WAV (16kHz, mono, PCM s16le) usando FFmpeg

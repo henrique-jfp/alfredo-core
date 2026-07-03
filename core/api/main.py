@@ -23,6 +23,8 @@ from core.voice.tts.engine import get_tts_engine
 from core.brain.router import get_router
 from core.api.dashboard import router as dashboard_router
 from core.api.spotify import router as spotify_router
+from core.api.satellite import router as satellite_ws_router
+from core.api.satellite import rest_router as satellite_rest_router
 
 # Inicializa o banco (cria tabelas se não existirem)
 models.Base.metadata.create_all(bind=engine)
@@ -171,7 +173,7 @@ async def process_voice(
     try:
         # Busca a voz configurada no banco (se não houver, usa faber padrão)
         voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
-        chosen_voice = voice_setting.value if voice_setting else "pt-BR-FranciscaNeural"
+        chosen_voice = voice_setting.value.strip() if voice_setting and voice_setting.value and voice_setting.value.strip() else "pt-BR-FranciscaNeural"
         
         tts_engine = get_tts_engine()
         tts_engine.reload_voice(chosen_voice)
@@ -263,7 +265,7 @@ async def process_voice_text(
     
     try:
         voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
-        chosen_voice = voice_setting.value if voice_setting else "pt-BR-FranciscaNeural"
+        chosen_voice = voice_setting.value.strip() if voice_setting and voice_setting.value and voice_setting.value.strip() else "pt-BR-FranciscaNeural"
         
         tts_engine = get_tts_engine()
         tts_engine.reload_voice(chosen_voice)
@@ -318,6 +320,8 @@ async def websocket_satellite(websocket: WebSocket, device_id: str):
 # Adicionando o Router do Dashboard
 app.include_router(dashboard_router)
 app.include_router(spotify_router)
+app.include_router(satellite_ws_router)
+app.include_router(satellite_rest_router)
 
 # Montando a pasta estática do frontend na URL raiz (/)
 # ATENÇÃO: mount("/") deve ser o último para não sobrescrever as rotas /api/

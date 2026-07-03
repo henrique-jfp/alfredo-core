@@ -125,3 +125,21 @@ class SavedLocation(Base):
     longitude = Column(String, nullable=False)
     icon = Column(String, default="pin")            # "home", "work", "school", "stadium", "pin"
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class DreamLog(Base):
+    __tablename__ = "dream_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    raw_text = Column(String, nullable=True)
+    themes = Column(String, nullable=True) # Will store JSON string of tags
+    interpretation = Column(String, nullable=False)
+    room_id = Column(String, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class MemoryFact(Base):
+    __tablename__ = "memory_facts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    fact = Column(String, nullable=False)
+    room_id = Column(String, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

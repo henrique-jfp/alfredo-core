@@ -1,14 +1,17 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alfredo Home OS — Painel de Controle</title>
-    <meta name="description" content="Dashboard de controle do assistente doméstico inteligente Alfredo Home OS.">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <title>Alfredo OS — Painel de Controle</title>
+    <meta name="description" content="Dashboard de controle do assistente doméstico inteligente Alfredo OS.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
+
 <body>
     <!-- Animated Background -->
     <div class="bg-shape shape-1"></div>
@@ -27,32 +30,70 @@
             </div>
             <nav class="menu">
                 <a href="#" class="menu-item active" data-tab="visao-geral">
-                    <span class="menu-icon">📊</span> Visão Geral
+                    <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="7" height="9" rx="1.5" />
+                            <rect x="14" y="3" width="7" height="5" rx="1.5" />
+                            <rect x="14" y="12" width="7" height="9" rx="1.5" />
+                            <rect x="3" y="16" width="7" height="5" rx="1.5" />
+                        </svg></span> Visão Geral
                 </a>
                 <a href="#" class="menu-item" data-tab="integracoes">
-                    <span class="menu-icon">🔗</span> Integrações
+                    <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9 17H7a5 5 0 0 1 0-10h2" />
+                            <path d="M15 7h2a5 5 0 0 1 0 10h-2" />
+                            <line x1="8" y1="12" x2="16" y2="12" />
+                        </svg></span> Integrações
                 </a>
                 <a href="#" class="menu-item" data-tab="rotinas">
-                    <span class="menu-icon">⏰</span> Rotinas
+                    <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M12 7v5l3.5 2" />
+                        </svg></span> Rotinas
                 </a>
-                <a href="#" class="menu-item disabled">
-                    <span class="menu-icon">📡</span> Satélites
+                <a href="#" class="menu-item" data-tab="satelites">
+                    <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 11a9 9 0 0 1 9-9" />
+                            <path d="M4 4l16 16" />
+                            <path d="M14.5 9.5 4 20l3-1 6.5-6.5" />
+                            <circle cx="18" cy="6" r="2.5" />
+                        </svg></span> Satélites
                 </a>
-                <a href="#" class="menu-item disabled">
-                    <span class="menu-icon">🧠</span> Inteligência
+                <a href="#" class="menu-item" data-tab="inteligencia">
+                    <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path
+                                d="M9.5 3a3.5 3.5 0 0 0-3.5 3.5V7a3 3 0 0 0-1 5.8V14a3.5 3.5 0 0 0 3.5 3.5V19a2 2 0 0 0 4 0V6.5A3.5 3.5 0 0 0 9.5 3Z" />
+                            <path
+                                d="M14.5 3A3.5 3.5 0 0 1 18 6.5V7a3 3 0 0 1 1 5.8V14a3.5 3.5 0 0 1-3.5 3.5V19a2 2 0 0 1-4 0" />
+                        </svg></span> Inteligência
+                </a>
+                <a href="#" class="menu-item" data-tab="sonhos">
+                    <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M17.5 19H8a5 5 0 1 1 1.3-9.8A6 6 0 0 1 20 12.5a3.5 3.5 0 0 1-2.5 6.5Z" />
+                        </svg></span> Sonhos
                 </a>
                 <a href="#" class="menu-item" data-tab="configuracoes">
-                    <span class="menu-icon">⚙️</span> Configurações
+                    <span class="menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3" />
+                            <path
+                                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+                        </svg></span> Configurações
                 </a>
             </nav>
             <div class="sidebar-footer">
-                <p>Alfredo Home OS v2.0</p>
+                <p>Alfredo OS &middot; v2.0</p>
             </div>
         </aside>
 
         <!-- Main Content -->
         <main class="main-content">
-            
+
             <!-- ============================
                  VISÃO GERAL TAB
                  ============================ -->
@@ -62,37 +103,65 @@
                         <h1>Visão Geral</h1>
                         <p class="subtitle">Centro de controle da sua casa inteligente.</p>
                     </div>
-                    <div class="status-indicator">
-                        <span class="pulse-dot"></span>
-                        <span>Sistema Online</span>
+                    <div class="topbar-right">
+                        <div class="live-clock" id="live-clock">
+                            <span class="clock-time" id="clock-time">--:--</span>
+                            <span class="clock-date" id="clock-date">—</span>
+                        </div>
+                        <div class="status-indicator">
+                            <span class="pulse-dot"></span>
+                            <span>Sistema Online</span>
+                        </div>
                     </div>
                 </header>
 
                 <!-- KPI Cards -->
                 <section class="kpi-grid">
                     <div class="kpi-card glass-panel" id="kpi-card-conversations">
-                        <div class="kpi-icon icon-conversations">💬</div>
+                        <div class="kpi-icon icon-conversations"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path
+                                    d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                            </svg></div>
                         <div class="kpi-info">
                             <div class="kpi-title">Conversas</div>
                             <div class="kpi-value" id="kpi-interactions">—</div>
                         </div>
                     </div>
                     <div class="kpi-card glass-panel" id="kpi-card-timers">
-                        <div class="kpi-icon icon-timers">⏱️</div>
+                        <div class="kpi-icon icon-timers"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="13" r="8" />
+                                <path d="M12 9v4l2.5 1.5" />
+                                <path d="M9 2h6" />
+                                <path d="M18.5 4.5 17 6" />
+                            </svg></div>
                         <div class="kpi-info">
                             <div class="kpi-title">Timers Ativos</div>
                             <div class="kpi-value" id="kpi-timers">—</div>
                         </div>
                     </div>
                     <div class="kpi-card glass-panel" id="kpi-card-devices">
-                        <div class="kpi-icon icon-devices">📡</div>
+                        <div class="kpi-icon icon-devices"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 11a9 9 0 0 1 9-9" />
+                                <path d="M4 4l16 16" />
+                                <path d="M14.5 9.5 4 20l3-1 6.5-6.5" />
+                                <circle cx="18" cy="6" r="2.5" />
+                            </svg></div>
                         <div class="kpi-info">
                             <div class="kpi-title">Satélites</div>
                             <div class="kpi-value" id="kpi-devices">—</div>
                         </div>
                     </div>
                     <div class="kpi-card glass-panel" id="kpi-card-tokens">
-                        <div class="kpi-icon icon-tokens">🤖</div>
+                        <div class="kpi-icon icon-tokens"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="4" y="8" width="16" height="11" rx="2" />
+                                <path d="M8 8V6a4 4 0 0 1 8 0v2" />
+                                <circle cx="9" cy="13.5" r="1" />
+                                <circle cx="15" cy="13.5" r="1" />
+                            </svg></div>
                         <div class="kpi-info">
                             <div class="kpi-title">Tokens IA</div>
                             <div class="kpi-value" id="kpi-tokens">—</div>
@@ -104,15 +173,28 @@
                 <div class="content-grid">
                     <section class="history-section glass-panel flex-col">
                         <div class="section-header" style="flex-wrap: wrap; gap: 12px;">
-                            <h2>💬 Conversas Recentes</h2>
+                            <h2><span class="heading-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path
+                                            d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                                    </svg></span>Conversas Recentes</h2>
                             <div style="flex: 1; min-width: 200px; display: flex; gap: 8px;">
-                                <input type="text" id="virtual-mic-input" class="glass-input" placeholder="Digite um comando para o Alfredo testar..." style="flex: 1;">
+                                <input type="text" id="virtual-mic-input" class="glass-input"
+                                    placeholder="Digite um comando para o Alfredo testar..." style="flex: 1;">
                                 <button id="btn-virtual-mic" class="glass-btn primary-btn">Enviar</button>
                             </div>
-                            <button id="refresh-btn" class="glass-btn">↻ Atualizar</button>
+                            <button id="refresh-btn" class="glass-btn">
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+                                    <path d="M21 4v5h-5" />
+                                </svg>
+                                Atualizar
+                            </button>
                         </div>
                         <div id="virtual-mic-audio-container" style="display: none;">
-                            <audio id="virtual-mic-player" controls autoplay style="width: 100%; height: 30px; margin-bottom: 10px;"></audio>
+                            <audio id="virtual-mic-player" controls autoplay
+                                style="width: 100%; height: 30px; margin-bottom: 10px;"></audio>
                         </div>
                         <div id="history-container" class="history-list">
                             <div class="loading">Carregando histórico...</div>
@@ -122,25 +204,37 @@
                     <div class="lists-column">
                         <div class="list-card glass-panel">
                             <div class="section-header">
-                                <h2>🛒 Compras</h2>
+                                <h2><span class="heading-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <circle cx="9" cy="21" r="1" />
+                                            <circle cx="18" cy="21" r="1" />
+                                            <path d="M2.5 3h2l2.7 12.4a2 2 0 0 0 2 1.6h7.6a2 2 0 0 0 2-1.6L21 8H6" />
+                                        </svg></span>Compras</h2>
                             </div>
                             <ul id="shopping-list" class="items-list">
                                 <li class="empty-list">Nenhum item adicionado.</li>
                             </ul>
                         </div>
-                        
+
                         <div class="list-card glass-panel">
                             <div class="section-header">
-                                <h2>✅ Tarefas</h2>
+                                <h2><span class="heading-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M20 6 9 17l-5-5" />
+                                        </svg></span>Tarefas</h2>
                             </div>
                             <ul id="todo-list" class="items-list">
                                 <li class="empty-list">Nenhuma tarefa pendente.</li>
                             </ul>
                         </div>
-                        
+
                         <div class="list-card glass-panel">
                             <div class="section-header">
-                                <h2>⏰ Lembretes Ativos</h2>
+                                <h2><span class="heading-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+                                            <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+                                        </svg></span>Lembretes Ativos</h2>
                             </div>
                             <ul id="timers-list" class="items-list timers-list-ui">
                                 <li class="empty-list">Nenhum lembrete ativo.</li>
@@ -160,19 +254,65 @@
                         <p class="subtitle">Conecte serviços externos para expandir os poderes do Alfredo.</p>
                     </div>
                 </header>
-                
+
                 <div class="integrations-grid">
                     <div class="integration-card glass-panel" id="card-spotify">
                         <div class="integration-header">
-                            <div class="integration-icon spotify-icon">🎵</div>
+                            <div class="integration-icon spotify-icon">
+                                <svg viewBox="0 0 24 24" width="24" height="24" fill="#fff">
+                                    <path
+                                        d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm4.59 14.44a.62.62 0 0 1-.86.2c-2.36-1.44-5.33-1.77-8.83-.97a.62.62 0 1 1-.28-1.22c3.83-.88 7.13-.5 9.77 1.12.3.19.4.58.2.87Zm1.22-2.72a.78.78 0 0 1-1.07.26c-2.7-1.66-6.82-2.14-10.02-1.17a.78.78 0 1 1-.46-1.5c3.65-1.1 8.19-.57 11.29 1.34.37.23.49.72.26 1.07Zm.11-2.83c-3.24-1.92-8.6-2.1-11.7-1.16a.94.94 0 1 1-.55-1.8c3.56-1.08 9.47-.87 13.2 1.34a.94.94 0 0 1-.95 1.62Z" />
+                                </svg>
+                            </div>
                             <div>
                                 <h2>Spotify</h2>
                             </div>
                             <span class="status-badge" id="spotify-status-badge">Carregando...</span>
                         </div>
-                        <p class="integration-desc">Controle músicas, playlists e alto-falantes pela voz em toda a casa.</p>
+                        <p class="integration-desc">Controle músicas, playlists e alto-falantes pela voz em toda a casa.
+                        </p>
                         <button class="glass-btn primary-btn" id="btn-connect-spotify">Configurar</button>
                     </div>
+                </div>
+            </div>
+
+            <!-- ============================
+                 SONHOS TAB
+                 ============================ -->
+            <div id="tab-sonhos" class="tab-content" style="display: none;">
+                <header class="topbar">
+                    <div>
+                        <h1>Diário de Sonhos</h1>
+                        <p class="subtitle">Exploração psicanalítica e nuvem de palavras do seu subconsciente.</p>
+                    </div>
+                </header>
+
+                <div class="content-grid">
+                    <section class="glass-panel flex-col" style="padding: 22px; flex: 1;">
+                        <div class="section-header">
+                            <h2><span class="heading-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path
+                                            d="M17.5 19H8a5 5 0 1 1 1.3-9.8A6 6 0 0 1 20 12.5a3.5 3.5 0 0 1-2.5 6.5Z" />
+                                    </svg></span>Nuvem de Temas</h2>
+                        </div>
+                        <div id="word-cloud-container" class="word-cloud">
+                            <div class="loading">Coletando pensamentos...</div>
+                        </div>
+                    </section>
+
+                    <section class="glass-panel flex-col" style="padding: 22px; flex: 1.5;">
+                        <div class="section-header">
+                            <h2><span class="heading-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" />
+                                    </svg></span>Timeline de Interpretações</h2>
+                        </div>
+                        <div id="dreams-list" class="dreams-list">
+                            <div class="loading">Carregando diário...</div>
+                        </div>
+                    </section>
                 </div>
             </div>
 
@@ -186,20 +326,28 @@
                         <p class="subtitle">Ensine o Alfredo a ter iniciativa própria com regras de automação.</p>
                     </div>
                 </header>
-                
+
                 <div class="content-grid">
                     <section class="glass-panel flex-col" style="padding: 22px;">
                         <div class="section-header">
-                            <h2>⏰ Minhas Rotinas</h2>
+                            <h2><span class="heading-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="9" />
+                                        <path d="M12 7v5l3.5 2" />
+                                    </svg></span>Minhas Rotinas</h2>
                         </div>
                         <div id="routines-list" class="routines-list">
                             <div class="loading">Carregando rotinas...</div>
                         </div>
                     </section>
-                    
+
                     <section class="glass-panel" style="padding: 22px;">
                         <div class="section-header">
-                            <h2>➕ Nova Rotina</h2>
+                            <h2><span class="heading-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg></span>Nova Rotina</h2>
                         </div>
                         <div class="routine-form">
                             <div class="form-group">
@@ -221,9 +369,11 @@
                             </div>
                             <div class="form-group">
                                 <label>Comando Simulado</label>
-                                <input type="text" id="rt-action" class="glass-input" placeholder="Ex: como está o clima">
+                                <input type="text" id="rt-action" class="glass-input"
+                                    placeholder="Ex: como está o clima">
                             </div>
-                            <button id="btn-save-routine" class="glass-btn primary-btn full-width">Salvar Rotina</button>
+                            <button id="btn-save-routine" class="glass-btn primary-btn full-width">Salvar
+                                Rotina</button>
                         </div>
                     </section>
                 </div>
@@ -239,13 +389,21 @@
                         <p class="subtitle">Ajuste parâmetros globais, endereços e chaves de API.</p>
                     </div>
                 </header>
-                
+
                 <div class="settings-grid">
-                    
+
                     <!-- Assistente (Nome e Voz) -->
                     <div class="settings-card glass-panel">
                         <div class="settings-card-header">
-                            <div class="settings-icon" style="background: rgba(99, 102, 241, 0.12); color: var(--accent-indigo);">🗣️</div>
+                            <div class="settings-icon"
+                                style="background: rgba(139, 147, 255, 0.12); color: var(--accent-indigo);">
+                                <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                                    <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+                                    <line x1="12" y1="18" x2="12" y2="22" />
+                                </svg>
+                            </div>
                             <div>
                                 <h2>Assistente</h2>
                                 <p>Nome de ativação e voz</p>
@@ -254,20 +412,27 @@
                         <div class="routine-form">
                             <div class="form-group">
                                 <label>Nome (Wake Word)</label>
-                                <input type="text" id="set-assistant-name" class="glass-input" placeholder="Ex: Alfredo" value="alfredo">
+                                <input type="text" id="set-assistant-name" class="glass-input" placeholder="Ex: Alfredo"
+                                    value="alfredo">
                             </div>
                             <div class="form-group">
                                 <label>Voz do Assistente</label>
                                 <select id="set-assistant-voice" class="glass-input">
-                                    <option value="pt_BR-cadu-medium">Cadu (Masculino BR)</option>
-                                    <option value="pt_BR-edresson-low">Edresson (Masculino BR - Leve)</option>
-                                    <option value="pt_BR-faber-medium" selected>Faber (Masculino BR - Suave)</option>
-                                    <option value="pt_BR-jeff-medium">Jeff (Masculino BR - Grave)</option>
-                                    <option value="pt_PT-tugão-medium">Tugão (Masculino PT-PT)</option>
+                                    <option value="pt-BR-AntonioNeural">Antonio (Masculino BR)</option>
+                                    <option value="pt-BR-FranciscaNeural" selected>Francisca (Feminino BR)</option>
+                                    <option value="pt-BR-ThalitaNeural">Thalita (Feminino BR)</option>
+                                    <option value="pt-PT-DuarteNeural">Duarte (Masculino PT-PT)</option>
+                                    <option value="pt-PT-RaquelNeural">Raquel (Feminino PT-PT)</option>
                                 </select>
                             </div>
                             <div class="voice-preview-section">
-                                <button id="btn-test-voice" class="glass-btn full-width">▶ Ouvir Prévia</button>
+                                <button id="btn-test-voice" class="glass-btn full-width">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polygon points="6 3 20 12 6 21 6 3" />
+                                    </svg>
+                                    Ouvir Prévia
+                                </button>
                             </div>
                             <audio id="audio-preview" style="display: none;"></audio>
                         </div>
@@ -276,7 +441,15 @@
                     <!-- APIs e Conteúdo -->
                     <div class="settings-card glass-panel">
                         <div class="settings-card-header">
-                            <div class="settings-icon" style="background: rgba(245, 158, 11, 0.12); color: var(--accent-amber);">🔑</div>
+                            <div class="settings-icon"
+                                style="background: rgba(201, 162, 75, 0.14); color: var(--accent-brass-light);">
+                                <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <circle cx="7.5" cy="15.5" r="4.5" />
+                                    <path d="M10.9 12.1 19 4l3 3-2 2-2-2-2.9 2.9" />
+                                    <path d="m13 9 3 3" />
+                                </svg>
+                            </div>
                             <div>
                                 <h2>APIs e Conteúdo</h2>
                                 <p>Chaves externas e feeds</p>
@@ -290,39 +463,54 @@
                             </div>
                             <div class="form-group">
                                 <label>URL Feed RSS de Notícias</label>
-                                <input type="text" id="set-news-rss" class="glass-input" placeholder="https://g1.globo.com/rss/g1/">
+                                <input type="text" id="set-news-rss" class="glass-input"
+                                    placeholder="https://g1.globo.com/rss/g1/">
                                 <span class="input-hint">Padrão: G1 Globo.</span>
                             </div>
                             <div class="form-group">
                                 <label>Cidade (Para Clima)</label>
                                 <input type="text" id="set-city" class="glass-input" placeholder="Ex: Rio de Janeiro">
                             </div>
-                            <button id="btn-save-settings" class="glass-btn primary-btn full-width" style="margin-top: 8px;">Salvar Configurações</button>
+                            <button id="btn-save-settings" class="glass-btn primary-btn full-width"
+                                style="margin-top: 8px;">Salvar Configurações</button>
                         </div>
                     </div>
 
                     <!-- Endereços Salvos (FULL SPAN) -->
                     <div class="settings-card glass-panel full-span">
                         <div class="settings-card-header">
-                            <div class="settings-icon" style="background: rgba(20, 184, 166, 0.12); color: var(--accent-teal);">📍</div>
+                            <div class="settings-icon"
+                                style="background: rgba(79, 184, 172, 0.14); color: var(--accent-teal);">
+                                <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+                                    <circle cx="12" cy="10" r="3" />
+                                </svg>
+                            </div>
                             <div>
                                 <h2>Meus Endereços</h2>
                                 <p>Localizações salvas para trânsito e clima</p>
                             </div>
                         </div>
-                        
+
                         <div id="locations-list" class="locations-list">
                             <div class="loading">Carregando endereços...</div>
                         </div>
 
                         <button id="btn-add-location" class="glass-btn full-width" style="margin-bottom: 12px;">
-                            ＋ Adicionar Endereço
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="12" y1="5" x2="12" y2="19" />
+                                <line x1="5" y1="12" x2="19" y2="12" />
+                            </svg>
+                            Adicionar Endereço
                         </button>
-                        
+
                         <div id="add-location-form" class="add-location-form">
                             <div class="form-group" style="margin-bottom: 8px;">
                                 <label>Nome do Endereço</label>
-                                <input type="text" id="loc-name" class="glass-input" placeholder="Ex: Casa, Trabalho, Estádio...">
+                                <input type="text" id="loc-name" class="glass-input"
+                                    placeholder="Ex: Casa, Trabalho, Estádio...">
                             </div>
                             <div class="form-row">
                                 <div class="form-group" style="margin-bottom: 8px;">
@@ -343,30 +531,208 @@
 
                 </div>
             </div>
-            
+
+            <!-- ============================
+                 SATÉLITES TAB
+                 ============================ -->
+            <div id="tab-satelites" class="tab-content" style="display: none;">
+                <header class="topbar">
+                    <div>
+                        <h1>Controle de Frota</h1>
+                        <p class="subtitle">Gerencie e interaja com os satélites espalhados pela casa.</p>
+                    </div>
+                </header>
+
+                <div class="split-layout" style="grid-template-columns: 1fr 1fr;">
+                    <!-- Coluna 1: Lista de Satélites (Grid) -->
+                    <div class="panel glass-panel">
+                        <h2>Frota de Satélites</h2>
+                        <p style="color: rgba(255,255,255,0.6); margin-bottom: 20px; font-size: 0.9rem;">
+                            Selecione um dispositivo para acessar suas configurações e áudio.
+                        </p>
+
+                        <div id="satellites-list" class="kpi-grid" style="grid-template-columns: 1fr; gap: 10px;">
+                            <div class="loading" style="text-align: center; color: rgba(255,255,255,0.5);">Buscando
+                                frotas no banco de dados...</div>
+                        </div>
+                    </div>
+
+                    <!-- Coluna 2: Detalhes do Satélite Selecionado -->
+                    <div class="panel glass-panel" id="satellite-details-panel"
+                        style="display: flex; flex-direction: column; opacity: 0.5; pointer-events: none; transition: opacity 0.3s;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+                            <div>
+                                <h2 id="det-sat-name"
+                                    style="color: var(--accent-brass-light); font-size: 1.5rem; margin-bottom: 4px;">
+                                    Nenhum Selecionado</h2>
+                                <span id="det-sat-status"
+                                    style="font-size: 0.8rem; padding: 2px 8px; border-radius: 12px; background: rgba(255,255,255,0.1);">Desconhecido</span>
+                            </div>
+                            <div style="opacity: 0.8; width: 32px; height: 32px; color: var(--accent-brass-light);">
+                                <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor"
+                                    stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M4 11a9 9 0 0 1 9-9" />
+                                    <path d="M4 4l16 16" />
+                                    <path d="M14.5 9.5 4 20l3-1 6.5-6.5" />
+                                    <circle cx="18" cy="6" r="2.5" />
+                                </svg>
+                            </div>
+                        </div>
+
+                        <!-- Hardware Info -->
+                        <div
+                            style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 15px; margin-bottom: 20px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9rem;">
+                                <div>
+                                    <strong style="color: rgba(255,255,255,0.6);">Hardware:</strong><br>
+                                    <span id="det-sat-hardware">—</span>
+                                </div>
+                                <div>
+                                    <strong style="color: rgba(255,255,255,0.6);">Firmware:</strong><br>
+                                    <span id="det-sat-firmware">—</span>
+                                </div>
+                                <div>
+                                    <strong style="color: rgba(255,255,255,0.6);">ID:</strong><br>
+                                    <span id="det-sat-id" style="font-family: monospace;">—</span>
+                                </div>
+                                <div>
+                                    <strong style="color: rgba(255,255,255,0.6);">Cômodo:</strong><br>
+                                    <span id="det-sat-room">—</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Controles -->
+                        <div style="margin-bottom: 30px;">
+                            <h3 style="font-size: 1rem; margin-bottom: 10px;">Ajustes Remotos</h3>
+                            <div class="form-group" style="margin-bottom: 15px;">
+                                <label style="display: flex; justify-content: space-between;">
+                                    <span>Volume</span> <span id="val-vol">70%</span>
+                                </label>
+                                <input type="range" id="slider-vol" min="0" max="100" value="70"
+                                    style="width: 100%; accent-color: var(--accent-brass);">
+                            </div>
+                            <div class="form-group">
+                                <label style="display: flex; justify-content: space-between;">
+                                    <span>Brilho do LED</span> <span id="val-bri">50%</span>
+                                </label>
+                                <input type="range" id="slider-bri" min="0" max="100" value="50"
+                                    style="width: 100%; accent-color: var(--accent-brass);">
+                            </div>
+                        </div>
+
+                        <!-- Live Audio -->
+                        <div
+                            style="margin-top: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.2); border-radius: 16px; padding: 20px;">
+                            <div class="audio-monitor-circle" id="audio-monitor-indicator"
+                                style="width: 80px; height: 80px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; color: var(--accent-brass-light); margin-bottom: 15px; transition: all 0.3s ease;">
+                                <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor"
+                                    stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                                    <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+                                    <line x1="12" y1="18" x2="12" y2="22" />
+                                </svg>
+                            </div>
+                            <button id="btn-live-listen" class="glass-btn primary-btn"
+                                style="width: 100%; border-radius: 20px;">
+                                Segure para Escutar Ao Vivo
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================
+                 INTELIGÊNCIA TAB
+                 ============================ -->
+            <div id="tab-inteligencia" class="tab-content" style="display: none;">
+                <header class="topbar">
+                    <div>
+                        <h1>Inteligência</h1>
+                        <p class="subtitle">Controle o Cérebro, as APIs e a Memória do Alfredo.</p>
+                    </div>
+                </header>
+
+                <div class="split-layout">
+                    <!-- Coluna 1: API Monitor -->
+                    <div class="panel glass-panel">
+                        <h2>Monitor de Carga e API</h2>
+                        <div class="api-status-monitor">
+                            <div class="api-indicator">
+                                <span class="pulse-dot" style="background-color: #4fb87a;"></span>
+                                <span id="api-status-text">Buscando status...</span>
+                            </div>
+                            <div class="kpi-grid" style="margin-top: 20px; grid-template-columns: 1fr 1fr;">
+                                <div class="kpi-card" style="background: rgba(255,255,255,0.02); padding: 15px;">
+                                    <div class="kpi-title">Modelo Atual</div>
+                                    <div class="kpi-value" id="api-model-name" style="font-size: 1.2rem; color: #fff;">—
+                                    </div>
+                                </div>
+                                <div class="kpi-card" style="background: rgba(255,255,255,0.02); padding: 15px;">
+                                    <div class="kpi-title">Chave Ativa (Round-Robin)</div>
+                                    <div class="kpi-value" id="api-key-idx" style="font-size: 1.8rem; color: #fff;">—
+                                    </div>
+                                </div>
+                                <div class="kpi-card"
+                                    style="background: rgba(255,255,255,0.02); padding: 15px; grid-column: span 2;">
+                                    <div class="kpi-title">Total de Requisições Globais (Brain)</div>
+                                    <div class="kpi-value" id="api-global-reqs"
+                                        style="font-size: 1.8rem; color: var(--accent-brass-light);">—</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Coluna 2: Memória de Longo Prazo -->
+                    <div class="panel glass-panel">
+                        <h2>Memória de Longo Prazo</h2>
+                        <p style="color: rgba(255,255,255,0.6); margin-bottom: 20px;">
+                            Fatos que o Alfredo aprendeu sobre você e que são injetados em todas as conversas
+                            ("Always-On Context").
+                        </p>
+
+                        <ul id="memory-list" class="styled-list">
+                            <li style="text-align: center; color: rgba(255,255,255,0.5);">Carregando memórias...</li>
+                        </ul>
+
+                        <div class="add-memory-form" style="margin-top: 20px; display: flex; gap: 10px;">
+                            <input type="text" id="new-memory-input" class="modern-input"
+                                placeholder="Novo fato (ex: Gosto de café sem açúcar)" style="flex: 1;">
+                            <button class="primary-btn glass-btn" onclick="addMemory()">Adicionar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </main>
     </div>
-    
+
     <!-- Spotify Modal -->
     <div id="spotify-modal" class="modal-overlay" style="display: none;">
         <div class="modal-content glass-panel">
             <button class="close-btn" id="close-spotify-modal">&times;</button>
             <h2>Conectar Spotify</h2>
-            
+
             <div id="spotify-step-1">
-                <p class="modal-desc">Crie um app no <a href="https://developer.spotify.com/dashboard" target="_blank">Dashboard do Spotify</a>, coloque o Redirect URI apontando para <strong>http://<span id="local-ip-hint">IP</span>:10001/api/spotify/callback</strong> e cole as chaves abaixo.</p>
-                
+                <p class="modal-desc">Crie um app no <a href="https://developer.spotify.com/dashboard"
+                        target="_blank">Dashboard do Spotify</a>, coloque o Redirect URI apontando para
+                    <strong>http://<span id="local-ip-hint">IP</span>:10001/api/spotify/callback</strong> e cole as
+                    chaves abaixo.
+                </p>
+
                 <div class="form-group">
                     <label>Client ID</label>
                     <input type="text" id="spotify-client-id" class="glass-input" placeholder="Cole o Client ID">
                 </div>
                 <div class="form-group">
                     <label>Client Secret</label>
-                    <input type="password" id="spotify-client-secret" class="glass-input" placeholder="Cole o Client Secret">
+                    <input type="password" id="spotify-client-secret" class="glass-input"
+                        placeholder="Cole o Client Secret">
                 </div>
                 <button class="glass-btn primary-btn full-width" id="btn-save-spotify">Salvar e Gerar QR Code</button>
             </div>
-            
+
             <div id="spotify-step-2" style="display: none; text-align: center;">
                 <p class="modal-desc">Aponte a câmera do seu celular para autenticar com a sua conta.</p>
                 <div id="spotify-qrcode" class="qrcode-container"></div>
@@ -378,7 +744,8 @@
             </div>
         </div>
     </div>
-    
+
     <script src="app.js"></script>
 </body>
+
 </html>

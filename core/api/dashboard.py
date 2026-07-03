@@ -8,6 +8,7 @@ from sqlalchemy import func
 from core.brain.memory import models
 from core.brain.memory.database import get_db
 from fastapi.responses import FileResponse
+import json
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
@@ -32,6 +33,36 @@ def get_stats(db: Session = Depends(get_db)):
         "devices": devices_registered,
         "active_timers": active_timers,
         "tokens_used": tokens_used
+    }
+
+@router.get("/dreams")
+def get_dreams(limit: int = 50, db: Session = Depends(get_db)):
+    """Retorna o diário de sonhos e a frequência de palavras-chave para a nuvem de palavras."""
+    dreams = db.query(models.DreamLog).order_by(models.DreamLog.created_at.desc()).limit(limit).all()
+    
+    word_freq = {}
+    history = []
+    
+    for d in dreams:
+        try:
+            themes = json.loads(d.themes) if d.themes else []
+            for theme in themes:
+                t = theme.lower().strip()
+                if t:
+                    word_freq[t] = word_freq.get(t, 0) + 1
+        except Exception:
+            themes = []
+            
+        history.append({
+            "id": d.id,
+            "themes": themes,
+            "interpretation": d.interpretation,
+            "created_at": d.created_at.isoformat() if d.created_at else None
+        })
+        
+    return {
+        "history": history,
+        "word_freq": word_freq
     }
 
 @router.get("/history")
@@ -333,3 +364,51 @@ def toggle_routine(routine_id: int, db: Session = Depends(get_db)):
     routine.is_active = not routine.is_active
     db.commit()
     return {"status": "success", "is_active": routine.is_active}
+
+# --- INTELIGÊNCIA / MEMÓRIA ---
+
+@router.get("/memories")
+def get_memories(db: Session = Depends(get_db)):
+    memories = db.query(models.MemoryFact).order_by(models.MemoryFact.created_at.desc()).all()
+    return [{"id": m.id, "fact": m.fact, "room_id": m.room_id, "created_at": m.created_at.isoformat() if m.created_at else None} for m in memories]
+
+class MemoryCreate(BaseModel):
+    fact: str
+    room_id: str = "default"
+
+@router.post("/memories")
+def create_memory(payload: MemoryCreate, db: Session = Depends(get_db)):
+    new_mem = models.MemoryFact(fact=payload.fact, room_id=payload.room_id)
+    db.add(new_mem)
+    db.commit()
+    db.refresh(new_mem)
+    return {"status": "success", "id": new_mem.id}
+
+@router.delete("/memories/{memory_id}")
+def delete_memory(memory_id: int, db: Session = Depends(get_db)):
+    mem = db.query(models.MemoryFact).filter(models.MemoryFact.id == memory_id).first()
+    if mem:
+        db.delete(mem)
+        db.commit()
+    return {"status": "success"}
+
+@router.get("/status")
+def get_api_status():
+    import core.brain.router as brain_router
+    keys_env = os.getenv("GEMINI_API_KEYS")
+    if keys_env:
+        keys = [k.strip() for k in keys_env.split(",") if k.strip()]
+    else:
+        single = os.getenv("GEMINI_API_KEY")
+        keys = [single.strip()] if single else []
+        
+    total_keys = len(keys)
+    current_idx = (brain_router._global_key_idx % total_keys) + 1 if total_keys > 0 else 0
+    
+    return {
+        "status": "online",
+        "model": "gemini-3.1-flash-lite",
+        "keys_total": total_keys,
+        "current_key_idx": current_idx,
+        "global_requests": brain_router._global_key_idx
+    }
