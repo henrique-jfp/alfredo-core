@@ -224,13 +224,32 @@ def send_audio_and_play(filename):
         with open(filename, 'rb') as f:
             files = {'file': ('audio.wav', f, 'audio/wav')}
             start_time = time.time()
-            response = requests.post(url, headers=headers, files=files)
+            response = requests.post(url, headers=headers, files=files, stream=True)
+            
         if response.status_code == 200:
-            latency = time.time() - start_time
-            print(f"Resposta recebida em {latency:.2f} segundos!")
-            with open(WAVE_RESPONSE, 'wb') as f:
-                f.write(response.content)
-            play_audio(WAVE_RESPONSE)
+            first_byte_received = False
+            
+            player_process = subprocess.Popen(
+                ['ffplay', '-nodisp', '-autoexit', '-i', 'pipe:0'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            
+            for chunk in response.iter_content(chunk_size=4096):
+                if chunk:
+                    if not first_byte_received:
+                        ttfb = time.time() - start_time
+                        print(f"🔊 Áudio iniciado em {ttfb:.2f} segundos!", flush=True)
+                        first_byte_received = True
+                    player_process.stdin.write(chunk)
+                    player_process.stdin.flush()
+                    
+            player_process.stdin.close()
+            player_process.wait()
+            
+            total_time = time.time() - start_time
+            print(f"✅ Interação concluída. Tempo total: {total_time:.2f} segundos.", flush=True)
         else:
             print(f"Erro do servidor: {response.status_code} - {response.text}")
     except Exception as e:

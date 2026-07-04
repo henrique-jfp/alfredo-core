@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Header
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
@@ -168,8 +168,7 @@ async def process_voice(
         logger.error(f"Erro no Router: {e}")
         response_text = "Tive um problema interno ao tentar pensar na sua resposta."
     
-    # 5. Sintetizar áudio de resposta com Piper
-    output_filepath = os.path.join(temp_dir, f"out_{int(time.time())}.wav")
+    # 5. Sintetizar áudio de resposta com TTS
     try:
         # Busca a voz configurada no banco (se não houver, usa faber padrão)
         voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
@@ -177,15 +176,17 @@ async def process_voice(
         
         tts_engine = get_tts_engine()
         tts_engine.reload_voice(chosen_voice)
-        await tts_engine.synthesize_wav(response_text, output_filepath)
         
         interaction.output_text = response_text
         db.commit()
+        
+        return StreamingResponse(
+            tts_engine.stream_audio_generator(response_text),
+            media_type="audio/mpeg"
+        )
     except Exception as e:
-        logger.error(f"Erro no Piper TTS: {e}")
-        # Retorna erro genérico se falhar
+        logger.error(f"Erro no TTS: {e}")
         raise HTTPException(status_code=500, detail="Erro na síntese de voz.")
-    return FileResponse(output_filepath, media_type="audio/wav")
 
 @app.post("/api/voice/transcribe")
 async def process_voice_transcribe(
