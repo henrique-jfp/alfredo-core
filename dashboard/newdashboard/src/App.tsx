@@ -8,6 +8,7 @@ import { RoutinesTab } from './components/tabs/RoutinesTab';
 import { DreamsTab } from './components/tabs/DreamsTab';
 import { SettingsTab } from './components/tabs/SettingsTab';
 import { IntegrationsTab } from './components/tabs/IntegrationsTab';
+import { VirtualKeyboard } from './components/VirtualKeyboard';
 
 export default function App() {
   const [activeTab, setActiveTab] = React.useState<TabId>('visao-geral');
@@ -28,6 +29,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full bg-obsidian-900 text-zinc-100 overflow-hidden selection:bg-brass-500/30">
+      <VirtualKeyboard />
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
       
       <main className="flex-grow flex flex-col pt-6 px-8 h-full min-w-0 relative z-10">
