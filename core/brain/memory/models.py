@@ -13,6 +13,8 @@ class Device(Base):
     firmware_version = Column(String, nullable=False)
     # Salvando a lista de capabilities como JSON string no SQLite
     _capabilities = Column("capabilities", String, default="[]") 
+    volume = Column(Integer, default=70)
+    brightness = Column(Integer, default=50)
     last_seen = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     @property
@@ -41,6 +43,7 @@ class AIUsage(Base):
     id = Column(Integer, primary_key=True, index=True)
     provider = Column(String, nullable=False) # Ex: Groq, Gemini
     tokens_used = Column(Integer, nullable=False, default=0)
+    latency_ms = Column(Integer, nullable=False, default=0)
     room_id = Column(String, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -106,6 +109,7 @@ class Routine(Base):
     action_value = Column(String, nullable=False) # "como está o clima"
     room_id = Column(String, nullable=False, index=True)
     is_active = Column(Boolean, default=True)
+    days_of_week = Column(String, default="0,1,2,3,4,5,6") # 0=Sunday, 6=Saturday
     last_run = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -143,3 +147,24 @@ class MemoryFact(Base):
     fact = Column(String, nullable=False)
     room_id = Column(String, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class SessionState(Base):
+    __tablename__ = "session_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+    room_id = Column(String, unique=True, index=True, nullable=False)
+    skill_name = Column(String, nullable=False)
+    state_data = Column(String, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class TVConfig(Base):
+    __tablename__ = "tv_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    room_id = Column(String, unique=True, index=True, nullable=False) # Ex: ROOM_LIVING
+    ip_address = Column(String, nullable=True)
+    mac_address = Column(String, nullable=True)
+    smartthings_pat = Column(String, nullable=True)
+    smartthings_device_id = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import google.generativeai as genai
+from groq import Groq as GroqClient
 from typing import Dict, Any
 from core.brain.skills.weather_skill import WeatherSkill
 from core.brain.skills.traffic_skill import TrafficSkill
@@ -9,10 +10,15 @@ from core.brain.skills.list_skill import ListSkill
 from core.brain.skills.time_skill import TimeSkill
 from core.brain.skills.media_skill import MediaSkill
 from core.brain.skills.quiz_skill import QuizSkill
+from core.brain.skills.calendar_skill import CalendarSkill
 from core.brain.skills.timer_skill import TimerSkill
 from core.brain.skills.recipe_skill import RecipeSkill
 from core.brain.skills.dream_skill import DreamSkill
 from core.brain.skills.memory_skill import MemorySkill
+from core.brain.skills.translate_skill import TranslateSkill
+from core.brain.skills.news_skill import NewsSkill
+from core.brain.skills.music_skill import MusicSkill
+from core.brain.skills.tv_skill import TVSkill
 
 logger = logging.getLogger("alfredo.agent")
 
@@ -27,11 +33,23 @@ class AgentRouter:
             "manage_timer": TimerSkill(),
             "get_time": TimeSkill(),
             "search_media": MediaSkill(),
+            "manage_music": MusicSkill(),
             "manage_quiz": QuizSkill(),
             "manage_recipe": RecipeSkill(),
+            "manage_calendar": CalendarSkill(),
             "log_dream": DreamSkill(),
-            "manage_memory": MemorySkill()
+            "manage_memory": MemorySkill(),
+            "translate": TranslateSkill(),
+            "get_news": NewsSkill(),
+            "manage_tv": TVSkill()
         }
+        self.groq_client = None
+        groq_key = os.getenv("GROQ_API_KEY")
+        if groq_key:
+            try:
+                self.groq_client = GroqClient(api_key=groq_key)
+            except Exception as e:
+                logger.warning(f"Groq fast path unavailable: {e}")
 
     def _get_tools_schema(self):
         return [
@@ -50,28 +68,31 @@ class AgentRouter:
                     },
                     {
                         "name": "get_traffic",
-                        "description": "Obtém a estimativa de trânsito e rota entre dois lugares",
+                        "description": "Acione SEMPRE que o usuário perguntar sobre trânsito, tempo de viagem ou rota. NUNCA pergunte sobre meio de transporte.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
-                                "origin": {"type": "STRING", "description": "Local de origem (ex: casa). Se omitido, assume casa do usuário."},
-                                "destination": {"type": "STRING", "description": "Local de destino (ex: trabalho, supermercado, farmácia)"}
-                            },
-                            "required": ["destination"]
+                                "origin": {"type": "STRING", "description": "Origem. Se omitido, use 'casa'."},
+                                "destination": {"type": "STRING", "description": "Destino. Se omitido, use 'trabalho'."}
+                            }
                         }
                     },
                     {
                         "name": "manage_list",
-                        "description": "Adiciona, lê, deleta ou envia por e-mail itens de listas (tarefas ou compras)",
+                        "description": "GERENCIAR LISTAS: use esta ferramenta OBRIGATORIAMENTE para adicionar, ler, remover, limpar ou enviar e-mail de itens em listas de 'compras' ou 'tarefas'. NÃO responda como texto — execute a ferramenta.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
-                                "action": {"type": "STRING", "description": "Ação a realizar: 'add', 'read', 'clear' ou 'email'"},
+                                "action": {"type": "STRING", "description": "Ação a realizar: 'add', 'read', 'remove', 'clear' ou 'email'"},
                                 "list_type": {"type": "STRING", "description": "Tipo de lista: 'compras' ou 'tarefas'"},
                                 "items": {
                                     "type": "ARRAY", 
                                     "items": {"type": "STRING"},
                                     "description": "Itens a adicionar (apenas para a ação 'add')"
+                                },
+                                "item": {
+                                    "type": "STRING",
+                                    "description": "Item a remover (apenas para a ação 'remove')"
                                 }
                             },
                             "required": ["action", "list_type"]
@@ -79,13 +100,14 @@ class AgentRouter:
                     },
                     {
                         "name": "manage_timer",
-                        "description": "Cria alarmes (horas absolutas) ou cronômetros (tempo relativo), ou lista os existentes",
+                        "description": "GERENCIAR ALARMES E TIMERS: use esta ferramenta OBRIGATORIAMENTE para criar, listar ou deletar alarmes, despertadores ou cronômetros. NUNCA responda que o alarme foi criado sem acionar esta ferramenta.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
                                 "action": {"type": "STRING", "description": "Ação a realizar: 'create', 'list' ou 'delete'"},
                                 "duration_seconds": {"type": "INTEGER", "description": "Duração em segundos para timers relativos (ex: daqui a 5 min = 300)"},
-                                "target_hour": {"type": "INTEGER", "description": "Hora absoluta (0-23) para alarmes ou despertadores (ex: às 7 da manhã = 7)"},
+                                "target_hour": {"type": "INTEGER", "description": "Hora absoluta (0-23) para alarmes ou despertadores (ex: às 7 da manhã = 7, às 3 da tarde = 15)"},
+                                "target_minute": {"type": "INTEGER", "description": "Minuto absoluto (0-59) para alarmes (ex: 7h43 = 43). Padrão é 0."},
                                 "message": {"type": "STRING", "description": "Mensagem ou motivo do alarme/lembrete"}
                             },
                             "required": ["action"]
@@ -115,14 +137,30 @@ class AgentRouter:
                         }
                     },
                     {
-                        "name": "manage_quiz",
-                        "description": "Inicia ou encerra um jogo interativo de perguntas e respostas (Quiz / Tarefa Escolar) com o usuário.",
+                        "name": "manage_music",
+                        "description": "Controla a reprodução do Spotify: tocar música/artista, pausar, pular faixa, voltar, retomar e ajustar volume.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
-                                "action": {"type": "STRING", "description": "Ação a realizar: 'start' para iniciar o quiz, 'stop' para encerrar"},
+                                "action": {"type": "STRING", "description": "Ação: 'search' para buscar e tocar, 'pause', 'resume', 'next', 'previous' ou 'volume'"},
+                                "query": {"type": "STRING", "description": "Nome da música ou artista (apenas para action='search')"},
+                                "volume": {"type": "INTEGER", "description": "Volume de 0 a 100 (apenas para action='volume')"}
+                            },
+                            "required": ["action"]
+                        }
+                    },
+                    {
+                        "name": "manage_quiz",
+                        "description": "Inicia, atualiza placar ou encerra um jogo interativo de perguntas e respostas (Quiz / Tarefa Escolar) com o usuário.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "action": {"type": "STRING", "description": "'start' para iniciar, 'update' para salvar placar, 'stop' para encerrar"},
                                 "subject": {"type": "STRING", "description": "O assunto do quiz. Ex: 'matemática', 'geografia', 'conhecimentos gerais'"},
-                                "difficulty": {"type": "STRING", "description": "O nível de dificuldade do quiz. Ex: 'criança de 9 anos', 'difícil', 'adulto'"}
+                                "difficulty": {"type": "STRING", "description": "O nível de dificuldade do quiz. Ex: 'criança de 9 anos', 'difícil', 'adulto'"},
+                                "score": {"type": "NUMBER", "description": "Número de acertos (usar com action='update')"},
+                                "questions_count": {"type": "NUMBER", "description": "Total de perguntas feitas (usar com action='update')"},
+                                "max_questions": {"type": "NUMBER", "description": "Limite máximo de perguntas (padrão: 10)"}
                             },
                             "required": ["action"]
                         }
@@ -133,10 +171,25 @@ class AgentRouter:
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
-                                "action": {"type": "STRING", "description": "Ação a realizar: 'recipe' para ditar uma receita, 'pairing' para harmonização"},
-                                "query": {"type": "STRING", "description": "O nome do prato ou do vinho. Ex: 'risoto de funghi' ou 'vinho tinto'"}
+                                "action": {"type": "STRING", "description": "'recipe' para iniciar, 'next_step' após cada passo, 'pairing' para harmonização, 'finish' para encerrar"},
+                                "query": {"type": "STRING", "description": "O nome do prato ou do vinho. Ex: 'risoto de funghi' ou 'vinho tinto'"},
+                                "step": {"type": "NUMBER", "description": "Número do próximo passo (usar com action='next_step')"}
                             },
                             "required": ["action", "query"]
+                        }
+                    },
+                    {
+                        "name": "manage_calendar",
+                        "description": "Gerencia compromissos na agenda: adiciona, lê ou remove eventos futuros.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "action": {"type": "STRING", "description": "Ação: 'add', 'read' ou 'remove'"},
+                                "title": {"type": "STRING", "description": "Título do compromisso (para add/remove)"},
+                                "start_time": {"type": "STRING", "description": "Data e hora ISO 8601. Ex: '2026-07-05T14:30:00' (para add)"},
+                                "date": {"type": "STRING", "description": "Data para leitura: 'hoje', 'amanhã' (apenas para read)"}
+                            },
+                            "required": ["action"]
                         }
                     },
                     {
@@ -153,9 +206,13 @@ class AgentRouter:
                                 "interpretation": {
                                     "type": "STRING", 
                                     "description": "Uma interpretação poética e psicológica do sonho em 2 frases."
+                                },
+                                "raw_text": {
+                                    "type": "STRING",
+                                    "description": "O relato completo do sonho como o usuário contou, preservado para registro."
                                 }
                             },
-                            "required": ["themes", "interpretation"]
+                            "required": ["themes", "interpretation", "raw_text"]
                         }
                     },
                     {
@@ -171,10 +228,250 @@ class AgentRouter:
                             },
                             "required": ["fact"]
                         }
+                    },
+                    {
+                        "name": "translate",
+                        "description": "Traduz frases ou palavras entre idiomas, ou dá mini-aulas de idiomas. Ex: 'traduza hello para português', 'como se fala obrigado em inglês', 'me dá uma aula de francês'",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "action": {"type": "STRING", "description": "Ação a realizar: 'translate' para tradução normal, 'lesson' para mini-aula"},
+                                "text": {"type": "STRING", "description": "A frase ou palavra a ser traduzida ou o tópico da aula"},
+                                "target_language": {"type": "STRING", "description": "Idioma alvo da tradução ou aula. Ex: 'inglês', 'espanhol', 'francês', 'italiano'"}
+                            },
+                            "required": ["action"]
+                        }
+                    },
+                    {
+                        "name": "get_news",
+                        "description": "Obtém as principais manchetes de notícias do Brasil e do mundo. Permite filtrar por categoria: política, esportes, economia, mundo, tecnologia, saúde, cultura ou ciência.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "category": {"type": "STRING", "description": "Categoria opcional: politica, esportes, economia, mundo, tecnologia, saude, cultura, ciencia"}
+                            }
+                        }
+                    },
+                    {
+                        "name": "manage_tv",
+                        "description": "Controla a Smart TV da sala (Samsung). Use para ligar, desligar, alterar volume, mutar ou abrir aplicativos (Netflix, YouTube).",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "action": {"type": "STRING", "description": "Ação a realizar: 'power_on', 'power_off', 'mute', 'unmute', 'volume_up', 'volume_down', 'set_volume', 'open_app'"},
+                                "app_name": {"type": "STRING", "description": "Nome do aplicativo para abrir (apenas para action='open_app')"},
+                                "volume": {"type": "INTEGER", "description": "Nível de volume desejado de 0 a 100 (apenas para action='set_volume')"}
+                            },
+                            "required": ["action"]
+                        }
                     }
                 ]
             }
         ]
+
+    def _is_simple_query(self, text: str, context: Dict[str, Any] = None) -> bool:
+        """Determina heurísticamente se a requisição pode ser respondida pelo Groq Fast Path."""
+        
+        # Se houver uma sessão ativa, não é simple query (precisamos do Gemini para continuar a ferramenta)
+        if context:
+            db = context.get("db")
+            room_id = context.get("room_id")
+            if db and room_id:
+                from core.brain.memory import models
+                session = db.query(models.SessionState).filter(models.SessionState.room_id == room_id).first()
+                if session:
+                    return False
+        
+        """Detecta queries que NÃO precisam de ferramentas (tools) e podem ir
+        direto para o Groq fast path (~300ms vs ~2-3s do Gemini).
+        
+        Abrange: saudações, despedidas, agradecimentos, piadas, perguntas de
+        conhecimento geral, confirmações e queries curtas conversacionais.
+        """
+        simple_keywords = [
+            # Saudações e despedidas
+            "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite",
+            "e aí", "e ai", "opa", "tchau", "até logo", "ate logo",
+            "até mais", "ate mais", "boa noite",
+            # Agradecimentos e confirmações
+            "obrigado", "brigado", "valeu", "sim", "não", "nao",
+            "talvez", "ok", "tá bom", "ta bom", "beleza", "certo",
+            "entendi", "legal", "show", "massa",
+            # Piadas e entretenimento
+            "piada", "conte", "conta", "história", "historia", "estória",
+            "curiosidade", "fato curioso", "fato interessante",
+            # Pedidos de informação geral (sem tools)
+            "fale", "diga", "explique", "explica", "me fala", "me diga",
+            "me conta", "me explica", "o que é", "o que são",
+            "quem é", "quem foi", "quem era", "quem são",
+            "como funciona", "por que", "porque", "por quê",
+            # Auto-referência
+            "como você", "quem é você", "o que você",
+            "qual sua", "qual é sua", "qual o seu",
+            # Traduções (a skill translate usa Gemini mas é simples)
+            "traduza", "traduz", "tradução", "traducao", "significa",
+            # Conselhos e opiniões
+            "o que acha", "o que você acha", "sua opinião",
+            "me ajuda", "me ajude", "sugere", "sugira", "recomenda",
+        ]
+        
+        # Keywords que indicam necessidade de tools (NÃO é simple query)
+        tool_keywords = [
+            "tempo", "clima", "previsão", "chuva", "sol",
+            "trânsito", "transito", "rota", "caminho",
+            "lista", "compras", "compra", "adicione", "adiciona",
+            "remova", "remove", "apague", "apaga",
+            "alarme", "timer", "cronômetro", "cronometro",
+            "lembrete", "desperte", "despertador", "acorde",
+            "daqui a", "daqui ", "minutos", "minuto",
+            "toque", "toca", "tocar", "música", "musica", "spotify",
+            "pause", "pausa", "pule", "pula", "próxima", "proxima",
+            "volume",
+            "receita", "ingrediente", "passo",
+            "sonho", "sonhei", "diário",
+            "quiz", "pergunta", "prova", "tarefa escolar",
+            "agenda", "compromisso", "evento", "calendário",
+            "notícia", "noticia", "manchete", "jornal", "news",
+            "memorize", "memoriza", "lembre", "lembra", "guarde", "guarda",
+            "que horas", "que hora", "que dia", "que data",
+            "filme", "série", "serie",
+            "tv", "televisão", "televisao",
+        ]
+        
+        text_lower = text.lower().strip()
+        # Remove wake word do início se presente (ex: "alfredo conte uma piada" -> "conte uma piada")
+        wake_prefixes = ["alfredo", "alfre", "fredo", "al fredo", "hey alfredo", "ok alfredo"]
+        for prefix in wake_prefixes:
+            if text_lower.startswith(prefix + " "):
+                text_lower = text_lower[len(prefix) + 1:]
+                break
+        
+        # Se contém keyword de tool, NÃO é simple query (precisa do Gemini para tool calling)
+        if any(kw in text_lower for kw in tool_keywords):
+            return False
+        
+        words = set(text_lower.split())
+        if any(text_lower.startswith(kw) for kw in simple_keywords):
+            return True
+        if any(kw in words for kw in simple_keywords if " " not in kw):
+            return True
+        # Queries curtas (até 5 palavras) sem menção de tools são conversacionais
+        if len(text_lower.split()) <= 5:
+            return True
+        return False
+
+    def _process_fast(self, text: str, context: Dict[str, Any]) -> str:
+        """Fast path via Groq (~300ms) para queries conversacionais sem tools."""
+        if not self.groq_client:
+            return None
+        import random
+        system = (
+            "Você é o Alfredo, assistente residencial amigável e natural. "
+            "Responda com 1-2 frases curtas e diretas. NUNCA use emojis. "
+            f"Seja variado e criativo — nunca repita respostas (Semente aleatória: {random.randint(1,10000)})."
+        )
+        db = context.get("db")
+        room_id = context.get("room_id")
+        if db and room_id:
+            try:
+                from core.brain.memory import models
+                memory_facts = db.query(models.MemoryFact).filter(models.MemoryFact.room_id == room_id).all()
+                if memory_facts:
+                    memories = "\n".join([f"- {m.fact}" for m in memory_facts])
+                    system += f"\n\nFatos sobre o usuário:\n{memories}"
+                # Injetar mini-histórico para contexto conversacional
+                from datetime import datetime, timedelta, timezone
+                ten_minutes_ago = datetime.now(timezone.utc) - timedelta(minutes=10)
+                last_interactions = db.query(models.Interaction).filter(
+                    models.Interaction.room_id == room_id,
+                    models.Interaction.input_text.isnot(None),
+                    models.Interaction.output_text.isnot(None),
+                    models.Interaction.input_text != "",
+                    models.Interaction.timestamp >= ten_minutes_ago
+                ).order_by(models.Interaction.id.desc()).limit(2).all()
+                if last_interactions:
+                    history = ""
+                    for interaction in reversed(last_interactions):
+                        history += f"Usuário: {interaction.input_text}\nAlfredo: {interaction.output_text}\n"
+                    system += f"\n\nHistórico recente:\n{history}"
+            except Exception:
+                pass
+        
+        # Injetar horário atual
+        from datetime import datetime
+        now = datetime.now()
+        system += f"\n\nHorário atual: {now.strftime('%d/%m/%Y %H:%M')}"
+        
+        try:
+            import time
+            t_start = time.time()
+            completion = self.groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": text}
+                ],
+                temperature=0.8,
+                max_tokens=200,
+                timeout=2.5  # Prevent hanging for 1 minute
+            )
+            result = completion.choices[0].message.content.strip()
+            latency = int((time.time() - t_start) * 1000)
+            logger.info(f"Groq fast path respondeu em {latency}ms")
+            return result
+        except Exception as e:
+            logger.warning(f"Groq fast path failed or timed out: {e}")
+            return None
+
+    @staticmethod
+    def _split_sentences(text: str):
+        """Divide texto em frases por pontuação final (.?!)."""
+        remainder = text.strip()
+        while remainder:
+            for sep in [". ", "? ", "! ", "\n\n"]:
+                idx = remainder.find(sep)
+                if idx != -1:
+                    sentence = remainder[:idx + len(sep)].strip()
+                    if sentence:
+                        yield sentence
+                    remainder = remainder[idx + len(sep):].strip()
+                    break
+            else:
+                yield remainder
+                return
+
+    @staticmethod
+    def _extract_sentences(buffer: str):
+        """Extrai frases completas do início do buffer (para streaming)."""
+        while True:
+            found = False
+            for sep in [". ", "? ", "! "]:
+                idx = buffer.find(sep)
+                if idx != -1:
+                    sentence = buffer[:idx + len(sep)].strip()
+                    if sentence:
+                        yield sentence
+                    buffer = buffer[idx + len(sep):]
+                    found = True
+                    break
+            if not found:
+                break
+
+    @staticmethod
+    def _get_remainder(buffer: str) -> str:
+        """Retorna o resto do buffer após extrair frases completas."""
+        remainder = buffer
+        while True:
+            found = False
+            for sep in [". ", "? ", "! "]:
+                idx = remainder.find(sep)
+                if idx != -1:
+                    remainder = remainder[idx + len(sep):]
+                    found = True
+                    break
+            if not found:
+                break
+        return remainder.strip()
 
     def process(self, text: str, context: Dict[str, Any]) -> str:
         global _global_key_idx
@@ -194,7 +491,15 @@ class AgentRouter:
         _global_key_idx += 1
             
         genai.configure(api_key=current_key)
-            
+        
+        # Fast path: Groq para queries simples que não precisam de ferramentas
+        if self._is_simple_query(text):
+            fast_result = self._process_fast(text, context)
+            if fast_result:
+                logger.info(f"Groq fast path: {fast_result[:60]}...")
+                return fast_result
+            logger.info("Groq fast path falhou, caindo para Gemini")
+
         db = context.get("db")
         room_id = context.get("room_id")
         
@@ -223,43 +528,75 @@ class AgentRouter:
                 long_term_memory = "\nFatos permanentes conhecidos sobre o usuário:\n" + "\n".join(memories)
             else:
                 long_term_memory = ""
+
+            # 3. Fetch active session state
+            session = db.query(models.SessionState).filter(models.SessionState.room_id == room_id).first()
+            if session:
+                try:
+                    state_dict = json.loads(session.state_data) if session.state_data else {}
+                except (json.JSONDecodeError, TypeError):
+                    state_dict = {}
+                skill = session.skill_name
+                params_str = "; ".join(f"{k}: {v}" for k, v in state_dict.items() if k != "end")
+                session_context = (
+                    f"\nContexto de sessão ativa: você estava em [{skill}] com os parâmetros ({params_str}). "
+                    f"Continue naturalmente de onde parou. Se o usuário quiser encerrar, finalize a sessão."
+                )
+            else:
+                session_context = ""
         else:
             long_term_memory = ""
+            session_context = ""
 
         system_prompt = (
-            "Você é o Alfredo, um assistente virtual ultra avançado para automação residencial. "
-            "Responda sempre de forma natural, amigável e conversacional. Seja breve, no máximo 2 frases. "
-            "NUNCA utilize emojis ou símbolos complexos nas suas respostas. "
-            "Se o usuário pedir para traduzir algo ou aprender um idioma, traduza e SEMPRE adicione a forma "
-            "de se pronunciar lendo em português, para que o sintetizador de voz fale corretamente. "
-            "REGRA DO QUIZ: Se pelo histórico você perceber que está no meio de um jogo de perguntas (Quiz), "
-            "valide se o usuário acertou a última pergunta, elogie-o ou corrija-o gentilmente, "
-            "e SEMPRE termine sua fala com uma NOVA PERGUNTA, a menos que ele peça para parar. "
-            "REGRA DA RECEITA: Ao ensinar uma receita passo a passo, NUNCA gere todos os passos. Ensine UM PASSO por vez e diga ao usuário para avisar quando terminar. "
-            "Para não perder o contexto da receita nos passos seguintes, SEMPRE inclua o nome do prato na sua resposta (ex: 'Passo 3 do Risoto de Funghi: ...')."
+            "Você é o Alfredo, assistente residencial amigável e natural. "
+            "Respostas utilitárias (horas/clima) sejam diretas. Respostas criativas (piadas/histórias) sejam variadas e surpreendentes — NUNCA repita a mesma piada. "
+            "NUNCA use emojis. "
+            "Traduções: use <lang=\"LOCALE\">texto</lang> (ex: <lang=\"en-US\">apple</lang>). "
+            "Quiz ativo: valide, corrija e faça nova pergunta. "
+            "Receita ativa: UM passo por vez, sempre cite o prato."
         )
         
         if long_term_memory:
             system_prompt += f"\n{long_term_memory}"
             
+        if session_context:
+            system_prompt += session_context
+
         if history_str:
             system_prompt += f"\n\nHistórico recente:\n{history_str}"
             
         tools = self._get_tools_schema()
         model = genai.GenerativeModel(
-            model_name='gemini-3.1-flash-lite',
+            model_name='gemini-2.5-flash',
             tools=tools,
-            system_instruction=system_prompt
+            system_instruction=system_prompt,
+            generation_config=genai.GenerationConfig(temperature=0.9)
         )
 
         try:
-            logger.info("Enviando requisição ao Gemini 2.5 Flash para Tool Calling...")
+            import time
+            start_time = time.time()
+            logger.info("Enviando requisição ao Gemini para Tool Calling...")
             chat = model.start_chat()
             response = chat.send_message(text)
+            latency_ms = int((time.time() - start_time) * 1000)
             
+            tokens = 0
+            if response.usage_metadata:
+                tokens = response.usage_metadata.total_token_count
+
             if response.parts:
                 part = response.parts[0]
                 if part.function_call:
+                    # Preserva qualquer texto que o Gemini gerou junto com a tool call
+                    try:
+                        gemini_text = response.text
+                    except (ValueError, AttributeError):
+                        gemini_text = ""
+                    if gemini_text.strip():
+                        logger.info(f"Gemini gerou texto + tool: {gemini_text[:60]}...")
+
                     function_name = part.function_call.name
                     # Extrai os argumentos como um dicionario python
                     arguments = type(part.function_call).to_dict(part.function_call).get("args", {})
@@ -275,8 +612,71 @@ class AgentRouter:
                         tool_result_obj = skill.execute(text, context)
                         
                     logger.info(f"Resultado da Tool: {tool_result_obj}")
-                    
+
+                    # Persist session state if skill returned session data
+                    if isinstance(tool_result_obj, dict):
+                        session_data = tool_result_obj.get("session")
+                        if session_data is not None and db and room_id:
+                            from datetime import datetime, timezone
+                            existing = db.query(models.SessionState).filter(
+                                models.SessionState.room_id == room_id
+                            ).first()
+                            if session_data.get("end"):
+                                if existing:
+                                    db.delete(existing)
+                                    db.commit()
+                                    logger.info(f"Sessão encerrada para sala {room_id}")
+                            else:
+                                if existing:
+                                    existing.skill_name = function_name
+                                    existing.state_data = json.dumps(session_data.get("params", {}))
+                                    existing.updated_at = datetime.now(timezone.utc)
+                                else:
+                                    new_session = models.SessionState(
+                                        room_id=room_id,
+                                        skill_name=function_name,
+                                        state_data=json.dumps(session_data.get("params", {}))
+                                    )
+                                    db.add(new_session)
+                                db.commit()
+                                logger.info(f"Sessão salva para sala {room_id}: {function_name}")
+
+                    # DIRECT RESPONSE OPTIMIZATION:
+                    # If tool returned a string or has direct_response, skip second Gemini call
+                    if isinstance(tool_result_obj, str):
+                        logger.info(f"Tool retornou string direta — pulando segunda chamada Gemini")
+                        if db and room_id:
+                            from core.brain.memory import models
+                            key_number = ((_global_key_idx - 1) % len(keys)) + 1
+                            ai_usage = models.AIUsage(
+                                provider=f"Gemini (Key {key_number})",
+                                tokens_used=tokens,
+                                latency_ms=latency_ms,
+                                room_id=room_id
+                            )
+                            db.add(ai_usage)
+                            db.commit()
+                        return tool_result_obj
+                    if isinstance(tool_result_obj, dict) and tool_result_obj.get("direct_response"):
+                        logger.info(f"Tool tem direct_response — pulando segunda chamada Gemini")
+                        if db and room_id:
+                            from core.brain.memory import models
+                            key_number = ((_global_key_idx - 1) % len(keys)) + 1
+                            ai_usage = models.AIUsage(
+                                provider=f"Gemini (Key {key_number})",
+                                tokens_used=tokens,
+                                latency_ms=latency_ms,
+                                room_id=room_id
+                            )
+                            db.add(ai_usage)
+                            db.commit()
+                        # Concatena o texto do Gemini com o resultado real da tool
+                        if gemini_text.strip():
+                            return f"{gemini_text} {tool_result_obj['direct_response']}"
+                        return tool_result_obj["direct_response"]
+
                     logger.info("Enviando resultado da ferramenta de volta para o Gemini...")
+                    tool_start_time = time.time()
                     tool_response = chat.send_message(
                         genai.protos.Part(
                             function_response=genai.protos.FunctionResponse(
@@ -285,12 +685,44 @@ class AgentRouter:
                             )
                         )
                     )
+                    latency_ms += int((time.time() - tool_start_time) * 1000)
+                    if tool_response.usage_metadata:
+                        tokens += tool_response.usage_metadata.total_token_count
                     
+                    # Salva no banco de dados
+                    if db and room_id:
+                        from core.brain.memory import models
+                        key_number = (_global_key_idx % len(keys)) if len(keys) > 0 else 1
+                        # Fix index since we incremented it already, the current key was `_global_key_idx - 1`
+                        key_number = ((_global_key_idx - 1) % len(keys)) + 1
+                        ai_usage = models.AIUsage(
+                            provider=f"Gemini (Key {key_number})",
+                            tokens_used=tokens,
+                            latency_ms=latency_ms,
+                            room_id=room_id
+                        )
+                        db.add(ai_usage)
+                        db.commit()
+                        
                     final_text = tool_response.text.strip()
                     logger.info(f"Resposta final gerada: {final_text}")
                     return final_text
                 else:
                     logger.info("Nenhuma ferramenta acionada. Resposta direta do Gemini.")
+                    
+                    # Salva no banco de dados
+                    if db and room_id:
+                        from core.brain.memory import models
+                        key_number = ((_global_key_idx - 1) % len(keys)) + 1
+                        ai_usage = models.AIUsage(
+                            provider=f"Gemini (Key {key_number})",
+                            tokens_used=tokens,
+                            latency_ms=latency_ms,
+                            room_id=room_id
+                        )
+                        db.add(ai_usage)
+                        db.commit()
+                        
                     return response.text.strip()
             
             return "Desculpe, não entendi a resposta do meu novo cérebro."
@@ -298,6 +730,257 @@ class AgentRouter:
         except Exception as e:
             logger.error(f"Erro na API do Gemini: {e}")
             return "Tive um problema de comunicação com o meu núcleo neural."
+    async def process_stream_async(self, text: str, context: Dict[str, Any]):
+        """
+        Gera a resposta via stream verdadeiro do Gemini, fazendo yield de frases
+        completas conforme chegam para que o TTS possa começar a falar imediatamente.
+        
+        Para tool calls, executa a skill e faz yield do resultado (ou re-envia
+        ao Gemini para formatação, também em streaming real).
+        """
+        import asyncio
+        import time
+        
+        global _global_key_idx
+        keys_env = os.getenv("GEMINI_API_KEYS")
+        if keys_env:
+            keys = [k.strip() for k in keys_env.split(",") if k.strip()]
+        else:
+            single = os.getenv("GEMINI_API_KEY")
+            keys = [single.strip()] if single else []
+
+        if not keys:
+            yield "Erro: Nenhuma chave do Gemini configurada."
+            return
+            
+        current_key = keys[_global_key_idx % len(keys)]
+        _global_key_idx += 1
+        
+        # Limpar o cache do SDK para forçar a nova chave de API em clientes assíncronos
+        try:
+            from google.generativeai.client import _client_manager
+            _client_manager.clients.clear()
+        except Exception:
+            pass
+            
+        genai.configure(api_key=current_key)
+        
+        # Fast path: Groq para queries simples que não precisam de ferramentas
+        if self._is_simple_query(text):
+            fast_result = await asyncio.to_thread(self._process_fast, text, context)
+            if fast_result:
+                logger.info(f"Groq fast path (stream): {fast_result[:60]}...")
+                for sentence in self._extract_sentences(fast_result):
+                    yield sentence
+                remainder = self._get_remainder(fast_result)
+                if remainder.strip():
+                    yield remainder.strip()
+                return
+            logger.info("Groq fast path falhou, caindo para Gemini (stream)")
+
+        # Montar contexto idêntico ao `process`
+        db = context.get("db")
+        room_id = context.get("room_id")
+        history_str = ""
+        long_term_memory = ""
+        session_context = ""
+        
+        if db and room_id:
+            from core.brain.memory import models
+            from datetime import datetime, timedelta, timezone
+            
+            ten_minutes_ago = datetime.now(timezone.utc) - timedelta(minutes=10)
+            last_interactions = db.query(models.Interaction).filter(
+                models.Interaction.room_id == room_id,
+                models.Interaction.input_text.isnot(None),
+                models.Interaction.output_text.isnot(None),
+                models.Interaction.input_text != "",
+                models.Interaction.timestamp >= ten_minutes_ago
+            ).order_by(models.Interaction.id.desc()).limit(3).all()
+            
+            for interaction in reversed(last_interactions):
+                history_str += f"Usuário: {interaction.input_text}\nAlfredo: {interaction.output_text}\n"
+                    
+            memory_facts = db.query(models.MemoryFact).filter(models.MemoryFact.room_id == room_id).all()
+            if memory_facts:
+                long_term_memory = "\nFatos permanentes conhecidos sobre o usuário:\n" + "\n".join([f"- {m.fact}" for m in memory_facts])
+
+            # Fetch active session state
+            session = db.query(models.SessionState).filter(models.SessionState.room_id == room_id).first()
+            if session:
+                try:
+                    state_dict = json.loads(session.state_data) if session.state_data else {}
+                except (json.JSONDecodeError, TypeError):
+                    state_dict = {}
+                skill = session.skill_name
+                params_str = "; ".join(f"{k}: {v}" for k, v in state_dict.items() if k != "end")
+                session_context = (
+                    f"\nContexto de sessão ativa: você estava em [{skill}] com os parâmetros ({params_str}). "
+                    f"Continue naturalmente de onde parou. Se o usuário quiser encerrar, finalize a sessão."
+                )
+
+        system_prompt = (
+            "Você é o Alfredo, um assistente virtual ultra avançado para automação residencial. "
+            "Responda sempre de forma natural, amigável e conversacional. Seja breve, no máximo 2 frases. "
+            "NUNCA utilize emojis ou símbolos complexos nas suas respostas. "
+        )
+        if long_term_memory: system_prompt += f"\n{long_term_memory}"
+        if session_context: system_prompt += session_context
+        if history_str: system_prompt += f"\n\nHistórico recente:\n{history_str}"
+        
+        # Forçamos a injeção do horário atual
+        from datetime import datetime
+        now = datetime.now()
+        system_prompt += f"\n\nContexto Oculto do Sistema:\n- Horário e data atual exatos: {now.strftime('%d/%m/%Y %H:%M:%S')}"
+        
+        tools = self._get_tools_schema()
+        
+        model = genai.GenerativeModel(
+            model_name='gemini-2.5-flash',
+            system_instruction=system_prompt,
+            tools=tools,
+            generation_config=genai.GenerationConfig(temperature=0.8)
+        )
+        
+        chat = model.start_chat()
+        
+        logger.info("Iniciando requisição ao Gemini (Stream)...")
+        t_start = time.time()
+        
+        response = await chat.send_message_async(text, stream=True)
+        
+        buffer = ""
+        first_chunk = False
+        is_tool = False
+        
+        tool_name = None
+        tool_args = None
+        
+        try:
+            async for chunk in response:
+                has_func = False
+                try:
+                    if chunk.parts and chunk.parts[0].function_call:
+                        has_func = True
+                except Exception:
+                    pass
+
+                if has_func:
+                    is_tool = True
+                    tool_name = chunk.parts[0].function_call.name
+                    tool_args = type(chunk.parts[0].function_call).to_dict(chunk.parts[0].function_call).get("args", {})
+                    break
+
+                chunk_text = ""
+                try:
+                    chunk_text = chunk.text
+                except Exception:
+                    pass
+
+                if chunk_text:
+                    if not first_chunk:
+                        logger.info(f"GEMINI TTFB (Primeiro Chunk): {time.time() - t_start:.3f}s")
+                        first_chunk = True
+                    buffer += chunk_text
+                    
+                    # STREAMING REAL: yield frases completas imediatamente
+                    # para que o TTS comece a falar enquanto o Gemini gera o resto
+                    for sentence in self._extract_sentences(buffer):
+                        yield sentence
+                    buffer = self._get_remainder(buffer)
+        except Exception as e:
+            logger.error(f"Erro no stream do Gemini: {e}")
+            if not first_chunk:
+                yield "Tive uma pequena falha nos meus circuitos, mas já estou de volta."
+
+        if is_tool and tool_name:
+            logger.info(f"Tool Call detectado no stream: {tool_name} ({time.time() - t_start:.2f}s). Executando...")
+            skill = self.skills.get(tool_name)
+            if skill:
+                if hasattr(skill, "execute_tool"):
+                    tool_result_obj = await asyncio.to_thread(skill.execute_tool, tool_args, context)
+                else:
+                    tool_result_obj = await asyncio.to_thread(skill.execute, text, context)
+
+                # Persist session state if skill returned session data
+                if isinstance(tool_result_obj, dict):
+                    session_data = tool_result_obj.get("session")
+                    if session_data is not None and db and room_id:
+                        from datetime import datetime, timezone
+                        existing = db.query(models.SessionState).filter(
+                            models.SessionState.room_id == room_id
+                        ).first()
+                        if session_data.get("end"):
+                            if existing:
+                                db.delete(existing)
+                                db.commit()
+                                logger.info(f"Sessão encerrada para sala {room_id}")
+                        else:
+                            if existing:
+                                existing.skill_name = tool_name
+                                existing.state_data = json.dumps(session_data.get("params", {}))
+                                existing.updated_at = datetime.now(timezone.utc)
+                            else:
+                                new_session = models.SessionState(
+                                    room_id=room_id,
+                                    skill_name=tool_name,
+                                    state_data=json.dumps(session_data.get("params", {}))
+                                )
+                                db.add(new_session)
+                            db.commit()
+                            logger.info(f"Sessão salva para sala {room_id}: {tool_name}")
+
+                if isinstance(tool_result_obj, str):
+                    logger.info(f"Tool retornou string direta — pulando segunda chamada Gemini")
+                    direct = f"{buffer} {tool_result_obj}" if buffer.strip() else tool_result_obj
+                    yield direct.strip()
+                    buffer = ""  # Já fez yield
+                elif isinstance(tool_result_obj, dict) and tool_result_obj.get("direct_response"):
+                    logger.info(f"Tool tem direct_response — pulando segunda chamada Gemini")
+                    direct = f"{buffer} {tool_result_obj['direct_response']}" if buffer.strip() else tool_result_obj["direct_response"]
+                    yield direct.strip()
+                    buffer = ""  # Já fez yield
+                else:
+                    # Segunda chamada ao Gemini para formatar a resposta da tool — TAMBÉM em streaming real
+                    logger.info("Enviando resultado da tool ao Gemini (stream)...")
+                    tool_response = await chat.send_message_async(
+                        genai.protos.Part(
+                            function_response=genai.protos.FunctionResponse(
+                                name=tool_name,
+                                response={"result": tool_result_obj}
+                            )
+                        ),
+                        stream=True
+                    )
+
+                    async for chunk in tool_response:
+                        chunk_text = ""
+                        try:
+                            chunk_text = chunk.text
+                        except Exception:
+                            pass
+                            
+                        if chunk_text:
+                            buffer += chunk_text
+                            # Streaming real também na segunda chamada
+                            for sentence in self._extract_sentences(buffer):
+                                yield sentence
+                            buffer = self._get_remainder(buffer)
+            else:
+                yield "Desculpe, a ferramenta solicitada não existe."
+
+        # Yield qualquer sobra restante no buffer
+        if buffer.strip():
+            yield buffer.strip()
+        
+        total_time = time.time() - t_start
+        logger.info(f"Pipeline LLM concluído em {total_time:.2f}s")
+
+_router_instance = None
 
 def get_router():
-    return AgentRouter()
+    """Singleton: evita re-instanciar 14 skills a cada request."""
+    global _router_instance
+    if _router_instance is None:
+        _router_instance = AgentRouter()
+    return _router_instance

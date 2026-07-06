@@ -10,9 +10,26 @@ soundfile>=0.12.1
 numpy>=1.26.0
 # Microsoft Edge TTS para vozes hiper realistas na nuvem
 edge-tts>=0.14.0
+# Piper TTS local (opcional: TTS_BACKEND=piper). Instalar com: pip install piper-tts
+# piper-tts
 groq>=0.36.0
 
 # NLP & Intent Routing (Substituído pelo Gemini Agent)
+
+# Google Gemini SDK (Router Principal)
+google-generativeai>=0.8.0
+
+# Voice Activity Detection (VAD) para gravação inteligente
+webrtcvad>=2.0.10
+
+# Wake Word offline (Vosk)
+vosk>=0.3.45
+
+# Captura de áudio single-stream (substitui arecord)
+sounddevice>=0.4.6
+
+# HTTP requests
+requests>=2.31.0
 
 # Database & Memory
 SQLAlchemy>=2.0.25
@@ -25,3 +42,5 @@ yt-dlp>=2023.12.30
 # Utils
 python-dotenv>=1.0.0
 pydantic>=2.5.0
+samsungtvws
+wakeonlan

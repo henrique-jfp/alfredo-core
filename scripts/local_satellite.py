@@ -39,7 +39,8 @@ ROOM_ID = "ROOM_LIVING"
 wake_word = "alfredo"
 wake_variants = [
     "alfredo", "alfre", "fredo", "frente", "al fredo",
-    "alfredou", "alfreu", "alfrente", "alfred"
+    "alfredou", "alfreu", "alfrente", "alfred",
+    "enredo", "enredou", "enreda", "alegre"
 ]
 
 alarm_process = None
@@ -47,6 +48,12 @@ audio_stream: Optional[sd.InputStream] = None
 vosk_model: Optional[Model] = None
 vosk_rec: Optional[KaldiRecognizer] = None
 vad: Optional[webrtcvad.Vad] = None
+
+# Supressão de áudio durante playback para evitar loop (eco)
+_is_playing = False
+_playback_lock = threading.Lock()
+_session_mode = False
+_session_lock = threading.Lock()
 
 # Variáveis Globais de Estado
 is_recording = False
@@ -79,7 +86,8 @@ DASHCAM_MAX_BYTES = DASHCAM_SECONDS * RATE * 2 # 16kHz, 16-bit (2 bytes por samp
 dashcam_buffer = bytearray()
 
 # Coeficiente do filtro IIR low-pass (estado persistente entre callbacks)
-_iir_prev_sample = 0.0
+_notch_x = [0.0, 0.0]
+_notch_y = [0.0, 0.0]
 
 
 def get_rms(data: bytes) -> float:
@@ -90,37 +98,49 @@ def get_rms(data: bytes) -> float:
 
 
 def clean_audio(samples: np.ndarray) -> np.ndarray:
-    """Pipeline de limpeza de áudio USB em 3 etapas.
+    """Pipeline de limpeza de áudio.
     
-    1. Remove DC offset (bias de microfones USB baratos)
-    2. Interpola pops/spikes USB (mudanças bruscas > 8000 em 1 sample)
-    3. Filtro IIR low-pass de 1ª ordem (cutoff ~7kHz a 16kHz sample rate)
+    1. Remove DC offset
+    2. Notch filter em 434Hz (interferência elétrica do hardware)
     """
-    global _iir_prev_sample
+    global _notch_x, _notch_y
     audio = samples.astype(np.float32)
 
     # Etapa 1: Remove DC offset
     audio -= np.mean(audio)
 
-    # Etapa 2: Spike removal (interpola pops USB)
-    diff = np.abs(np.diff(audio, prepend=audio[0]))
-    spike_mask = diff > 8000  # Mudanças bruscas > 8000 são pops
-    if np.any(spike_mask):
-        indices = np.where(spike_mask)[0]
-        for idx in indices:
-            left = max(0, idx - 1)
-            right = min(len(audio) - 1, idx + 1)
-            audio[idx] = (audio[left] + audio[right]) / 2
+    # Etapa 2: Notch filter biquad em 434Hz (remove zumbido elétrico do notebook)
+    # Coeficientes para f0=434Hz, fs=16000Hz, Q=30
+    f0 = 434.0
+    fs = 16000.0
+    Q = 30.0
+    w0 = 2.0 * np.pi * f0 / fs
+    alpha = np.sin(w0) / (2.0 * Q)
+    cos_w0 = np.cos(w0)
 
-    # Etapa 3: Low-pass IIR de 1ª ordem (alpha=0.72 ≈ cutoff 7kHz para 16kHz SR)
-    # Preserva estado entre callbacks para evitar descontinuidades
-    alpha = 0.72
-    audio[0] = alpha * audio[0] + (1 - alpha) * _iir_prev_sample
-    for i in range(1, len(audio)):
-        audio[i] = alpha * audio[i] + (1 - alpha) * audio[i - 1]
-    _iir_prev_sample = float(audio[-1])
+    b0 = 1.0 / (1.0 + alpha)
+    b1 = -2.0 * cos_w0 / (1.0 + alpha)
+    b2 = 1.0 / (1.0 + alpha)
+    a1 = -2.0 * cos_w0 / (1.0 + alpha)
+    a2 = (1.0 - alpha) / (1.0 + alpha)
 
-    return audio
+    out = np.zeros_like(audio)
+    for i in range(len(audio)):
+        x = audio[i]
+        # Estado inicial
+        if i == 0:
+            y = b0 * x + b1 * _notch_x[0] + b2 * _notch_x[1] - a1 * _notch_y[0] - a2 * _notch_y[1]
+        elif i == 1:
+            y = b0 * x + b1 * audio[0] + b2 * _notch_x[0] - a1 * out[0] - a2 * _notch_y[0]
+        else:
+            y = b0 * x + b1 * audio[i-1] + b2 * audio[i-2] - a1 * out[i-1] - a2 * out[i-2]
+        out[i] = y
+
+    # Salva estado para próximo callback
+    _notch_x = [audio[-1], audio[-2]] if len(audio) >= 2 else [audio[-1], 0.0]
+    _notch_y = [out[-1], out[-2]] if len(out) >= 2 else [out[-1], 0.0]
+
+    return out
 
 
 def soft_clip(audio: np.ndarray, threshold: float = 28000) -> np.ndarray:
@@ -147,7 +167,7 @@ def play_alarm_loop():
         return
     stop_alarm()
     print("🔔 Despertador tocando!")
-    cmd = f"while true; do aplay -q '{alarm_file}'; done"
+    cmd = f"timeout 60 sh -c 'while true; do aplay -q \"{alarm_file}\"; done'"
     alarm_process = subprocess.Popen(cmd, shell=True, preexec_fn=os.setsid)
 
 
@@ -196,6 +216,9 @@ def register_device():
 
 
 def play_audio(filename):
+    global _is_playing
+    with _playback_lock:
+        _is_playing = True
     print("🔊 Reproduzindo resposta (volume amplificado)...", flush=True)
     try:
         amplified = "response_loud.wav"
@@ -210,6 +233,8 @@ def play_audio(filename):
             subprocess.run(['aplay', '-q', filename], check=True)
         except Exception as e2:
             print(f"Erro fatal ao reproduzir: {e2}", flush=True)
+    with _playback_lock:
+        _is_playing = False
 
 
 def send_audio_and_play(filename):
@@ -259,7 +284,7 @@ def send_audio_and_play(filename):
 def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.CallbackFlags):
     global vosk_rec, is_recording, has_spoken, silence_frames, recording_buffer
     global is_calibrated, calibration_frames, calibration_sum, noise_threshold
-    global full_audio_buffer, dashcam_buffer, SOFTWARE_MULTIPLIER, noise_gate_hold
+    global full_audio_buffer, dashcam_buffer, SOFTWARE_MULTIPLIER, noise_gate_hold, _session_mode
 
     # Tratar overflow ao invés de descartar silenciosamente
     if status:
@@ -267,9 +292,9 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
             print("⚠️ [AUDIO] Buffer overflow detectado! Áudio pode picotar.", flush=True)
         # Continua processando ao invés de descartar o frame
 
-    # Pipeline DSP robusto: DC removal → spike interpolation → low-pass IIR
+    # Áudio raw direto para o VOSK (DSP desligado: mic_diagnostic.py detectou Alfredo sem filtro)
     flattened = indata.flatten()
-    cleaned = clean_audio(flattened)
+    cleaned = flattened.astype(np.float32)
     
     # Amplificador de software dinâmico
     if SOFTWARE_MULTIPLIER != 1.0:
@@ -297,16 +322,32 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
         return  # Não processa áudio durante os 2s de calibração
 
     if vosk_rec and not is_recording:
+        # Supressão durante playback: não processa wake word enquanto toca áudio
+        if _is_playing:
+            return
+
         # Dashcam: manter sempre os últimos 3 segundos na memória
         dashcam_buffer.extend(bytes_data)
         if len(dashcam_buffer) > DASHCAM_MAX_BYTES:
             del dashcam_buffer[:-DASHCAM_MAX_BYTES]
 
+        # Log parcial para debug do wake word
+        partial = json.loads(vosk_rec.PartialResult())
+        partial_text = partial.get('partial', '').strip()
+        if partial_text:
+            print(f"  VOSK ouvindo: '{partial_text}'", flush=True)
+
         if vosk_rec.AcceptWaveform(bytes_data):
             result = json.loads(vosk_rec.Result())
             text = result.get('text', '').lower()
+            print(f"  VOSK resultado: '{text}'", flush=True)
             if text.strip() and any(v in text for v in wake_variants):
                 print(f"🔔 Palavra de ativação '{wake_word.upper()}' detectada pelo Vosk!", flush=True)
+                # Auto-mute TV
+                try:
+                    threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=2), daemon=True).start()
+                except:
+                    pass
                 _start_recording()
 
     if is_streaming:
@@ -315,6 +356,24 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
     if is_recording:
         recording_buffer.extend(bytes_data)
         full_audio_buffer.extend(bytes_data)
+        
+        # --- EMERGENCY STOP VIA VOSK ---
+        if vosk_rec:
+            if vosk_rec.AcceptWaveform(bytes_data):
+                res = json.loads(vosk_rec.Result())
+                text = res.get('text', '').lower()
+                if any(w in text for w in ["para", "pausa", "chega", "silêncio", "silencio", "desliga", "cala a boca"]):
+                    print(f"🛑 [EMERGÊNCIA] Comando detectado ('{text}'). Cortando áudio!", flush=True)
+                    has_spoken = True
+                    silence_frames = float('inf')
+            else:
+                partial = json.loads(vosk_rec.PartialResult())
+                text = partial.get('partial', '').lower()
+                if any(w in text for w in ["para", "pausa", "chega", "silêncio", "silencio", "desliga", "cala a boca"]):
+                    print(f"🛑 [EMERGÊNCIA] Comando detectado rápido ('{text}'). Cortando áudio!", flush=True)
+                    has_spoken = True
+                    silence_frames = float('inf')
+        # --------------------------------
         offset = 0
         while offset + 320 <= len(recording_buffer):
             chunk = recording_buffer[offset:offset + 320]
@@ -342,15 +401,21 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
         recording_buffer = bytearray(recording_buffer[offset:])
 
         total_frames = len(full_audio_buffer) // 320
+        # 150 frames de 10ms = 1.5s de silêncio após a fala
         max_silence = int(1.5 * RATE / 160)
-        timeout_frames = int(5 * RATE / 160)
+        timeout_frames = int(20 * RATE / 160) if _session_mode else int(5 * RATE / 160)
         max_total = int(15 * RATE / 160)
 
         if has_spoken and silence_frames > max_silence:
             print("⏹️ Silêncio detectado. Fim da gravação.", flush=True)
             _finish_recording()
         elif not has_spoken and total_frames > timeout_frames:
-            print("⏳ Ninguém falou nada (5s). Cancelando gravação.", flush=True)
+            if _session_mode:
+                with _session_lock:
+                    _session_mode = False
+                print("⏳ Ninguém respondeu. Saindo do modo mãos-livres.", flush=True)
+            else:
+                print("⏳ Ninguém falou nada (5s). Cancelando gravação.", flush=True)
             is_recording = False
             recording_buffer.clear()
         elif total_frames > max_total:
@@ -360,7 +425,7 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
 
 def _start_recording():
     global is_recording, recording_buffer, has_spoken, silence_frames, vosk_rec
-    global full_audio_buffer, dashcam_buffer
+    global full_audio_buffer, dashcam_buffer, _session_mode
     is_recording = True
     recording_buffer = bytearray()
     
@@ -368,15 +433,17 @@ def _start_recording():
     full_audio_buffer = bytearray(dashcam_buffer)
     dashcam_buffer.clear()
     
-    # Como o Vosk acabou de identificar a palavra de ativação, já sabemos que a pessoa falou.
-    # Evita que o VAD descarte o áudio se a pessoa falou rápido demais e só sobrou silêncio vivo.
-    has_spoken = True
+    # No modo sessão (Alexa), o usuário ainda não falou — aguarda até 5s
+    # No modo wake word, o Vosk já detectou "alfredo" — marcamos como fala ativa
+    has_spoken = not _session_mode
     silence_frames = 0
     vosk_rec = KaldiRecognizer(vosk_model, RATE)
     stop_alarm()
     
-    # Beep foi removido para interação mais natural e fluida
-    print("🔴 [GRAVANDO COM DASHCAM] Ouvindo comando (incluindo o passado)...", flush=True)
+    if _session_mode:
+        print("🔴 [MODO MÃOS-LIVRES] Aguardando resposta (sem wake word)...", flush=True)
+    else:
+        print("🔴 [GRAVANDO COM DASHCAM] Ouvindo comando (incluindo o passado)...", flush=True)
 
 
 def _finish_recording():
@@ -412,20 +479,74 @@ def _send_and_play(audio_data: bytes):
         with open(WAVE_OUTPUT, 'rb') as f:
             files = {'file': ('audio.wav', f, 'audio/wav')}
             t_send = time.time()
-            response = requests.post(url, headers=headers, files=files, timeout=30)
+            response = requests.post(url, headers=headers, files=files, stream=True)
 
         if response.status_code == 200:
-            t_response = time.time()
-            server_latency = t_response - t_send
-            total_latency = t_response - t_start
-            print(f"✅ [RESPOSTA] Servidor: {server_latency:.1f}s | Total: {total_latency:.1f}s", flush=True)
-            with open(WAVE_RESPONSE, 'wb') as f:
-                f.write(response.content)
-            play_audio(WAVE_RESPONSE)
+            first_byte_received = False
+
+            global _is_playing
+            with _playback_lock:
+                _is_playing = True
+
+            player_process = subprocess.Popen(
+                ['ffplay', '-nodisp', '-autoexit', '-i', 'pipe:0'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE
+            )
+
+            for chunk in response.iter_content(chunk_size=4096):
+                if chunk:
+                    if not first_byte_received:
+                        ttfb = time.time() - t_send
+                        print(f"🔊 Áudio iniciado em {ttfb:.2f} segundos!", flush=True)
+                        first_byte_received = True
+                    player_process.stdin.write(chunk)
+                    player_process.stdin.flush()
+
+            player_process.stdin.close()
+            
+            # Print any errors from ffplay
+            _, err = player_process.communicate()
+            if err:
+                print(f"FFPLAY ERROR: {err.decode()}", flush=True)
+                
+            player_process.wait()
+
+            total_time = time.time() - t_start
+            print(f"✅ Interação concluída. Tempo total: {total_time:.2f} segundos.", flush=True)
         else:
             print(f"Erro do servidor: {response.status_code} - {response.text}")
     except Exception as e:
         print(f"Falha na comunicação com o servidor: {e}")
+    finally:
+        with _playback_lock:
+            _is_playing = False
+        # Auto-unmute TV
+        try:
+            threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=false", timeout=2), daemon=True).start()
+        except:
+            pass
+
+    # Modo mãos-livres: se houver sessão ativa, grava a próxima resposta sem wake word
+    try:
+        status_resp = requests.get(
+            f"{SERVER_URL}/api/session-status",
+            params={"room_id": ROOM_ID},
+            timeout=2
+        )
+        if status_resp.status_code == 200:
+            if status_resp.json().get("active") and not is_recording:
+                with _session_lock:
+                    _session_mode = True
+                print("🎯 Sessão ativa — modo mãos-livres ativado!", flush=True)
+                _start_recording()
+            else:
+                with _session_lock:
+                    _session_mode = False
+    except Exception:
+        with _session_lock:
+            _session_mode = False
 
 
 def stream_worker():
@@ -472,15 +593,30 @@ def websocket_loop():
                         audio_url = data.get("url")
                         print(f"\n🎵 [SATÉLITE] Recebi o comando de tocar um Stream (Live/Música)!")
                         print(f"▶️ Tentando tocar via mplayer/vlc: {audio_url}")
+                        global current_music_process
+                        if 'current_music_process' in globals() and current_music_process:
+                            try:
+                                current_music_process.terminate()
+                                current_music_process.wait(timeout=2)
+                            except:
+                                pass
                         try:
-                            subprocess.Popen(["mplayer", "-novideo", audio_url],
+                            current_music_process = subprocess.Popen(["mplayer", "-novideo", audio_url],
                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         except FileNotFoundError:
                             try:
-                                subprocess.Popen(["cvlc", "--no-video", audio_url],
+                                current_music_process = subprocess.Popen(["cvlc", "--no-video", audio_url],
                                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                             except FileNotFoundError:
                                 print("⚠️ Nenhum player de áudio instalado. Instale: sudo apt install mplayer")
+                    elif data.get("type") == "stop_audio":
+                        print("\n🛑 [SATÉLITE] Parando música atual.")
+                        if 'current_music_process' in globals() and current_music_process:
+                            try:
+                                current_music_process.terminate()
+                            except:
+                                pass
+                            current_music_process = None
                     elif data.get("type") == "START_STREAM":
                         print(f"\n🎙️ [LIVE AUDIO] Iniciando stream de áudio ao vivo para o Dashboard...")
                         global is_streaming

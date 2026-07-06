@@ -1,0 +1,78 @@
+export interface Stats {
+  interactions: number;
+  active_timers: number;
+  devices: number;
+  tokens_used: number;
+  ai_requests: number;
+}
+
+export interface HistoryItem {
+  id: number;
+  room_id: string;
+  device_id: string;
+  timestamp: string;
+  input_text: string;
+  output_text: string;
+}
+
+export interface ListItem {
+  id: number;
+  content: string;
+}
+
+export interface TimerItem {
+  id: number;
+  timer_type: 'timer' | 'alarm';
+  message: string;
+  expires_at: string;
+}
+
+export interface Satellite {
+  device_id: string;
+  hardware: string;
+  is_online: boolean;
+  room_id: string;
+  firmware_version: string;
+  volume: number;
+  brightness: number;
+}
+
+export interface Routine {
+  id: number;
+  name: string;
+  trigger_value: string;
+  room_id: string;
+  action_value: string;
+  is_active: boolean;
+  days_of_week: string;
+}
+
+export interface Memory {
+  id: number;
+  fact: string;
+  room_id: string;
+  created_at: string;
+}
+
+export interface Weather {
+  temperature: string;
+  humidity: string;
+  description: string;
+  weather_code: number;
+  max_temp: string;
+  min_temp: string;
+}
+export interface AIMetrics {
+  model: string;
+  global_requests: number;
+  total_tokens: number;
+  rpm: number;
+  tpm: number;
+  avg_latency_ms: number;
+  estimated_savings_usd: number;
+  keys: {
+    provider: string;
+    requests: number;
+    tokens: number;
+  }[];
+}

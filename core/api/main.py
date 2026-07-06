@@ -29,12 +29,46 @@ from core.api.satellite import rest_router as satellite_rest_router
 # Inicializa o banco (cria tabelas se não existirem)
 models.Base.metadata.create_all(bind=engine)
 
+# Sincroniza .env → DB (para quem já configurou pelo .env)
+from core.services.env_manager import sync_env_to_db
+_env_vars = sync_env_to_db()
+if _env_vars.get("SPOTIFY_CLIENT_ID") or _env_vars.get("SPOTIFY_CLIENT_SECRET"):
+    db_session = next(get_db())
+    try:
+        spotify = db_session.query(models.AppIntegration).filter(
+            models.AppIntegration.app_name == "spotify"
+        ).first()
+        env_id = _env_vars.get("SPOTIFY_CLIENT_ID", "")
+        env_secret = _env_vars.get("SPOTIFY_CLIENT_SECRET", "")
+        db_id = spotify.client_id if spotify else ""
+        db_secret = spotify.client_secret if spotify else ""
+
+        if env_id != db_id or env_secret != db_secret:
+            if not spotify:
+                spotify = models.AppIntegration(
+                    app_name="spotify",
+                    client_id=env_id,
+                    client_secret=env_secret,
+                    is_connected=False
+                )
+                db_session.add(spotify)
+            else:
+                spotify.client_id = env_id
+                spotify.client_secret = env_secret
+            db_session.commit()
+            logger = logging.getLogger("alfredo.startup")
+            logger.info("Credenciais Spotify sincronizadas do .env para o DB")
+    except Exception:
+        pass
+    finally:
+        db_session.close()
+
 app = FastAPI(title="Alfredo Home OS API", version="1.0.0")
 
-active_connections: Dict[str, Any] = {}
+from core.api.satellite import manager
 
 def get_active_connections():
-    return active_connections
+    return manager.active_satellites
 
 scheduler = SchedulerManager(get_active_connections)
 
@@ -97,9 +131,12 @@ async def process_voice(
     db: Session = Depends(get_db)
 ):
     """
-    Endpoint principal para recepção de áudio dos satélites (Etapa 2).
-    Por enquanto (Mock Phase), ele salva o áudio, registra a interação e retorna o mesmo áudio.
+    Endpoint principal para recepção de áudio dos satélites.
+    Otimizado para latência mínima: processa em memória, streaming real.
     """
+    import time as _time
+    t_pipeline_start = _time.time()
+    
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid or missing Bearer Token")
         
@@ -108,81 +145,107 @@ async def process_voice(
         
     logger.info(f"Received audio from Device: {x_device_id} in Room: {x_room_id}")
     
-    # 1. Salvar o áudio temporariamente
-    temp_dir = os.path.join(os.getcwd(), "tmp")
-    os.makedirs(temp_dir, exist_ok=True)
+    # 1. Ler áudio em memória (sem salvar em disco — elimina ~100ms de I/O)
+    audio_bytes = await file.read()
+    logger.info(f"Áudio recebido: {len(audio_bytes)} bytes ({_time.time() - t_pipeline_start:.3f}s)")
     
-    input_filepath = os.path.join(temp_dir, f"in_{int(time.time())}.wav")
-    
-    with open(input_filepath, "wb") as buffer:
-        buffer.write(await file.read())
-        
-    logger.info(f"Audio saved to {input_filepath}")
-    
-    # 2. Registrar interação no banco de dados (SQLite)
+    # 2. Criar interação no DB e COMMITAR imediatamente para não travar o banco
     interaction = models.Interaction(
         device_id=x_device_id,
         room_id=x_room_id,
-        input_text=None, # Ainda sem Vosk
+        input_text=None,
         output_text=None
     )
     db.add(interaction)
     db.commit()
+    interaction_id = interaction.id
     
-    # 3. Pipeline de STT e TTS
-    logger.info("Enviando áudio para o VOSK (STT)...")
+    # 3. STT em memória (sem I/O de disco)
+    t_stt_start = _time.time()
     transcribed_text = ""
     try:
         stt_engine = get_stt_engine()
-        transcribed_text = stt_engine.transcribe_wav(input_filepath)
+        if hasattr(stt_engine, 'transcribe_bytes'):
+            transcribed_text = stt_engine.transcribe_bytes(audio_bytes)
+        else:
+            temp_dir = os.path.join(os.getcwd(), "tmp")
+            os.makedirs(temp_dir, exist_ok=True)
+            input_filepath = os.path.join(temp_dir, f"in_{int(_time.time())}.wav")
+            with open(input_filepath, "wb") as buffer:
+                buffer.write(audio_bytes)
+            transcribed_text = stt_engine.transcribe_wav(input_filepath)
         
-        # Atualizar a interação com o texto reconhecido
         interaction.input_text = transcribed_text
         db.commit()
-        
-        logger.info(f"Usuário disse: {transcribed_text}")
+        logger.info(f"STT concluído em {_time.time() - t_stt_start:.3f}s — Usuário disse: '{transcribed_text}'")
     except Exception as e:
-        logger.error(f"Erro no VOSK: {e}")
+        logger.error(f"Erro no STT: {e}")
 
-    # 4. Roteamento de Intenção e Execução de Skills (Etapa 3)
-    logger.info("Enviando texto para o Router...")
+    # 4. Roteamento de Intenção (Streaming Real)
+    t_llm_start = _time.time()
+    logger.info("Enviando texto para o Router (Streaming)...")
     try:
         router = get_router()
-        # O context pode ser enriquecido com os headers do dispositivo e fila de ws
         context = {
             "device_id": x_device_id,
             "room_id": x_room_id,
             "db": db,
             "ws_tasks": []
         }
-        response_text = router.process(transcribed_text, context)
         
-        # Dispara eventos WebSockets pendentes que as Skills colocaram na fila
-        for task in context["ws_tasks"]:
-            target_ws = active_connections.get(task["device_id"])
-            if target_ws:
-                await target_ws.send_json(task["payload"])
-                logger.info(f"Push enviado via WebSocket para {task['device_id']}")
+        text_stream = router.process_stream_async(transcribed_text, context)
+        
+        async def intercept_and_save_text(generator):
+            full_text = ""
+            try:
+                async for sentence in generator:
+                    if sentence:
+                        full_text += sentence + " "
+                        yield sentence
+            except Exception as e:
+                logger.error(f"Erro no generator: {e}")
                 
+            # Salvar no DB usando uma NOVA sessão para evitar detached instance / lock errors
+            try:
+                from core.brain.memory.database import SessionLocal
+                with SessionLocal() as new_db:
+                    inter = new_db.query(models.Interaction).filter(models.Interaction.id == interaction_id).first()
+                    if inter:
+                        inter.output_text = full_text.strip()
+                        new_db.commit()
+            except Exception as e:
+                logger.error(f"Erro ao salvar interação final: {e}")
+            
+            for task in context.get("ws_tasks", []):
+                target_ws = active_connections.get(task["device_id"])
+                if target_ws:
+                    try:
+                        await target_ws.send_json(task["payload"])
+                        logger.info(f"Push enviado via WebSocket para {task['device_id']}")
+                    except Exception:
+                        pass
+
+        intercepted_stream = intercept_and_save_text(text_stream)
+        
     except Exception as e:
         logger.error(f"Erro no Router: {e}")
-        response_text = "Tive um problema interno ao tentar pensar na sua resposta."
+        async def error_stream():
+            yield "Tive um problema interno ao tentar pensar na sua resposta."
+        intercepted_stream = error_stream()
     
-    # 5. Sintetizar áudio de resposta com TTS
+    # 5. Sintetizar áudio de resposta via Streaming (EdgeTTS)
     try:
-        # Busca a voz configurada no banco (se não houver, usa faber padrão)
         voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
         chosen_voice = voice_setting.value.strip() if voice_setting and voice_setting.value and voice_setting.value.strip() else "pt-BR-FranciscaNeural"
         
         tts_engine = get_tts_engine()
         tts_engine.reload_voice(chosen_voice)
         
-        interaction.output_text = response_text
-        db.commit()
+        logger.info(f"Pipeline pré-TTS pronto em {_time.time() - t_pipeline_start:.3f}s (STT: {_time.time() - t_stt_start:.3f}s)")
         
         return StreamingResponse(
-            tts_engine.stream_audio_generator(response_text),
-            media_type="audio/mpeg"
+            tts_engine.stream_audio_from_generator(intercepted_stream),
+            media_type=tts_engine.media_type
         )
     except Exception as e:
         logger.error(f"Erro no TTS: {e}")
@@ -284,45 +347,32 @@ from core.services.weather_service import get_current_weather
 from fastapi import WebSocket, WebSocketDisconnect
 from core.brain.memory.database import SessionLocal
 
+@app.get("/api/session-status")
+def session_status(room_id: str, db: Session = Depends(get_db)):
+    """Retorna se há uma sessão ativa (quiz, receita, etc.) para a sala."""
+    session = db.query(models.SessionState).filter(
+        models.SessionState.room_id == room_id
+    ).first()
+    return {
+        "active": session is not None,
+        "skill": session.skill_name if session else None
+    }
+
 @app.get("/api/weather/current")
 def get_weather(db: Session = Depends(get_db)):
     """Retorna o clima atual (com cache) da cidade configurada."""
     return get_current_weather(db)
 
-@app.websocket("/ws/satellite/{device_id}")
-async def websocket_satellite(websocket: WebSocket, device_id: str):
-    """Conexão persistente para atualizar o display da bolinha física."""
-    await websocket.accept()
-    logger.info(f"WebSocket conectado: {device_id}")
-    active_connections[device_id] = websocket
-    
-    try:
-        # 1. Enviar estado inicial (ex: Clima) logo após conectar
-        db = SessionLocal()
-        weather = get_current_weather(db)
-        db.close()
-        
-        await websocket.send_json({
-            "type": "weather_update",
-            "data": weather
-        })
-        
-        # 2. Loop para manter a conexão aberta (Servidor enviará push futuramente)
-        while True:
-            # O dispositivo pode mandar PING para manter a conexão ativa
-            data = await websocket.receive_text()
-            
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket desconectado: {device_id}")
-    finally:
-        if device_id in active_connections:
-            del active_connections[device_id]
+
 
 # Adicionando o Router do Dashboard
 app.include_router(dashboard_router)
 app.include_router(spotify_router)
 app.include_router(satellite_ws_router)
 app.include_router(satellite_rest_router)
+
+from core.api.tv import router as tv_router
+app.include_router(tv_router)
 
 # Montando a pasta estática do frontend na URL raiz (/)
 # ATENÇÃO: mount("/") deve ser o último para não sobrescrever as rotas /api/
