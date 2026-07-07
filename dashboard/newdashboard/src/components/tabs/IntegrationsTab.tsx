@@ -94,9 +94,9 @@ export function IntegrationsTab() {
 
   return (
     <>
-      <div className="flex gap-6 h-full pb-10 overflow-y-auto custom-scrollbar pr-2">
-        <div className="flex flex-col gap-6 w-full">
-          <div className="w-full max-w-[400px] glass-panel p-6 flex flex-col gap-4 h-fit">
+      <div className="flex flex-col lg:flex-row gap-6 h-full pb-10 overflow-y-auto custom-scrollbar pr-2">
+        <div className="flex flex-col gap-6 w-full lg:flex-1 lg:max-w-[500px]">
+          <div className="w-full glass-panel p-6 flex flex-col gap-4 h-fit">
             <div className="flex items-center gap-4 relative">
               <div className="w-[52px] h-[52px] rounded-xl bg-gradient-to-br from-[#1DB954] to-[#169c46] flex items-center justify-center text-white shrink-0 shadow-[0_0_20px_rgba(29,185,84,0.3)]">
                 <Music2 className="w-7 h-7" />

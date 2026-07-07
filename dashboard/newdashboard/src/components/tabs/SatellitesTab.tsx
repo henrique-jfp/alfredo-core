@@ -23,12 +23,16 @@ export function SatellitesTab() {
 
   useEffect(() => {
     api.getSatellites().then(data => {
-      setSatellites(data);
-      if (data.length > 0) {
-        setSelectedSat(data[0]);
-        setVolume(data[0].volume ?? 70);
-        setBrightness(data[0].brightness ?? 50);
+      const validData = Array.isArray(data) ? data : [];
+      setSatellites(validData);
+      if (validData.length > 0) {
+        setSelectedSat(validData[0]);
+        setVolume(validData[0].volume ?? 70);
+        setBrightness(validData[0].brightness ?? 50);
       }
+    }).catch(err => {
+      console.error(err);
+      setSatellites([]);
     });
 
     // Initialize WebSocket connection to dashboard
@@ -220,7 +224,7 @@ export function SatellitesTab() {
               </div>
               <div className="flex justify-between w-full text-[12px] text-zinc-500 mt-2">
                 <span className="truncate pr-2">Cômodo: {sat.room_id}</span>
-                <span className="font-mono whitespace-nowrap">ID: {sat.device_id.split('-')[0]}</span>
+                <span className="font-mono whitespace-nowrap">ID: {sat.device_id?.split('-')[0] || 'Unk'}</span>
               </div>
               {/* Signal strength simulation bar */}
               {sat.is_online && (
