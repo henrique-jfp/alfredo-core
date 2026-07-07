@@ -5,28 +5,41 @@ Alfredo OS v3.0 é um ecossistema completo de assistente doméstico inteligente.
 ## 🌟 Filosofia "Agentic"
 O Alfredo abandonou o modelo clássico de assistentes engessados por "palavras-chave".
 1. **Cérebro Agente:** Utilizamos o modelo **Gemini 2.5 Flash** não apenas como "Fallback", mas como o **Roteador Principal**. Ele interpreta cada frase de forma contextual e decide autonomamente quais ferramentas (Tools) do sistema deve invocar (ou se deve usar mais de uma ao mesmo tempo).
-2. **Satélites "Burros" & Captura Híbrida:** Os dispositivos espalhados pela casa (ou o próprio servidor com microfone local) servem estritamente como interfaces de I/O. Utilizamos **Vosk (Offline Leve)** apenas para ouvir a palavra de ativação (Wake Word) silenciosamente, sem consumir rede. Ao acionar, a gravação da fala é controlada por **Google WebRTC VAD + Filtro RMS** para detectar o fim da frase com precisão milimétrica e cortar ruídos de fundo (ventiladores, estática).
+2. **Satélites "Burros" & Captura Híbrida:** Os dispositivos espalhados pela casa (ou o próprio servidor com microfone local) servem estritamente como interfaces de I/O. Utilizamos **Vosk (Offline Leve)** apenas para ouvir a palavra de ativação (Wake Word) silenciosamente, sem consumir rede. Ao acionar, a gravação da fala é controlada por **Google WebRTC VAD + Filtro RMS** para detectar o fim da frase com precisão milimétrica e cortar ruídos de fundo (ventiladores, estática). O áudio é capturado por um **pipeline único** com `sounddevice`, eliminando conflitos de microfone (ALSA) e processos zumbis.
 3. **Custo Próximo a Zero (Nuvem Inteligente):** O HP Celeron atua como orquestrador, delegando tarefas pesadas de IA para a nuvem através de APIs gratuitas ou de altíssimo custo-benefício:
    - **STT (Fala p/ Texto):** Whisper-Large-V3 rodando em velocidade absurda via API do **Groq**.
    - **Raciocínio & Roteamento:** **Gemini 2.5 Flash** (Rápido, inteligente e adaptável a chamadas de ferramentas).
    - **Revezamento de APIs:** Sistema de Round-Robin nativo para rotacionar múltiplas chaves (keys) do Gemini automaticamente, contornando o limite rigoroso de "Requests Per Minute" (429 Quota Exceeded) sem custo adicional.
-   - **TTS (Texto p/ Fala):** **Microsoft Edge TTS** (Voz Neural *Francisca*, *Antonio*, *Faber*, etc), com processamento 100% na nuvem e resposta quase instantânea.
+   - **TTS (Texto p/ Fala):** **Microsoft Edge TTS** (Voz Neural *FranciscaNeural*, *AntonioNeural*, *DuarteNeural*, etc), com processamento 100% na nuvem e resposta quase instantânea.
 
 ## 🛠️ Ferramentas Nativas (Tools)
 O Agente Gemini tem acesso livre a essas ferramentas do ecossistema e sabe perfeitamente quando e como acioná-las:
+
+### 🏠 Automação e Casa Inteligente
+- 💡 **SmartHomeTool**: Integração completa com o **Home Assistant**. O Alfredo descobre todos os dispositivos da casa e controla luzes, TVs, ares-condicionados e interruptores inteligentes de forma natural ("Apague a luz da sala e ligue a TV").
+- ⏱️ **TimerTool**: Criação de Cronômetros, Alarmes e Lembretes exatos, disparando alertas sonoros no alto-falante físico do satélite.
+
+### 🎵 Entretenimento e Mídia
+- 🎵 **MusicTool (Spotify Connect Nativo)**: O Alfredo funciona como uma verdadeira "Caixa de Som Inteligente" (estilo Alexa). Com um daemon próprio (`spotifyd`), ele aceita comandos diretos ("Toque The Beatles", "Próxima música", "Pause", "Volume máximo") e gerencia a fila do Spotify nativamente pelo alto-falante, sem precisar de um celular pareado. Possui também fallback de segurança via YouTube (`yt-dlp`).
+- 📰 **NewsTool**: Manchetes recentes e notícias de última hora do Brasil e do mundo (via NewsAPI).
+
+### 🧠 Memória e Produtividade
+- 🧠 **MemoryTool**: Memória de longo prazo persistente. O Alfredo memoriza fatos vitais sobre o usuário (alergias, hábitos, números da sorte) e injeta esse contexto "Always-On" em todas as respostas futuras silenciosamente.
+- 📝 **ListTool**: Gerenciamento de Listas de Compras e Tarefas ("Adicione pão na minha lista de mercado").
+- 📅 **CalendarTool**: Leitura e agendamento de eventos e compromissos.
+
+### 🧭 Utilidades Gerais
 - 🕒 **TimeTool**: Informa hora e data com base no fuso horário do servidor.
 - 🌤️ **WeatherTool**: Previsão do tempo local e global (via Open-Meteo).
-- ⏱️ **TimerTool**: Criação de Cronômetros, Alarmes e Lembretes (persistentes em SQLite).
-- 📝 **ListTool**: Gerenciamento de Listas de Compras e Tarefas ("Adicione pão na minha lista").
-- 📅 **CalendarTool**: Leitura e agendamento de eventos e compromissos.
 - 🚗 **TrafficTool**: Tempo de deslocamento em tempo real usando coordenadas GPS (Mapbox).
-- 📰 **NewsTool**: Manchetes recentes do Brasil e do mundo (NewsAPI).
-- 🎵 **MusicTool**: Integração e controle OAuth nativo do Spotify ("Toque Beatles").
-- 🧠 **MemoryTool**: Memória de longo prazo persistente. O Alfredo memoriza fatos vitais sobre o usuário (alergias, hábitos) e injeta esse contexto "Always-On" em todas as respostas futuras silenciosamente.
-- 🍳 **RecipeTool**: Assistente de Enogastronomia. Guia o usuário em receitas culinárias **um passo de cada vez**, mantendo o contexto, além de fazer harmonizações finas de vinhos e queijos.
+
+### 🎓 Habilidades Especiais
+- 🍳 **RecipeTool**: Assistente de Enogastronomia. Guia o usuário em receitas culinárias **um passo de cada vez**, mantendo o contexto em banco de dados (pausa segura por horas), além de fazer harmonizações finas de vinhos e queijos.
 - ☁️ **DreamTool**: Diário Psicanalítico de Sonhos. Ouve os relatos de sonhos do usuário, extrai a semântica via "Zero Latency Parsing" e exibe uma nuvem de palavras animada (Word Cloud) no Dashboard.
-- 🏫 **QuizTool**: Modo de Tarefa Escolar. Auxilia crianças fazendo quizzes interativos de matemática e história, avaliando as respostas verbalmente e mantendo a dinâmica lúdica.
-- 💬 **Conversação Geral**: Se nenhuma ferramenta for necessária, o Alfredo usa seu vasto conhecimento geral para bater papo, responder dúvidas ou fazer piadas de forma fluida (estilo Alexa/ChatGPT).
+- 🏫 **QuizTool**: Modo de Tarefa Escolar. Auxilia crianças fazendo quizzes interativos de matemática e história, avaliando as respostas verbalmente e mantendo a dinâmica lúdica. O estado da sessão é persistido no banco de dados.
+
+### 💬 Conversação Nativa
+- Se nenhuma ferramenta for necessária, o Alfredo usa seu vasto conhecimento geral para bater papo, responder dúvidas complexas, traduzir textos ou contar piadas de forma puramente fluida.
 
 ## 🖥️ Arquitetura de Hardware
 

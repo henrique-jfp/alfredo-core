@@ -55,26 +55,33 @@ def get_current_weather(db: Session = None) -> dict:
         ).order_by(models.WeatherCache.id.desc()).first()
         
         if cached:
+            # We don't cache min/max yet, so if we hit cache we might miss them, but we will add them next time.
             logger.info("Retornando clima do cache do SQLite.")
             return {
                 "temperature": cached.temperature,
                 "humidity": cached.humidity,
                 "description": cached.description,
-                "weather_code": cached.weather_code
+                "weather_code": cached.weather_code,
+                "max_temp": "—", 
+                "min_temp": "—"
             }
 
     # Sem cache válido, busca na API
     logger.info("Buscando clima atualizado na API Open-Meteo...")
     try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=America%2FSao_Paulo"
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=America%2FSao_Paulo"
         resp = requests.get(url, timeout=5)
         resp.raise_for_status()
         data = resp.json()
         
         current = data.get("current", {})
+        daily = data.get("daily", {})
         temp = str(current.get("temperature_2m", "0"))
         hum = str(current.get("relative_humidity_2m", "0"))
         code = int(current.get("weather_code", -1))
+        
+        max_temp = str(daily.get("temperature_2m_max", ["—"])[0]) if daily.get("temperature_2m_max") else "—"
+        min_temp = str(daily.get("temperature_2m_min", ["—"])[0]) if daily.get("temperature_2m_min") else "—"
         
         desc = get_weather_description(code)
         
@@ -82,7 +89,9 @@ def get_current_weather(db: Session = None) -> dict:
             "temperature": temp,
             "humidity": hum,
             "description": desc,
-            "weather_code": code
+            "weather_code": code,
+            "max_temp": max_temp,
+            "min_temp": min_temp
         }
         
         # Salva no cache
@@ -107,7 +116,9 @@ def get_current_weather(db: Session = None) -> dict:
             "temperature": "?",
             "humidity": "?",
             "description": "indisponível",
-            "weather_code": -1
+            "weather_code": -1,
+            "max_temp": "?",
+            "min_temp": "?"
         }
 
 def get_weather_data_for_tool(db: Session, location: str, date_str: str) -> dict:

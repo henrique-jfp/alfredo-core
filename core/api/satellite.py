@@ -36,11 +36,14 @@ class ConnectionManager:
             except:
                 pass
 
-    async def send_command_to_satellite(self, device_id: str, command: str):
+    async def send_command_to_satellite(self, device_id: str, command: str, payload: dict = None):
         if device_id in self.active_satellites:
             try:
                 import json
-                await self.active_satellites[device_id].send_text(json.dumps({"type": command}))
+                msg = {"type": command}
+                if payload:
+                    msg.update(payload)
+                await self.active_satellites[device_id].send_text(json.dumps(msg))
                 return True
             except:
                 return False
@@ -63,18 +66,52 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
         manager.disconnect_satellite(device_id)
 
 @router.websocket("/dashboard")
-async def websocket_dashboard_endpoint(websocket: WebSocket):
+async def websocket_dashboard_endpoint(websocket: WebSocket, db: Session = Depends(get_db)):
     await manager.connect_dashboard(websocket)
     try:
         while True:
             # Receive commands from dashboard (e.g. "START_STREAM:device_id")
             data = await websocket.receive_text()
-            if data.startswith("START_STREAM:"):
-                device_id = data.split(":")[1]
+            parts = data.split(":")
+            command = parts[0]
+            device_id = parts[1] if len(parts) > 1 else None
+            
+            if not device_id:
+                continue
+
+            if command == "START_STREAM":
                 await manager.send_command_to_satellite(device_id, "START_STREAM")
-            elif data.startswith("STOP_STREAM:"):
-                device_id = data.split(":")[1]
+            elif command == "STOP_STREAM":
                 await manager.send_command_to_satellite(device_id, "STOP_STREAM")
+            elif command == "IDENTIFY":
+                await manager.send_command_to_satellite(device_id, "IDENTIFY")
+            elif command == "OTA_UPDATE":
+                await manager.send_command_to_satellite(device_id, "OTA_UPDATE")
+            elif command == "SET_VOLUME" and len(parts) > 2:
+                volume = int(parts[2])
+                # Save to DB
+                device = db.query(models.Device).filter(models.Device.device_id == device_id).first()
+                if device:
+                    device.volume = volume
+                    db.commit()
+                await manager.send_command_to_satellite(device_id, "SET_VOLUME", {"value": volume})
+            elif command == "SET_BRIGHTNESS" and len(parts) > 2:
+                brightness = int(parts[2])
+                # Save to DB
+                device = db.query(models.Device).filter(models.Device.device_id == device_id).first()
+                if device:
+                    device.brightness = brightness
+                    db.commit()
+                await manager.send_command_to_satellite(device_id, "SET_BRIGHTNESS", {"value": brightness})
+            elif command == "SET_ALSA_CAPTURE" and len(parts) > 2:
+                val = parts[2]
+                await manager.send_command_to_satellite(device_id, "SET_ALSA_CAPTURE", {"value": val})
+            elif command == "SET_ALSA_MASTER" and len(parts) > 2:
+                val = parts[2]
+                await manager.send_command_to_satellite(device_id, "SET_ALSA_MASTER", {"value": val})
+            elif command == "SET_SOFTWARE_PREAMP" and len(parts) > 2:
+                val = parts[2]
+                await manager.send_command_to_satellite(device_id, "SET_SOFTWARE_PREAMP", {"value": val})
     except WebSocketDisconnect:
         manager.disconnect_dashboard(websocket)
     except Exception as e:
@@ -100,6 +137,8 @@ def get_all_devices(db: Session = Depends(get_db)):
             "hardware": d.hardware,
             "firmware_version": d.firmware_version,
             "capabilities": d.capabilities,
+            "volume": d.volume,
+            "brightness": d.brightness,
             "is_online": d.device_id in active_ws
         })
     return result

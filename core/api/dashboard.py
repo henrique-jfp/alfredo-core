@@ -12,6 +12,17 @@ import json
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
+class CommandPayload(BaseModel):
+    command: str
+
+@router.post("/command")
+def send_command(payload: CommandPayload, db: Session = Depends(get_db)):
+    from core.brain.router import AgentRouter
+    agent = AgentRouter()
+    context = {"db": db, "room_id": "dashboard", "device_id": "dashboard", "ws_tasks": []}
+    response = agent.process(payload.command, context)
+    return {"status": "success", "response": response}
+
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db)):
     """Retorna estatísticas gerais do sistema para os cartões (KPIs)."""
@@ -28,12 +39,26 @@ def get_stats(db: Session = Depends(get_db)):
     tokens_used_query = db.query(func.sum(models.AIUsage.tokens_used)).scalar()
     tokens_used = tokens_used_query if tokens_used_query else 0
     
+    ai_requests = db.query(models.AIUsage).count()
+    
     return {
         "interactions": total_interactions,
         "devices": devices_registered,
         "active_timers": active_timers,
-        "tokens_used": tokens_used
+        "tokens_used": tokens_used,
+        "ai_requests": ai_requests
     }
+
+class DreamPayload(BaseModel):
+    text: str
+
+@router.post("/dreams")
+async def create_dream(payload: DreamPayload, db: Session = Depends(get_db)):
+    from core.brain.router import AgentRouter
+    agent = AgentRouter()
+    prompt = f"Por favor, anote este sonho no meu diário de sonhos: {payload.text}"
+    response = agent.process_text(prompt, context={"db": db, "room_id": "dashboard"})
+    return {"status": "success", "response": response}
 
 @router.get("/dreams")
 def get_dreams(limit: int = 50, db: Session = Depends(get_db)):
@@ -55,6 +80,7 @@ def get_dreams(limit: int = 50, db: Session = Depends(get_db)):
             
         history.append({
             "id": d.id,
+            "raw_text": d.raw_text,
             "themes": themes,
             "interpretation": d.interpretation,
             "created_at": d.created_at.isoformat() if d.created_at else None
@@ -120,7 +146,7 @@ def get_timers(db: Session = Depends(get_db)):
             "id": t.id,
             "room_id": t.room_id,
             "duration_seconds": t.duration_seconds,
-            "expires_at": t.expires_at.isoformat() if t.expires_at else None,
+            "expires_at": t.expires_at.isoformat() + "Z" if t.expires_at else None,
             "message": t.message,
             "timer_type": t.timer_type
         } for t in timers
@@ -164,6 +190,12 @@ def get_integrations(db: Session = Depends(get_db)):
 
 @router.post("/integrations/spotify/save")
 def save_spotify_keys(creds: SpotifyCredentials, db: Session = Depends(get_db)):
+    # Salva no .env permanentemente
+    from core.services.env_manager import set_env_var, sync_env_to_db
+    set_env_var("SPOTIFY_CLIENT_ID", creds.client_id)
+    set_env_var("SPOTIFY_CLIENT_SECRET", creds.client_secret)
+    
+    # Salva no DB também
     spotify = db.query(models.AppIntegration).filter(models.AppIntegration.app_name == "spotify").first()
     if not spotify:
         spotify = models.AppIntegration(
@@ -179,7 +211,29 @@ def save_spotify_keys(creds: SpotifyCredentials, db: Session = Depends(get_db)):
         spotify.is_connected = False
         
     db.commit()
-    return {"status": "success"}
+    return {"status": "success", "message": "Credenciais salvas no .env permanentemente."}
+
+@router.post("/integrations/spotify/test")
+async def test_spotify_connection():
+    """Testa a conexão do Spotify simulando 1 segundo de silêncio na API."""
+    import spotipy
+    from core.services.spotify_service import get_spotify_client
+    
+    sp = get_spotify_client()
+    if not sp:
+        return {"error": "Spotify não configurado."}
+        
+    try:
+        # Pega devices
+        devices = sp.devices()
+        if not devices or not devices.get('devices'):
+            return {"error": "Nenhum dispositivo ativo encontrado no Spotify."}
+            
+        return {"status": "success", "message": "Conexão bem sucedida com Spotify!"}
+    except spotipy.exceptions.SpotifyException as e:
+        return {"error": f"Erro Spotify API: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Erro interno: {str(e)}"}
 
 # --- ROTINAS ---
 
@@ -190,6 +244,7 @@ class RoutineCreate(BaseModel):
     action_type: str
     action_value: str
     room_id: str
+    days_of_week: str = "0,1,2,3,4,5,6"
     
 @router.get("/routines")
 def get_routines(db: Session = Depends(get_db)):
@@ -206,7 +261,8 @@ def create_routine(payload: RoutineCreate, db: Session = Depends(get_db)):
         trigger_value=payload.trigger_value,
         action_type=payload.action_type,
         action_value=payload.action_value,
-        room_id=payload.room_id
+        room_id=payload.room_id,
+        days_of_week=payload.days_of_week
     )
     db.add(new_routine)
     db.commit()
@@ -392,6 +448,18 @@ def delete_memory(memory_id: int, db: Session = Depends(get_db)):
         db.commit()
     return {"status": "success"}
 
+class MemoryUpdate(BaseModel):
+    fact: str
+
+@router.put("/memories/{memory_id}")
+def update_memory(memory_id: int, payload: MemoryUpdate, db: Session = Depends(get_db)):
+    mem = db.query(models.MemoryFact).filter(models.MemoryFact.id == memory_id).first()
+    if not mem:
+        return {"error": "Memory not found"}
+    mem.fact = payload.fact
+    db.commit()
+    return {"status": "success", "id": mem.id}
+
 @router.get("/status")
 def get_api_status():
     import core.brain.router as brain_router
@@ -411,4 +479,61 @@ def get_api_status():
         "keys_total": total_keys,
         "current_key_idx": current_idx,
         "global_requests": brain_router._global_key_idx
+    }
+
+@router.get("/ai_metrics")
+def get_ai_metrics(db: Session = Depends(get_db)):
+    from sqlalchemy import func
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    one_hour_ago = now - timedelta(hours=1)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Agrupar por chaves (provider)
+    usage_by_provider = db.query(
+        models.AIUsage.provider,
+        func.count(models.AIUsage.id).label("requests"),
+        func.sum(models.AIUsage.tokens_used).label("tokens")
+    ).group_by(models.AIUsage.provider).all()
+
+    keys_data = []
+    total_tokens = 0
+    for p, r, t in usage_by_provider:
+        keys_data.append({
+            "provider": p,
+            "requests": r,
+            "tokens": t or 0
+        })
+        total_tokens += (t or 0)
+
+    # Requisições e tokens totais
+    global_requests = db.query(func.count(models.AIUsage.id)).scalar() or 0
+
+    # RPM e TPM (última hora dividida por 60)
+    last_hour_usage = db.query(
+        func.count(models.AIUsage.id).label("requests"),
+        func.sum(models.AIUsage.tokens_used).label("tokens")
+    ).filter(models.AIUsage.timestamp >= one_hour_ago).first()
+
+    rpm = (last_hour_usage.requests or 0) / 60.0
+    tpm = (last_hour_usage.tokens or 0) / 60.0
+
+    # Latência média (últimas 10 reqs)
+    recent_latencies = db.query(models.AIUsage.latency_ms).order_by(models.AIUsage.id.desc()).limit(10).all()
+    latencies = [x[0] for x in recent_latencies if x[0]]
+    avg_latency = sum(latencies) / len(latencies) if latencies else 0
+
+    # Custo estimado (ex: $0.15 por 1M tokens) - como estamos no free tier, é economia.
+    estimated_savings_usd = (total_tokens / 1_000_000) * 0.15
+
+    return {
+        "model": "gemini-3.1-flash-lite",
+        "global_requests": global_requests,
+        "total_tokens": total_tokens,
+        "rpm": round(rpm, 2),
+        "tpm": round(tpm, 2),
+        "avg_latency_ms": int(avg_latency),
+        "estimated_savings_usd": round(estimated_savings_usd, 4),
+        "keys": keys_data
     }

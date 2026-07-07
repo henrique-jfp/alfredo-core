@@ -1,7 +1,8 @@
 import os
 import logging
 from fastapi import APIRouter, HTTPException, Depends, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, HTMLResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
@@ -13,16 +14,15 @@ logger = logging.getLogger("alfredo.spotify")
 
 CACHE_PATH = os.path.join(os.getcwd(), ".spotify_cache")
 
-def get_spotify_oauth(db: Session, request: Request):
+
+def get_spotify_oauth(db: Session, request: Request = None):
     spotify = db.query(models.AppIntegration).filter(models.AppIntegration.app_name == "spotify").first()
-    
     if not spotify or not spotify.client_id or not spotify.client_secret:
         return None
-        
-    # Usa o IP que o usuário (celular) está acessando como redirect_uri dinâmico
-    host = request.headers.get("host", "localhost:10001")
-    redirect_uri = f"http://{host}/api/spotify/callback"
-        
+    # Usa localhost: Spotify aceita http://localhost mas não http://192.168.x.x nem https://192.168.x.x
+    # O usuário deve fazer SSH tunnel: ssh -L 10001:localhost:10001 pvserver@192.168.0.56
+    # e acessar http://localhost:10001 para o OAuth funcionar
+    redirect_uri = "http://127.0.0.1:10001/api/spotify/callback"
     return SpotifyOAuth(
         client_id=spotify.client_id,
         client_secret=spotify.client_secret,
@@ -32,33 +32,146 @@ def get_spotify_oauth(db: Session, request: Request):
         open_browser=False
     )
 
+
 @router.get("/login")
-def login(request: Request, db: Session = Depends(get_db)):
-    """Redireciona o usuário para a página de login do Spotify."""
-    sp_oauth = get_spotify_oauth(db, request)
+def login(db: Session = Depends(get_db)):
+    sp_oauth = get_spotify_oauth(db)
     if not sp_oauth:
         raise HTTPException(status_code=500, detail="Chaves do Spotify não configuradas no Banco de Dados")
-        
     auth_url = sp_oauth.get_authorize_url()
     return RedirectResponse(auth_url)
 
+
 @router.get("/callback")
-def callback(code: str, request: Request, db: Session = Depends(get_db)):
-    """Recebe o código do Spotify e gera o token de acesso."""
-    sp_oauth = get_spotify_oauth(db, request)
+def callback(code: str = None, state: str = None, error: str = None, db: Session = Depends(get_db)):
+    if error:
+        logger.error(f"Spotify retornou erro: {error}")
+        return HTMLResponse(
+            f"<html><body style='font-family:sans-serif;background:#1a1a2e;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
+            f"<div style='text-align:center'><h1 style='color:#ef4444'>Autorização negada</h1>"
+            f"<p>{error}</p>"
+            f"<a href='http://192.168.0.56:10001/' style='color:#1DB954'>Voltar ao Dashboard</a></div></body></html>"
+        )
+    if not code:
+        return HTMLResponse(
+            "<html><body style='font-family:sans-serif;background:#1a1a2e;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
+            "<div style='text-align:center'><h1 style='color:#ef4444'>Erro ao conectar</h1>"
+            "<p>Nenhum código de autorização recebido do Spotify.</p>"
+            "<a href='http://192.168.0.56:10001/' style='color:#1DB954'>Voltar ao Dashboard</a></div></body></html>"
+        )
+    sp_oauth = get_spotify_oauth(db)
     if not sp_oauth:
         raise HTTPException(status_code=500, detail="Chaves do Spotify não configuradas.")
-        
     try:
         sp_oauth.get_access_token(code)
-        
-        # Atualiza status no BD para conectado
         spotify = db.query(models.AppIntegration).filter(models.AppIntegration.app_name == "spotify").first()
         if spotify:
             spotify.is_connected = True
             db.commit()
-            
-        return {"status": "success", "message": "Spotify conectado com sucesso! Você já pode fechar esta aba no celular e olhar para a tela do computador."}
+        logger.info("Spotify conectado com sucesso via callback!")
+        return HTMLResponse(
+            "<html><body style='font-family:sans-serif;background:#1a1a2e;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
+            "<div style='text-align:center'><h1 style='color:#1DB954'>Spotify Conectado!</h1>"
+            "<p>Você já pode fechar esta aba e voltar ao Dashboard.</p>"
+            "<a href='http://192.168.0.56:10001/' style='color:#1DB954'>Voltar ao Dashboard</a></div></body></html>"
+        )
     except Exception as e:
         logger.error(f"Erro no callback do Spotify: {e}")
-        raise HTTPException(status_code=500, detail="Erro ao gerar token.")
+        return HTMLResponse(
+            "<html><body style='font-family:sans-serif;background:#1a1a2e;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
+            "<div style='text-align:center'><h1 style='color:#ef4444'>Erro ao conectar</h1>"
+            f"<p>{e}</p></div></body></html>"
+        )
+
+
+@router.get("/now-playing")
+def get_now_playing(db: Session = Depends(get_db)):
+    sp_oauth = get_spotify_oauth(db)
+    if not sp_oauth:
+        return {"error": "not_configured"}
+    
+    token_info = sp_oauth.get_cached_token()
+    if not token_info:
+        return {"error": "not_authenticated"}
+        
+    sp = spotipy.Spotify(auth_manager=sp_oauth)
+    try:
+        current = sp.current_playback()
+        if not current or not current.get('item'):
+            return {"is_playing": False}
+            
+        item = current['item']
+        artist_name = ", ".join([artist['name'] for artist in item.get('artists', [])])
+        
+        album_art = ""
+        if item.get('album') and item['album'].get('images'):
+            album_art = item['album']['images'][0]['url']
+            
+        return {
+            "is_playing": current.get('is_playing', False),
+            "track_name": item.get('name', 'Desconhecido'),
+            "artist_name": artist_name,
+            "album_art": album_art,
+            "progress_ms": current.get('progress_ms', 0),
+            "duration_ms": item.get('duration_ms', 0),
+            "device_name": current.get('device', {}).get('name', 'Unknown')
+        }
+    except spotipy.exceptions.SpotifyException as e:
+        logger.error(f"Erro ao buscar now-playing: {e}")
+        return {"error": "api_error"}
+
+
+class SpotifyControlRequest(BaseModel):
+    action: str
+    volume: int = None
+
+@router.post("/control")
+def control_playback(req: SpotifyControlRequest, db: Session = Depends(get_db)):
+    sp_oauth = get_spotify_oauth(db)
+    if not sp_oauth:
+        raise HTTPException(status_code=400, detail="Not configured")
+        
+    token_info = sp_oauth.get_cached_token()
+    if not token_info:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+        
+    sp = spotipy.Spotify(auth_manager=sp_oauth)
+    
+    try:
+        # Pega dispositivo ativo atual
+        current = sp.current_playback()
+        device_id = None
+        if current and current.get('device'):
+            device_id = current['device']['id']
+            
+        if not device_id:
+            # Tenta achar Alfredo Speaker
+            devices = sp.devices()
+            if devices and devices.get('devices'):
+                for d in devices['devices']:
+                    if d.get('name') == 'Alfredo Speaker':
+                        device_id = d['id']
+                        break
+                if not device_id:
+                    device_id = devices['devices'][0]['id']
+                    
+        if not device_id:
+            raise HTTPException(status_code=404, detail="No active devices")
+
+        if req.action == "play":
+            sp.start_playback(device_id=device_id)
+        elif req.action == "pause":
+            sp.pause_playback(device_id=device_id)
+        elif req.action == "next":
+            sp.next_track(device_id=device_id)
+        elif req.action == "prev":
+            sp.previous_track(device_id=device_id)
+        elif req.action == "volume" and req.volume is not None:
+            sp.volume(req.volume, device_id=device_id)
+        else:
+            raise HTTPException(status_code=400, detail="Unknown action")
+            
+        return {"status": "success"}
+    except spotipy.exceptions.SpotifyException as e:
+        logger.error(f"Erro no controle do spotify: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

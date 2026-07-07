@@ -8,6 +8,7 @@ import numpy as np
 import wave
 import sys
 import os
+import time
 
 RATE = 16000
 CHANNELS = 1
@@ -25,6 +26,11 @@ print(sd.query_devices())
 print(f"\n🎯 Device padrão de entrada: {sd.default.device[0]}")
 
 # 2. Gravar
+print(f"\n🔴 Preparando para gravar... Você tem 5 segundos para se posicionar.")
+for i in range(5, 0, -1):
+    print(f"   Começando em {i}...")
+    time.sleep(1)
+
 print(f"\n🔴 Gravando {DURATION}s de áudio... (FIQUE EM SILÊNCIO nos primeiros 3s, depois fale)")
 try:
     audio = sd.rec(int(DURATION * RATE), samplerate=RATE, channels=CHANNELS, dtype=DTYPE)

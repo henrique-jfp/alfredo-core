@@ -25,7 +25,16 @@ class MediaSkill(Skill):
         year = kwargs.get("decade_or_year")
         
         try:
-            return discover_media(media_type=media_type, genre=genre, year=year)
+            data = discover_media(media_type=media_type, genre=genre, year=year)
+            if "results" in data and data["results"]:
+                lines = []
+                for r in data["results"]:
+                    watch = r.get("where_to_watch", "")
+                    lines.append(f"{r['title']} (nota {r['rating']})")
+                data["direct_response"] = f"Recomendo: {'; '.join(lines)}."
+            elif "message" in data:
+                data["direct_response"] = data["message"]
+            return data
         except Exception as e:
             logger.error(f"Erro no execute_tool do MediaSkill: {e}")
             return {"error": str(e)}

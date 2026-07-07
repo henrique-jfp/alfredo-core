@@ -28,13 +28,14 @@ class TranslateSkill(Skill):
             instruction = (
                 f"O usuário quer uma mini-aula rápida de 3 a 5 palavras ou frases úteis em {target_language}. "
                 f"Tema: {text if text else 'tópicos do dia a dia'}. "
-                f"Forneça a palavra no idioma, o significado em português e uma explicação MUITO SIMPLES de como pronunciar. "
+                f"Forneça a palavra no idioma usando a tag <lang=\"LOCALE\">palavra</lang> (ex: <lang=\"en-US\">hello</lang>), o significado em português e o contexto de uso. "
                 f"Fale de forma natural, como um tutor de idiomas, e sem emojis."
             )
         else:
             instruction = (
                 f"O usuário quer traduzir a frase '{text}' para {target_language}. "
-                f"Forneça a tradução exata e uma breve indicação de como se pronuncia isso lendo em português. "
+                f"Forneça a tradução exata utilizando OBRIGATORIAMENTE a tag <lang=\"LOCALE\">tradução</lang> para o trecho traduzido (ex: <lang=\"en-US\">I love you</lang> ou <lang=\"ja-JP\">Aishiteru</lang>). "
+                f"NÃO ESCREVA A PRONÚNCIA. O sistema de voz fará a leitura perfeitamente através da tag <lang>. "
                 f"Seja direto e natural. Sem emojis."
             )
             

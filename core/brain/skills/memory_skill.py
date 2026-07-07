@@ -35,12 +35,7 @@ class MemorySkill(Skill):
             db.commit()
             logger.info("Fato salvo na Memória de Longo Prazo.")
 
-        instruction = (
-            f"Você acabou de salvar a seguinte informação permanentemente: '{fact}'. "
-            f"Aja com naturalidade e diga ao usuário que você guardou isso na memória e não vai esquecer."
-        )
-            
         return {
-            "internal_instruction": instruction,
-            "status": "success"
+            "status": "success",
+            "direct_response": f"Entendido! Guardei na memória que {fact.lower()}. Não vou esquecer."
         }

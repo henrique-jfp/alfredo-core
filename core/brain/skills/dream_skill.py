@@ -3,10 +3,10 @@ import logging
 from typing import Dict, Any
 from core.brain.skills.base import Skill
 
-logger = logging.getLogger("alfredo.skills")
+logger = logging.getLogger("alfredo.skills.dream")
 
 class DreamSkill(Skill):
-    
+
     @property
     def name(self) -> str:
         return "DreamSkill"
@@ -20,32 +20,37 @@ class DreamSkill(Skill):
     def execute_tool(self, kwargs: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         themes = kwargs.get("themes", [])
         interpretation = kwargs.get("interpretation", "")
-        
-        logger.info(f"Executando DreamSkill -> themes: {themes}, interpretation: {interpretation[:30]}...")
-        
+        raw_text = kwargs.get("raw_text", "")
+
+        logger.info(f"DreamSkill -> themes: {themes}, interpretation: {interpretation[:50]}...")
+
         db = context.get("db")
         room_id = context.get("room_id", "default")
-        
-        if db and interpretation:
-            from core.brain.memory import models
-            
-            # Save the dream log to the DB
-            dream_log = models.DreamLog(
-                raw_text="", # We don't get the raw text here directly, but the interpretation and themes are the core
-                themes=json.dumps(themes),
-                interpretation=interpretation,
-                room_id=room_id
-            )
-            db.add(dream_log)
-            db.commit()
-            logger.info("Sonho salvo no banco de dados.")
 
-        instruction = (
-            f"O diário de sonhos foi salvo com sucesso com os temas: {', '.join(themes)}. "
-            f"Fale a seguinte interpretação de forma mística, serena e poética (sem dizer que está lendo): '{interpretation}'"
-        )
-            
+        saved = False
+        if db and interpretation and raw_text:
+            try:
+                from core.brain.memory import models
+
+                dream_log = models.DreamLog(
+                    raw_text=raw_text,
+                    themes=json.dumps(themes) if isinstance(themes, list) else "[]",
+                    interpretation=interpretation,
+                    room_id=room_id
+                )
+                db.add(dream_log)
+                db.commit()
+                saved = True
+                logger.info("Sonho salvo no banco de dados.")
+            except Exception as e:
+                logger.error(f"Erro ao salvar sonho no DB: {e}")
+
+        if saved:
+            msg = f"Salvei seu sonho no diário. {interpretation}"
+        else:
+            msg = interpretation if interpretation else "Conte-me mais sobre o sonho para eu interpretar."
+
         return {
-            "internal_instruction": instruction,
-            "status": "success"
+            "status": "success",
+            "direct_response": msg
         }
