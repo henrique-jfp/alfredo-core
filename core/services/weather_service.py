@@ -123,12 +123,24 @@ def get_current_weather(db: Session = None) -> dict:
 
 def get_weather_data_for_tool(db: Session, location: str, date_str: str) -> dict:
     """Busca o clima ou previsão baseado nos parâmetros do LLM."""
-    # Simples geocoding ignorado por enquanto, usa a casa se não informado.
-    # Em uma versão completa, usaríamos a API do Google para buscar o lat/lon do 'location'.
     lat = os.getenv("WEATHER_LATITUDE", "-23.5505")
     lon = os.getenv("WEATHER_LONGITUDE", "-46.6333")
     
-    if db and not location:
+    if location:
+        try:
+            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location}&count=1&language=pt&format=json"
+            geo_resp = requests.get(geo_url, timeout=5)
+            geo_resp.raise_for_status()
+            geo_data = geo_resp.json()
+            if geo_data.get("results") and len(geo_data["results"]) > 0:
+                lat = str(geo_data["results"][0].get("latitude", lat))
+                lon = str(geo_data["results"][0].get("longitude", lon))
+            else:
+                return {"error": f"Não consegui encontrar a localização para '{location}'."}
+        except Exception as e:
+            logger.error(f"Erro no geocoding do Open-Meteo: {e}")
+            return {"error": f"Erro ao buscar coordenadas para '{location}'."}
+    elif db:
         settings = db.query(models.Setting).all()
         config = {s.key: s.value for s in settings}
         lat = config.get("home_lat", lat)

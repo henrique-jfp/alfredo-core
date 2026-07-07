@@ -20,10 +20,25 @@ class GroqSTT:
         if not os.path.exists(audio_filepath):
             raise FileNotFoundError(f"Arquivo de áudio não encontrado: {audio_filepath}")
         logger.info(f"Enviando áudio para Groq Whisper API: {audio_filepath}")
+        
+        # Converte para WAV padrão 16kHz mono para evitar problemas de header/duração do WebM
+        import subprocess, tempfile
+        tmp_wav = tempfile.mktemp(suffix=".wav")
         try:
-            with open(audio_filepath, "rb") as file:
+            subprocess.run([
+                "ffmpeg", "-y", "-i", audio_filepath,
+                "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+                tmp_wav
+            ], capture_output=True, check=True)
+            target_file = tmp_wav
+        except Exception as e:
+            logger.warning(f"Falha ao converter áudio com ffmpeg, tentando original. Erro: {e}")
+            target_file = audio_filepath
+
+        try:
+            with open(target_file, "rb") as file:
                 transcription = self.client.audio.transcriptions.create(
-                  file=(os.path.basename(audio_filepath), file.read()),
+                  file=(os.path.basename(target_file), file.read()),
                   model="whisper-large-v3",
                   response_format="text",
                   language="pt"
@@ -31,11 +46,21 @@ class GroqSTT:
             final_text = str(transcription).strip().lower()
             import string
             final_text = final_text.translate(str.maketrans('', '', string.punctuation))
+            
+            # Filtro de alucinações comuns do Whisper para áudio silencioso/ruído
+            hallucinations = ["adriana zanoto", "obrigado por assistir", "obrigada por assistir", "amigos da rede globo", "inscrevase no canal"]
+            if final_text in hallucinations:
+                logger.warning(f"Alucinação do Whisper ignorada: '{final_text}'")
+                final_text = ""
+
             logger.info(f"Transcrição concluída via Groq Whisper: '{final_text}'")
             return final_text
         except Exception as e:
             logger.error(f"Erro na transcrição via Groq Whisper: {e}")
             return ""
+        finally:
+            if target_file == tmp_wav and os.path.exists(tmp_wav):
+                os.remove(tmp_wav)
 
     def transcribe_bytes(self, audio_bytes: bytes, filename: str = "audio.wav") -> str:
         """Transcreve áudio a partir de bytes em memória (evita I/O de disco)."""

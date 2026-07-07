@@ -1,0 +1,13 @@
+tunnel: 970ddca7-a0a3-4708-a15c-b56f07e792c4
+credentials-file: /etc/cloudflared/970ddca7-a0a3-4708-a15c-b56f07e792c4.json
+
+ingress:
+  - hostname: alfredo.henriquedejesus.dev
+    service: http://localhost:10001
+  - hostname: entregas.henriquedejesus.dev
+    service: http://localhost:8080
+  - hostname: meibot.henriquedejesus.dev
+    service: http://localhost:8000
+  - hostname: cade.henriquedejesus.dev
+    service: http://localhost:10002
+  - service: http_status:404

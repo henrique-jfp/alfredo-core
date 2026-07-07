@@ -159,10 +159,10 @@ sudo shutdown -h now
 
 ```bash
 # Entrar na sessão do Uvicorn (API) — ver requests, erros, transcrições
-screen -r uvicorn
+tail -f ~/alfredo-core/uvicorn.log
 
 # Entrar na sessão do Satélite — ver wake word, calibração, gravação
-screen -r satellite
+tail -f ~/alfredo-core/satellite.log
 ```
 
 > **Para sair de uma sessão screen sem matar:** pressione `Ctrl+A` depois `D` (detach).

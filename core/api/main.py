@@ -147,109 +147,23 @@ async def process_voice(
     
     # 1. Ler áudio em memória (sem salvar em disco — elimina ~100ms de I/O)
     audio_bytes = await file.read()
-    logger.info(f"Áudio recebido: {len(audio_bytes)} bytes ({_time.time() - t_pipeline_start:.3f}s)")
+    logger.info(f"Áudio recebido via POST: {len(audio_bytes)} bytes ({_time.time() - t_pipeline_start:.3f}s)")
     
-    # 2. Criar interação no DB e COMMITAR imediatamente para não travar o banco
-    interaction = models.Interaction(
-        device_id=x_device_id,
-        room_id=x_room_id,
-        input_text=None,
-        output_text=None
+    from core.voice.pipeline import process_audio_pipeline
+    from core.voice.tts.engine import get_tts_engine
+    
+    # Verificamos se é webm baseando-se no filename ou header (por padrão POST file enviamos do virtual mic)
+    is_webm = False
+    if file.filename and file.filename.endswith('.webm'):
+        is_webm = True
+        
+    generator = process_audio_pipeline(audio_bytes, x_device_id, x_room_id, db, is_webm=is_webm)
+    
+    tts_engine = get_tts_engine()
+    return StreamingResponse(
+        generator,
+        media_type=tts_engine.media_type
     )
-    db.add(interaction)
-    db.commit()
-    interaction_id = interaction.id
-    
-    # 3. STT em memória (sem I/O de disco)
-    t_stt_start = _time.time()
-    transcribed_text = ""
-    try:
-        stt_engine = get_stt_engine()
-        if hasattr(stt_engine, 'transcribe_bytes'):
-            transcribed_text = stt_engine.transcribe_bytes(audio_bytes)
-        else:
-            temp_dir = os.path.join(os.getcwd(), "tmp")
-            os.makedirs(temp_dir, exist_ok=True)
-            input_filepath = os.path.join(temp_dir, f"in_{int(_time.time())}.wav")
-            with open(input_filepath, "wb") as buffer:
-                buffer.write(audio_bytes)
-            transcribed_text = stt_engine.transcribe_wav(input_filepath)
-        
-        interaction.input_text = transcribed_text
-        db.commit()
-        logger.info(f"STT concluído em {_time.time() - t_stt_start:.3f}s — Usuário disse: '{transcribed_text}'")
-    except Exception as e:
-        logger.error(f"Erro no STT: {e}")
-
-    # 4. Roteamento de Intenção (Streaming Real)
-    t_llm_start = _time.time()
-    logger.info("Enviando texto para o Router (Streaming)...")
-    try:
-        router = get_router()
-        context = {
-            "device_id": x_device_id,
-            "room_id": x_room_id,
-            "db": db,
-            "ws_tasks": []
-        }
-        
-        text_stream = router.process_stream_async(transcribed_text, context)
-        
-        async def intercept_and_save_text(generator):
-            full_text = ""
-            try:
-                async for sentence in generator:
-                    if sentence:
-                        full_text += sentence + " "
-                        yield sentence
-            except Exception as e:
-                logger.error(f"Erro no generator: {e}")
-                
-            # Salvar no DB usando uma NOVA sessão para evitar detached instance / lock errors
-            try:
-                from core.brain.memory.database import SessionLocal
-                with SessionLocal() as new_db:
-                    inter = new_db.query(models.Interaction).filter(models.Interaction.id == interaction_id).first()
-                    if inter:
-                        inter.output_text = full_text.strip()
-                        new_db.commit()
-            except Exception as e:
-                logger.error(f"Erro ao salvar interação final: {e}")
-            
-            for task in context.get("ws_tasks", []):
-                target_ws = active_connections.get(task["device_id"])
-                if target_ws:
-                    try:
-                        await target_ws.send_json(task["payload"])
-                        logger.info(f"Push enviado via WebSocket para {task['device_id']}")
-                    except Exception:
-                        pass
-
-        intercepted_stream = intercept_and_save_text(text_stream)
-        
-    except Exception as e:
-        logger.error(f"Erro no Router: {e}")
-        async def error_stream():
-            yield "Tive um problema interno ao tentar pensar na sua resposta."
-        intercepted_stream = error_stream()
-    
-    # 5. Sintetizar áudio de resposta via Streaming (EdgeTTS)
-    try:
-        voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
-        chosen_voice = voice_setting.value.strip() if voice_setting and voice_setting.value and voice_setting.value.strip() else "pt-BR-FranciscaNeural"
-        
-        tts_engine = get_tts_engine()
-        tts_engine.reload_voice(chosen_voice)
-        
-        logger.info(f"Pipeline pré-TTS pronto em {_time.time() - t_pipeline_start:.3f}s (STT: {_time.time() - t_stt_start:.3f}s)")
-        
-        return StreamingResponse(
-            tts_engine.stream_audio_from_generator(intercepted_stream),
-            media_type=tts_engine.media_type
-        )
-    except Exception as e:
-        logger.error(f"Erro no TTS: {e}")
-        raise HTTPException(status_code=500, detail="Erro na síntese de voz.")
 
 @app.post("/api/voice/transcribe")
 async def process_voice_transcribe(
@@ -261,7 +175,10 @@ async def process_voice_transcribe(
     """
     temp_dir = os.path.join(os.getcwd(), "tmp")
     os.makedirs(temp_dir, exist_ok=True)
-    input_filepath = os.path.join(temp_dir, f"transcribe_{int(time.time())}.wav")
+    ext = os.path.splitext(file.filename)[1] if file.filename else ".wav"
+    if not ext:
+        ext = ".wav"
+    input_filepath = os.path.join(temp_dir, f"transcribe_{int(time.time())}{ext}")
     
     with open(input_filepath, "wb") as buffer:
         buffer.write(await file.read())
@@ -280,6 +197,7 @@ class TextCommandRequest(BaseModel):
     text: str
     device_id: str = "dashboard-virtual-mic"
     room_id: str = "ROOM_LIVING"
+    play_locally: bool = False
 
 @app.post("/api/voice/text")
 async def process_voice_text(
@@ -337,6 +255,13 @@ async def process_voice_text(
         
         interaction.output_text = response_text
         db.commit()
+        
+        if payload.play_locally:
+            import subprocess
+            # Play on the server using ffplay
+            subprocess.Popen(["ffplay", "-nodisp", "-autoexit", output_filepath], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"status": "playing_locally", "text": response_text}
+            
     except Exception as e:
         logger.error(f"Erro no Piper TTS (Text): {e}")
         raise HTTPException(status_code=500, detail="Erro na síntese de voz.")
@@ -374,11 +299,6 @@ app.include_router(satellite_rest_router)
 from core.api.tv import router as tv_router
 app.include_router(tv_router)
 
-# Montando a pasta estática do frontend na URL raiz (/)
-# ATENÇÃO: mount("/") deve ser o último para não sobrescrever as rotas /api/
-dashboard_path = os.path.join(os.getcwd(), "dashboard", "frontend")
-app.mount("/", StaticFiles(directory=dashboard_path, html=True), name="frontend")
-
 @app.get("/api/audio/{filename}")
 def get_audio(filename: str):
     """Endpoint para fornecer arquivos de áudio gerados pelo TTS para o hardware baixar."""
@@ -387,3 +307,8 @@ def get_audio(filename: str):
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Audio file not found")
     return FileResponse(filepath, media_type="audio/wav")
+
+# Montando a pasta estática do frontend na URL raiz (/)
+# ATENÇÃO: mount("/") deve ser o último para não sobrescrever as rotas /api/
+dashboard_path = os.path.join(os.getcwd(), "dashboard", "frontend")
+app.mount("/", StaticFiles(directory=dashboard_path, html=True), name="frontend")

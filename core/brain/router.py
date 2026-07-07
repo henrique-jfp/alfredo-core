@@ -19,6 +19,7 @@ from core.brain.skills.translate_skill import TranslateSkill
 from core.brain.skills.news_skill import NewsSkill
 from core.brain.skills.music_skill import MusicSkill
 from core.brain.skills.tv_skill import TVSkill
+from core.brain.skills.youtube_skill import YouTubeSkill
 
 logger = logging.getLogger("alfredo.agent")
 
@@ -41,7 +42,8 @@ class AgentRouter:
             "manage_memory": MemorySkill(),
             "translate": TranslateSkill(),
             "get_news": NewsSkill(),
-            "manage_tv": TVSkill()
+            "manage_tv": TVSkill(),
+            "play_youtube": YouTubeSkill()
         }
         self.groq_client = None
         groq_key = os.getenv("GROQ_API_KEY")
@@ -100,7 +102,7 @@ class AgentRouter:
                     },
                     {
                         "name": "manage_timer",
-                        "description": "GERENCIAR ALARMES E TIMERS: use esta ferramenta OBRIGATORIAMENTE para criar, listar ou deletar alarmes, despertadores ou cronômetros. NUNCA responda que o alarme foi criado sem acionar esta ferramenta.",
+                        "description": "GERENCIAR ALARMES E TIMERS: use esta ferramenta OBRIGATORIAMENTE para criar, listar ou deletar alarmes, despertadores ou cronômetros. Se o usuário pedir múltiplos timers na mesma frase, CHAME ESTA FERRAMENTA MÚLTIPLAS VEZES (uma para cada timer). NUNCA responda que o alarme foi criado sem acionar esta ferramenta.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
@@ -138,7 +140,7 @@ class AgentRouter:
                     },
                     {
                         "name": "manage_music",
-                        "description": "Controla a reprodução do Spotify: tocar música/artista, pausar, pular faixa, voltar, retomar e ajustar volume.",
+                        "description": "Controla a reprodução no Spotify: tocar música/artista/playlist, pausar, pular faixa, voltar, retomar e ajustar volume. Use APENAS para MÚSICAS no Spotify. Para lives, podcasts ou conteúdo que só existe no YouTube, use 'play_youtube'.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
@@ -254,7 +256,7 @@ class AgentRouter:
                     },
                     {
                         "name": "manage_tv",
-                        "description": "Controla a Smart TV da sala (Samsung). Use para ligar, desligar, alterar volume, mutar ou abrir aplicativos (Netflix, YouTube).",
+                        "description": "OBRIGATÓRIO: Acione esta ferramenta SEMPRE que o usuário pedir para ligar, desligar, alterar volume, mutar ou abrir aplicativos na televisão/TV. Nunca recuse um pedido para controlar a TV.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
@@ -263,6 +265,18 @@ class AgentRouter:
                                 "volume": {"type": "INTEGER", "description": "Nível de volume desejado de 0 a 100 (apenas para action='set_volume')"}
                             },
                             "required": ["action"]
+                        }
+                    },
+                    {
+                        "name": "play_youtube",
+                        "description": "Toca áudio do YouTube: transmissões ao vivo (ex: CazéTV, GloboNews, CNN), podcasts, vídeos específicos, músicas que não estão no Spotify. Use para LIVES, PODCASTS, CANAIS ou quando o usuário disser 'no YouTube'. Para músicas no Spotify, use 'manage_music'.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "query": {"type": "STRING", "description": "Nome do canal, live, podcast ou vídeo a ser tocado. Ex: 'CazéTV', 'Flow Podcast', 'lofi para estudar'"},
+                                "is_live": {"type": "BOOLEAN", "description": "Se é uma transmissão ao vivo. Use true se o usuário pedir 'ao vivo', 'live' ou um canal que só faz live."}
+                            },
+                            "required": ["query"]
                         }
                     }
                 ]
@@ -566,6 +580,10 @@ class AgentRouter:
         if history_str:
             system_prompt += f"\n\nHistórico recente:\n{history_str}"
             
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("America/Sao_Paulo"))
+        system_prompt += f"\n\nContexto Oculto do Sistema:\n- Horário e data atual exatos: {now.strftime('%d/%m/%Y %H:%M:%S')}"
         tools = self._get_tools_schema()
         model = genai.GenerativeModel(
             model_name='gemini-2.5-flash',
@@ -723,8 +741,21 @@ class AgentRouter:
                         db.add(ai_usage)
                         db.commit()
                         
+                        
                     return response.text.strip()
             
+            logger.warning(f"Gemini retornou parts vazias. Finish reason: {response.candidates[0].finish_reason if response.candidates else 'Unknown'}. Fallback sem tools...")
+            model_fallback = genai.GenerativeModel(
+                model_name='gemini-2.5-flash',
+                system_instruction=system_prompt,
+                generation_config=genai.GenerationConfig(temperature=0.9)
+            )
+            chat_fallback = model_fallback.start_chat()
+            fallback_resp = chat_fallback.send_message(text)
+            
+            if fallback_resp.parts:
+                return fallback_resp.text.strip()
+                
             return "Desculpe, não entendi a resposta do meu novo cérebro."
             
         except Exception as e:

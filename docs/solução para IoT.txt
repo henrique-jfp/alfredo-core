@@ -1,0 +1,12 @@
+Para resolver isso, nós não vamos usar o Gemini para acender luzes simples.
+
+Tem como fazer de forma diferente, e o nome da arquitetura que vamos precisar implementar é "Fast-Path" (Caminho Rápido) com Bypass. Funciona assim:
+
+O Filtro Local Instantâneo: Assim que o satélite ouvir a sua voz e transformar em texto ("Alfredo, liga a luz da sala"), esse texto passa primeiro por um filtro muito simples no servidor (uma regra de palavras-chave ou "Regex" super leve).
+O Bypass (Desvio): Se o servidor detectar que a frase é um comando direto e claro de luz (ex: contém "liga", "luz" e "sala"), ele ignora completamente o Gemini. O seu servidor não vai perguntar nada para a IA.
+Execução Local: Ele dispara o comando pela rede Wi-Fi local direto para o IP da sua lâmpada. O tempo de viagem do pacote na rede local é de milissegundos (praticamente instantâneo).
+Confirmação sem TTS: Em vez de fazer o servidor criar uma resposta no Gemini, gerar a voz por inteligência artificial (TTS) e devolver para o satélite falar "A luz da sala foi ligada", nós fazemos o satélite apenas emitir um "Bip" sonoro instantâneo ou uma gravação em MP3 já salva localmente dele dizendo um "Ok" rápido.
+Resumo da obra: Nós criaremos uma arquitetura híbrida.
+
+Caminho Rápido (< 0.5 segundos): Para comandos diretos de casa inteligente ("Liga a luz", "Desliga a TV", "Abre a cortina"). O Gemini não opina, é execução por hardware.
+Caminho Pensante (3 segundos): Apenas se a frase for complexa ("Alfredo, abaixa a luz pra 20% e coloca um jazz suave porque vou ler um livro"). Aí sim o filtro rápido não entende, joga pro Gemini, ele "pensa" e aciona várias skills ao mesmo tempo.

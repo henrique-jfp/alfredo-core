@@ -19,10 +19,16 @@ def get_spotify_oauth(db: Session, request: Request = None):
     spotify = db.query(models.AppIntegration).filter(models.AppIntegration.app_name == "spotify").first()
     if not spotify or not spotify.client_id or not spotify.client_secret:
         return None
-    # Usa localhost: Spotify aceita http://localhost mas não http://192.168.x.x nem https://192.168.x.x
-    # O usuário deve fazer SSH tunnel: ssh -L 10001:localhost:10001 pvserver@192.168.0.56
-    # e acessar http://localhost:10001 para o OAuth funcionar
-    redirect_uri = "http://127.0.0.1:10001/api/spotify/callback"
+        
+    if request:
+        base_url = str(request.base_url).rstrip("/")
+        forwarded_proto = request.headers.get("x-forwarded-proto")
+        if forwarded_proto == "https" and base_url.startswith("http://"):
+            base_url = base_url.replace("http://", "https://")
+        redirect_uri = f"{base_url}/api/spotify/callback"
+    else:
+        redirect_uri = "https://alfredo.henriquedejesus.dev/api/spotify/callback"
+        
     return SpotifyOAuth(
         client_id=spotify.client_id,
         client_secret=spotify.client_secret,
@@ -34,8 +40,8 @@ def get_spotify_oauth(db: Session, request: Request = None):
 
 
 @router.get("/login")
-def login(db: Session = Depends(get_db)):
-    sp_oauth = get_spotify_oauth(db)
+def login(request: Request, db: Session = Depends(get_db)):
+    sp_oauth = get_spotify_oauth(db, request)
     if not sp_oauth:
         raise HTTPException(status_code=500, detail="Chaves do Spotify não configuradas no Banco de Dados")
     auth_url = sp_oauth.get_authorize_url()
@@ -43,23 +49,23 @@ def login(db: Session = Depends(get_db)):
 
 
 @router.get("/callback")
-def callback(code: str = None, state: str = None, error: str = None, db: Session = Depends(get_db)):
+def callback(request: Request, code: str = None, state: str = None, error: str = None, db: Session = Depends(get_db)):
     if error:
         logger.error(f"Spotify retornou erro: {error}")
         return HTMLResponse(
             f"<html><body style='font-family:sans-serif;background:#1a1a2e;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
             f"<div style='text-align:center'><h1 style='color:#ef4444'>Autorização negada</h1>"
             f"<p>{error}</p>"
-            f"<a href='http://192.168.0.56:10001/' style='color:#1DB954'>Voltar ao Dashboard</a></div></body></html>"
+            f"<a href='/' style='color:#1DB954'>Voltar ao Dashboard</a></div></body></html>"
         )
     if not code:
         return HTMLResponse(
             "<html><body style='font-family:sans-serif;background:#1a1a2e;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
             "<div style='text-align:center'><h1 style='color:#ef4444'>Erro ao conectar</h1>"
             "<p>Nenhum código de autorização recebido do Spotify.</p>"
-            "<a href='http://192.168.0.56:10001/' style='color:#1DB954'>Voltar ao Dashboard</a></div></body></html>"
+            "<a href='/' style='color:#1DB954'>Voltar ao Dashboard</a></div></body></html>"
         )
-    sp_oauth = get_spotify_oauth(db)
+    sp_oauth = get_spotify_oauth(db, request)
     if not sp_oauth:
         raise HTTPException(status_code=500, detail="Chaves do Spotify não configuradas.")
     try:
@@ -73,7 +79,7 @@ def callback(code: str = None, state: str = None, error: str = None, db: Session
             "<html><body style='font-family:sans-serif;background:#1a1a2e;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
             "<div style='text-align:center'><h1 style='color:#1DB954'>Spotify Conectado!</h1>"
             "<p>Você já pode fechar esta aba e voltar ao Dashboard.</p>"
-            "<a href='http://192.168.0.56:10001/' style='color:#1DB954'>Voltar ao Dashboard</a></div></body></html>"
+            "<a href='/' style='color:#1DB954'>Voltar ao Dashboard</a></div></body></html>"
         )
     except Exception as e:
         logger.error(f"Erro no callback do Spotify: {e}")
@@ -85,8 +91,8 @@ def callback(code: str = None, state: str = None, error: str = None, db: Session
 
 
 @router.get("/now-playing")
-def get_now_playing(db: Session = Depends(get_db)):
-    sp_oauth = get_spotify_oauth(db)
+def get_now_playing(request: Request, db: Session = Depends(get_db)):
+    sp_oauth = get_spotify_oauth(db, request)
     if not sp_oauth:
         return {"error": "not_configured"}
     
@@ -126,8 +132,8 @@ class SpotifyControlRequest(BaseModel):
     volume: int = None
 
 @router.post("/control")
-def control_playback(req: SpotifyControlRequest, db: Session = Depends(get_db)):
-    sp_oauth = get_spotify_oauth(db)
+def control_playback(req: SpotifyControlRequest, request: Request, db: Session = Depends(get_db)):
+    sp_oauth = get_spotify_oauth(db, request)
     if not sp_oauth:
         raise HTTPException(status_code=400, detail="Not configured")
         

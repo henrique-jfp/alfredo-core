@@ -51,18 +51,94 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+import webrtcvad
+import asyncio
+import logging
+from core.brain.memory.database import SessionLocal
+from core.voice.pipeline import process_audio_pipeline
+
+satellite_logger = logging.getLogger("alfredo.satellite")
+
 @router.websocket("/satellite/{device_id}")
 async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
     await manager.connect_satellite(websocket, device_id)
+    
+    vad = webrtcvad.Vad(3) # Modo agressivo para ignorar ruído
+    audio_buffer = bytearray()
+    speech_buffer = bytearray()
+    silence_frames = 0
+    is_speaking = False
+    
+    # Configuracoes para PCM 16kHz 16-bit Mono
+    SILENCE_THRESHOLD = 30 # ~900ms de silêncio para cortar
+    FRAME_DURATION_MS = 30
+    SAMPLE_RATE = 16000
+    BYTES_PER_FRAME = int(SAMPLE_RATE * (FRAME_DURATION_MS / 1000) * 2) 
+    
+    async def handle_phrase(phrase_bytes: bytes):
+        db = SessionLocal()
+        try:
+            device = db.query(models.Device).filter(models.Device.device_id == device_id).first()
+            room_id = device.room_id if device else "ROOM_LIVING"
+            
+            satellite_logger.info(f"Processando áudio captado ({len(phrase_bytes)} bytes) do {device_id}")
+            
+            if device_id == "dashboard-virtual-mic":
+                # Para o dashboard, não faz streaming de chunks, mas sim gera 1 único arquivo WAV com todo o texto
+                async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False, stream_tts=False):
+                    if tts_chunk:
+                        await websocket.send_bytes(tts_chunk)
+            else:
+                async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False):
+                    if tts_chunk:
+                        await websocket.send_bytes(tts_chunk)
+        except Exception as e:
+            satellite_logger.error(f"Erro ao processar frase do {device_id}: {e}")
+        finally:
+            db.close()
+
     try:
         while True:
-            # Satellites will send raw PCM or WAV chunks
             data = await websocket.receive_bytes()
-            # Forward audio chunks immediately to all connected dashboard listeners
             await manager.broadcast_to_dashboards(data)
+            
+            audio_buffer.extend(data)
+            
+            while len(audio_buffer) >= BYTES_PER_FRAME:
+                frame = bytes(audio_buffer[:BYTES_PER_FRAME])
+                del audio_buffer[:BYTES_PER_FRAME]
+                
+                try:
+                    is_speech = vad.is_speech(frame, SAMPLE_RATE)
+                except:
+                    is_speech = False
+                    
+                if is_speech:
+                    is_speaking = True
+                    silence_frames = 0
+                    speech_buffer.extend(frame)
+                else:
+                    if is_speaking:
+                        silence_frames += 1
+                        speech_buffer.extend(frame)
+                        
+                        if silence_frames >= SILENCE_THRESHOLD:
+                            is_speaking = False
+                            silence_frames = 0
+                            phrase_bytes = bytes(speech_buffer)
+                            speech_buffer = bytearray()
+                            
+                            # Ignora ruídos rápidos (menos de 0.25s de áudio efetivo)
+                            if len(phrase_bytes) > 8000:
+                                asyncio.create_task(handle_phrase(phrase_bytes))
     except WebSocketDisconnect:
+        if len(speech_buffer) > 8000:
+            asyncio.create_task(handle_phrase(bytes(speech_buffer)))
         manager.disconnect_satellite(device_id)
     except Exception as e:
+        satellite_logger.error(f"Erro no websocket do satélite: {e}")
+        if len(speech_buffer) > 8000:
+            asyncio.create_task(handle_phrase(bytes(speech_buffer)))
         manager.disconnect_satellite(device_id)
 
 @router.websocket("/dashboard")

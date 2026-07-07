@@ -213,13 +213,18 @@ class TrafficSkill(Skill):
 
         dest_obj = loc_dict.get(destination.lower())
         if not dest_obj:
-            possible = [n for n in loc_dict if destination.lower() in n]
+            possible = [n for n in loc_dict if destination.lower() in n or n in destination.lower()]
             if possible:
                 dest_obj = loc_dict[possible[0]]
             else:
                 return {"error": f"O destino '{destination}' não está nas localizações salvas. Cadastre ele no painel de configurações."}
 
         orig_obj = loc_dict.get(origin.lower())
+        if not orig_obj:
+            possible = [n for n in loc_dict if origin.lower() in n or n in origin.lower()]
+            if possible:
+                orig_obj = loc_dict[possible[0]]
+
         if orig_obj:
             orig_lat = orig_obj.latitude
             orig_lon = orig_obj.longitude

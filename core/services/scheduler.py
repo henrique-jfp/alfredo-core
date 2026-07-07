@@ -97,7 +97,7 @@ class SchedulerManager:
                                 if tts_filename:
                                     await ws.send_json({
                                         "type": "play_audio",
-                                        "url": f"http://127.0.0.1:10001/api/audio/{tts_filename}"
+                                        "url": f"/api/audio/{tts_filename}"
                                     })
                                 else:
                                     # Fallback
@@ -109,6 +109,23 @@ class SchedulerManager:
                             logger.info(f"Notificação enviada ao device {device.device_id}")
                         except Exception as e:
                             logger.error(f"Erro ao enviar aviso para o device {device.device_id}: {e}")
+
+                # Sempre envia para o dashboard se estiver aberto
+                ws_dash = active_connections.get("dashboard-virtual-mic")
+                if ws_dash:
+                    try:
+                        if timer.timer_type == "alarm":
+                            await ws_dash.send_json({
+                                "type": "play_alarm",
+                                "message": timer.message or "Despertador tocando!"
+                            })
+                        elif tts_filename:
+                            await ws_dash.send_json({
+                                "type": "play_audio",
+                                "url": f"/api/audio/{tts_filename}"
+                            })
+                    except Exception as e:
+                        logger.error(f"Erro ao notificar dashboard: {e}")
                             
             if expired_timers:
                 db.commit()

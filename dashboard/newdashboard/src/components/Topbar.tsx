@@ -1,35 +1,82 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { TimerItem } from '../types';
-import { AlarmClock } from 'lucide-react';
+import { AlarmClock, Hourglass } from 'lucide-react';
+
+function TimerDisplay({ timer, onDelete }: { timer: TimerItem, onDelete: (id: number) => void }) {
+  const [timeLeft, setTimeLeft] = useState<string>('');
+  
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date().getTime();
+      const end = new Date(timer.expires_at).getTime();
+      const diff = Math.max(0, Math.floor((end - now) / 1000));
+      
+      const m = Math.floor(diff / 60);
+      const s = diff % 60;
+      setTimeLeft(`${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
+      
+      // If time is up, we can automatically trigger a refresh of timers in the parent,
+      // but let's just show 00:00 for now.
+    };
+    
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, [timer.expires_at]);
+
+  return (
+    <button 
+      onClick={() => {
+        if (window.confirm(`Você quer cancelar o timer ${timer.message ? `(${timer.message})` : ''}?`)) {
+          onDelete(timer.id);
+        }
+      }}
+      className="flex flex-col items-end leading-tight cursor-pointer group hover:bg-sky-500/5 p-2 rounded-xl transition-colors border border-transparent hover:border-sky-500/20"
+      title="Cancelar timer"
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-[26px] font-bold text-sky-400 tracking-wide font-mono tabular-nums">
+          {timeLeft}
+        </span>
+        <Hourglass className="w-5 h-5 text-sky-500 group-hover:scale-110 transition-transform" />
+      </div>
+      <span className="text-[11px] font-medium text-sky-500/70 capitalize tracking-wide mt-1 truncate max-w-[120px]">
+        {timer.message || "Timer Ativo"}
+      </span>
+    </button>
+  );
+}
 
 export function Topbar({ title, subtitle }: { title: string; subtitle: string }) {
-  const [alarms, setAlarms] = useState<TimerItem[]>([]);
+  const [activeItems, setActiveItems] = useState<TimerItem[]>([]);
 
-  const fetchAlarms = async () => {
+  const fetchItems = async () => {
     try {
       const data = await api.getTimers();
-      const activeAlarms = data.filter(t => t.timer_type === 'alarm' || (t.message && t.message.toLowerCase().includes('despertar')));
-      setAlarms(activeAlarms);
+      setActiveItems(data);
     } catch (e) {
       console.error(e);
     }
   };
 
   useEffect(() => {
-    fetchAlarms();
-    const timer = setInterval(fetchAlarms, 10000); // Check every 10s
+    fetchItems();
+    const timer = setInterval(fetchItems, 5000); // Check every 5s
     return () => clearInterval(timer);
   }, []);
 
   const deleteTimer = async (id: number) => {
     try {
       await fetch(`/api/dashboard/timers/${id}`, { method: 'DELETE' });
-      fetchAlarms();
+      fetchItems();
     } catch (e) {
       console.error(e);
     }
   };
+
+  const alarms = activeItems.filter(t => t.timer_type === 'alarm' || (t.message && t.message.toLowerCase().includes('despertar')));
+  const timers = activeItems.filter(t => t.timer_type === 'timer' && !(t.message && t.message.toLowerCase().includes('despertar')));
 
   const nextAlarm = alarms.length > 0 ? [...alarms].sort((a, b) => new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime())[0] : null;
 
@@ -40,7 +87,12 @@ export function Topbar({ title, subtitle }: { title: string; subtitle: string })
         <p className="text-[12px] md:text-[13px] text-zinc-400 mt-1 leading-tight">{subtitle}</p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 md:gap-6 w-full md:w-auto">
+      <div className="flex flex-wrap items-center justify-end gap-3 md:gap-6 w-full md:w-auto">
+        {/* Active Timers */}
+        {timers.map(t => (
+          <TimerDisplay key={t.id} timer={t} onDelete={deleteTimer} />
+        ))}
+
         {/* Next Alarm */}
         {nextAlarm && (
           <button 

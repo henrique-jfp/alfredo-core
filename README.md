@@ -21,6 +21,7 @@ O Agente Gemini tem acesso livre a essas ferramentas do ecossistema e sabe perfe
 
 ### 🎵 Entretenimento e Mídia
 - 🎵 **MusicTool (Spotify Connect Nativo)**: O Alfredo funciona como uma verdadeira "Caixa de Som Inteligente" (estilo Alexa). Com um daemon próprio (`spotifyd`), ele aceita comandos diretos ("Toque The Beatles", "Próxima música", "Pause", "Volume máximo") e gerencia a fila do Spotify nativamente pelo alto-falante, sem precisar de um celular pareado. Possui também fallback de segurança via YouTube (`yt-dlp`).
+- ▶️ **YouTubeTool (Reprodução de Áudio do YouTube)**: Tool independente para tocar áudio de qualquer conteúdo do YouTube — lives (CazéTV, GloboNews), podcasts (Flow, Podpah), músicas que não estão no Spotify ou qualquer vídeo da plataforma. Usa `yt-dlp` para extração de áudio e a API interna do YouTube para busca de transmissões ao vivo com scoring por similaridade de canal. Funciona sem assinatura Spotify.
 - 📰 **NewsTool**: Manchetes recentes e notícias de última hora do Brasil e do mundo (via NewsAPI).
 
 ### 🧠 Memória e Produtividade

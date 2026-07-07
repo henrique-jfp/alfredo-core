@@ -6,16 +6,20 @@ export function WebMic() {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [playOnServer, setPlayOnServer] = useState(true); // Default to server (satellite)
+  const [playOnServer, setPlayOnServer] = useState(false); // Default to local browser
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
   const isInitializingRef = useRef(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const isRecordingRef = useRef(false); // For sync in callbacks
 
   const startRecording = async (e?: React.TouchEvent | React.MouseEvent) => {
     if (e && e.type === 'touchstart') {
-      // Prevent synthetic mouse events on mobile
       if (e.cancelable) e.preventDefault();
     }
     
@@ -24,21 +28,76 @@ export function WebMic() {
     try {
       isInitializingRef.current = true;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
+      streamRef.current = stream;
+      
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      audioContextRef.current = audioContext;
+      
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+      
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host; // This handles dev servers and production
+      // In dev mode (vite), proxy will forward to backend. Wait, Vite proxy handles ws?
+      // Actually, standard proxy does. We will use the standard host.
+      const wsUrl = `${protocol}//${host}/api/ws/satellite/dashboard-virtual-mic`;
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = "blob";
+      wsRef.current = ws;
 
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
+      ws.onopen = () => {
+        setIsRecording(true);
+        isRecordingRef.current = true;
+        isInitializingRef.current = false;
+        
+        processor.onaudioprocess = (e) => {
+          if (!isRecordingRef.current) return;
+          const inputData = e.inputBuffer.getChannelData(0);
+          const pcmData = new Int16Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+            let s = Math.max(-1, Math.min(1, inputData[i]));
+            pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          }
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(pcmData.buffer);
+          }
+        };
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+      };
+
+      ws.onmessage = async (event) => {
+        if (event.data instanceof Blob) {
+          // Received TTS audio!
+          cleanupEverything();
+          
+          if (!playOnServer) {
+            const audioUrl = URL.createObjectURL(event.data);
+            if (audioPlayerRef.current) {
+              audioPlayerRef.current.src = audioUrl;
+              setIsPlaying(true);
+              audioPlayerRef.current.play();
+            }
+          }
+        } else if (typeof event.data === 'string') {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'play_audio' && data.url) {
+              const bgAudio = new Audio(data.url);
+              bgAudio.play().catch(e => console.error("Error playing background audio:", e));
+            }
+          } catch (e) {
+            console.error("Erro ao fazer parse do WS JSON:", e);
+          }
         }
       };
 
-      mediaRecorder.onstop = handleAudioStop;
-      
-      mediaRecorder.start(250);
-      setIsRecording(true);
-      isInitializingRef.current = false;
+      ws.onerror = (err) => {
+        console.error("WebSocket error:", err);
+        stopRecording();
+      };
+
     } catch (error) {
       console.error("Error accessing microphone:", error);
       alert("Não foi possível acessar o microfone. Verifique as permissões do navegador.");
@@ -46,68 +105,57 @@ export function WebMic() {
     }
   };
 
+  const cleanupEverything = () => {
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setIsProcessing(false);
+    setIsRecording(false);
+    isRecordingRef.current = false;
+  };
+
   const stopRecording = (e?: React.TouchEvent | React.MouseEvent) => {
     if (e && e.type === 'touchend') {
       if (e.cancelable) e.preventDefault();
     }
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
+    if (isRecording) {
       setIsRecording(false);
-      setIsProcessing(true);
-    }
-  };
-
-  const handleAudioStop = async () => {
-    // Stop tracks safely after recording stops
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-    }
-    
-    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-    const formData = new FormData();
-    formData.append('file', audioBlob, 'voice.webm');
-
-    try {
-      // 1. Transcribe the audio
-      const transcribeRes = await fetch('/api/voice/transcribe', {
-        method: 'POST',
-        body: formData,
-      });
+      isRecordingRef.current = false;
+      setIsProcessing(true); // Wait for TTS to come back via WS
       
-      if (!transcribeRes.ok) throw new Error('Transcription failed');
-      const transcribeData = await transcribeRes.json();
-      const text = transcribeData.text;
-
-      if (!text || text.trim() === '') {
-        setIsProcessing(false);
-        return; // Empty speech
+      if (processorRef.current) {
+        processorRef.current.disconnect();
+        processorRef.current = null;
       }
-
-      // 2. Send text to agent and get TTS audio back
-      const commandRes = await fetch('/api/voice/text', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, device_id: 'web-dashboard', play_locally: playOnServer })
-      });
-
-      if (!commandRes.ok) throw new Error('Command execution failed');
-      
-      // 3. Play the returned audio if not played on server
-      if (!playOnServer) {
-        const responseBlob = await commandRes.blob();
-        const audioUrl = URL.createObjectURL(responseBlob);
-        
-        if (audioPlayerRef.current) {
-          audioPlayerRef.current.src = audioUrl;
-          setIsPlaying(true);
-          audioPlayerRef.current.play();
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+      // DO NOT close WS yet! We need to receive the TTS audio!
+      setTimeout(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.close();
+          wsRef.current = null;
         }
-      }
-      
-    } catch (error) {
-      console.error("Error processing voice command:", error);
-    } finally {
-      setIsProcessing(false);
+        setIsProcessing(false);
+      }, 10000); // 10s max wait time
     }
   };
 
@@ -143,11 +191,13 @@ export function WebMic() {
 
       {/* Main Button */}
       <button
-        onMouseDown={startRecording}
-        onMouseUp={stopRecording}
-        onTouchStart={startRecording}
-        onTouchEnd={stopRecording}
-        onMouseLeave={stopRecording}
+        onClick={() => {
+          if (isRecording) {
+            stopRecording();
+          } else {
+            startRecording();
+          }
+        }}
         disabled={isProcessing || isPlaying}
         className={cn(
           "w-16 h-16 rounded-full flex items-center justify-center text-white shadow-2xl transition-all duration-300 shrink-0",

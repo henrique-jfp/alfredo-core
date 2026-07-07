@@ -22,9 +22,25 @@ class TimeSkill(Skill):
             return f"Hoje é dia {agora.day} do {agora.month} de {agora.year}."
         hora = agora.hour
         minuto = agora.minute
-        texto_hora = f"{hora} e {minuto}"
-        if minuto == 0:
-            texto_hora = f"{hora} horas"
+        
+        hora_str = str(hora)
+        if hora == 0:
+            hora_str = "Meia-noite"
+        elif hora == 1:
+            hora_str = "1 hora"
+        else:
+            hora_str = f"{hora} horas"
+
+        if minuto > 0:
+            if hora == 0:
+                texto_hora = f"Meia-noite e {minuto}"
+            elif hora == 1:
+                texto_hora = f"1 e {minuto}"
+            else:
+                texto_hora = f"{hora} e {minuto}"
+        else:
+            texto_hora = hora_str
+            
         return f"Agora são {texto_hora}."
 
     def execute_tool(self, kwargs: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
@@ -37,9 +53,25 @@ class TimeSkill(Skill):
             }
         hora = agora.hour
         minuto = agora.minute
-        texto_hora = f"{hora} horas"
+        
+        hora_str = str(hora)
+        if hora == 0:
+            hora_str = "Meia-noite"
+        elif hora == 1:
+            hora_str = "1 hora"
+        else:
+            hora_str = f"{hora} horas"
+
         if minuto > 0:
-            texto_hora = f"{hora} e {minuto}"
+            if hora == 0:
+                texto_hora = f"Meia-noite e {minuto}"
+            elif hora == 1:
+                texto_hora = f"1 e {minuto}"
+            else:
+                texto_hora = f"{hora} e {minuto}"
+        else:
+            texto_hora = hora_str
+
         return {
             "direct_response": f"Agora são {texto_hora}.",
             "status": "success"
