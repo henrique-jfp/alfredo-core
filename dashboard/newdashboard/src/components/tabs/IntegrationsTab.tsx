@@ -183,7 +183,6 @@ export function IntegrationsTab() {
               </div>
             </div>
           </div>
-          </div>
         </div>
 
         {/* Coming Soon Cards Space */}
