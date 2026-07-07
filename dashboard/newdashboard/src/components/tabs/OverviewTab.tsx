@@ -97,23 +97,23 @@ export function OverviewTab() {
     <div className="flex flex-col gap-5 h-full overflow-y-auto pr-2 pb-10">
       
       {/* Top Widget: Clock & Weather */}
-      <div className="flex items-center justify-between bg-gradient-to-br from-white/[0.05] to-transparent border border-white/5 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between bg-gradient-to-br from-white/[0.05] to-transparent border border-white/5 rounded-3xl p-6 shadow-2xl relative overflow-hidden gap-6">
          {/* Background Glow */}
          <div className="absolute top-0 right-0 w-64 h-64 bg-brass-500/10 rounded-full blur-[80px] -translate-y-1/2 translate-x-1/3" />
          
          <div className="flex flex-col z-10">
-            <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-zinc-100 to-zinc-500 tracking-tighter" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <h1 className="text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-zinc-100 to-zinc-500 tracking-tighter" style={{ fontVariantNumeric: 'tabular-nums' }}>
               {time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-              <span className="text-3xl text-zinc-600 font-normal ml-2 tracking-normal">{time.toLocaleTimeString('pt-BR', { second: '2-digit' })}</span>
+              <span className="text-2xl md:text-3xl text-zinc-600 font-normal ml-2 tracking-normal">{time.toLocaleTimeString('pt-BR', { second: '2-digit' })}</span>
             </h1>
-            <p className="text-lg font-medium text-brass-500 mt-2 capitalize">
+            <p className="text-base md:text-lg font-medium text-brass-500 mt-2 capitalize">
               {time.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
             </p>
          </div>
 
-         <div className="flex items-center gap-4 z-10">
-            <div className="flex items-center gap-6 bg-black/40 p-4 rounded-2xl border border-white/5">
-                <div className="flex flex-col items-end">
+         <div className="flex items-center gap-4 z-10 w-full md:w-auto">
+            <div className="flex items-center justify-between md:justify-start gap-4 md:gap-6 bg-black/40 p-4 rounded-2xl border border-white/5 w-full md:w-auto">
+                <div className="flex flex-col items-start md:items-end flex-grow md:flex-grow-0">
                    <span className="text-3xl font-bold text-zinc-100">{weather ? `${weather.temperature}°` : '--°'}</span>
                    <span className="text-sm font-medium text-zinc-400 capitalize">{weather ? weather.description : 'Buscando...'}</span>
                    {weather && weather.max_temp !== "—" && (
@@ -123,8 +123,8 @@ export function OverviewTab() {
                      </div>
                    )}
                 </div>
-                <div className="w-[2px] h-12 bg-white/10 rounded-full mx-2" />
-                <div className="shrink-0 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]">
+                <div className="w-[2px] h-12 bg-white/10 rounded-full mx-2 md:block hidden" />
+                <div className="shrink-0 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)] ml-auto md:ml-0">
                    {getWeatherIcon(weather?.weather_code ?? -1)}
                 </div>
             </div>
@@ -134,10 +134,10 @@ export function OverviewTab() {
       <SpotifyCard />
 
       {/* KPI Grid */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
 
         {kpis.map((kpi, idx) => (
-          <div key={idx} className="glass-panel glass-panel-hover p-6 flex items-start gap-4 group">
+          <div key={idx} className="glass-panel glass-panel-hover p-4 md:p-6 flex flex-col md:flex-row items-start md:items-center gap-3 md:gap-4 group">
             <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-110", kpi.bg, kpi.color)}>
               <kpi.icon className="w-5 h-5" strokeWidth={2.5} />
             </div>
@@ -153,24 +153,24 @@ export function OverviewTab() {
       </div>
 
       {/* Main Content Grid */}
-      <div className="grid grid-cols-[1.8fr_1fr] gap-5 flex-grow min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.8fr_1fr] gap-5 flex-grow min-h-0">
         
         {/* History Section */}
-        <section className="glass-panel flex flex-col p-6 h-[calc(100vh-280px)]">
-          <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-5">
-            <h2 className="text-[15px] font-semibold text-zinc-100 flex items-center gap-2">
+        <section className="glass-panel flex flex-col p-6 h-[500px] lg:h-auto lg:flex-grow">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-white/5 pb-4 mb-5 gap-4">
+            <h2 className="text-[15px] font-semibold text-zinc-100 flex items-center gap-2 shrink-0">
               <MessageSquare className="w-4 h-4 text-brass-400" />
               Conversas Recentes
             </h2>
-            <div className="flex items-center gap-3">
-              <form onSubmit={handleCommandSubmit} className="relative">
+            <div className="flex items-center gap-3 w-full md:w-auto">
+              <form onSubmit={handleCommandSubmit} className="relative flex-grow">
                 <input 
                   type="text" 
                   value={commandText}
                   onChange={(e) => setCommandText(e.target.value)}
                   disabled={isSending}
                   placeholder="Comando rápido..." 
-                  className="bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-brass-500/50 focus:ring-1 focus:ring-brass-500/50 transition-all w-64"
+                  className="bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-brass-500/50 focus:ring-1 focus:ring-brass-500/50 transition-all w-full md:w-64"
                 />
                 <button 
                   type="submit"
@@ -182,7 +182,7 @@ export function OverviewTab() {
               </form>
               <button 
                 onClick={fetchData}
-                className="flex items-center gap-2 bg-white/5 border border-white/10 hover:bg-white/10 px-3 py-2 rounded-lg text-sm font-medium text-zinc-300 transition-all"
+                className="flex items-center gap-2 bg-white/5 border border-white/10 hover:bg-white/10 px-3 py-2 rounded-lg text-sm font-medium text-zinc-300 transition-all shrink-0"
               >
                 <RefreshCw className={cn("w-4 h-4", isRefreshing && "animate-spin")} />
                 Atualizar
@@ -214,9 +214,9 @@ export function OverviewTab() {
         </section>
 
         {/* Lists Column */}
-        <div className="flex flex-wrap lg:flex-col gap-5 h-[calc(100vh-280px)] overflow-y-auto custom-scrollbar">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-1 gap-5 lg:h-auto overflow-y-visible lg:overflow-y-auto custom-scrollbar">
           {/* Shopping */}
-          <div className="glass-panel p-5 flex-1 min-w-[300px] flex flex-col min-h-[150px]">
+          <div className="glass-panel p-5 flex flex-col h-[250px] lg:h-auto lg:flex-1">
             <h2 className="text-[14px] font-semibold text-zinc-100 flex items-center gap-2 border-b border-white/5 pb-3 mb-3 shrink-0">
               <ShoppingCart className="w-4 h-4 text-brass-400" />
               Compras
@@ -227,8 +227,8 @@ export function OverviewTab() {
               ) : (
                 lists.compras.map(item => (
                   <li key={item.id} className="px-3 py-2 bg-white/[0.02] border border-white/5 rounded-lg text-[13px] text-zinc-300 flex items-center gap-3">
-                    <div className="w-1 h-1 rounded-full bg-brass-400" />
-                    {item.content}
+                    <div className="w-1 h-1 rounded-full bg-brass-400 shrink-0" />
+                    <span className="truncate">{item.content}</span>
                   </li>
                 ))
               )}
@@ -236,7 +236,7 @@ export function OverviewTab() {
           </div>
 
           {/* Tasks */}
-          <div className="glass-panel p-5 flex-1 min-w-[300px] flex flex-col min-h-[150px]">
+          <div className="glass-panel p-5 flex flex-col h-[250px] lg:h-auto lg:flex-1">
             <h2 className="text-[14px] font-semibold text-zinc-100 flex items-center gap-2 border-b border-white/5 pb-3 mb-3 shrink-0">
               <CheckSquare className="w-4 h-4 text-brass-400" />
               Tarefas
@@ -247,8 +247,8 @@ export function OverviewTab() {
               ) : (
                 lists.tarefas.map(item => (
                   <li key={item.id} className="px-3 py-2 bg-white/[0.02] border border-white/5 rounded-lg text-[13px] text-zinc-300 flex items-center gap-3">
-                    <div className="w-1 h-1 rounded-full bg-brass-400" />
-                    {item.content}
+                    <div className="w-1 h-1 rounded-full bg-brass-400 shrink-0" />
+                    <span className="truncate">{item.content}</span>
                   </li>
                 ))
               )}
@@ -256,7 +256,7 @@ export function OverviewTab() {
           </div>
 
           {/* Timers */}
-          <div className="glass-panel p-5 flex-1 min-w-[300px] flex flex-col min-h-[150px]">
+          <div className="glass-panel p-5 flex flex-col h-[250px] lg:h-auto lg:flex-1">
             <h2 className="text-[14px] font-semibold text-zinc-100 flex items-center gap-2 border-b border-white/5 pb-3 mb-3 shrink-0">
               <Bell className="w-4 h-4 text-brass-400" />
               Lembretes Ativos
@@ -270,9 +270,9 @@ export function OverviewTab() {
                   return (
                     <li key={timer.id} className="px-3 py-2 bg-white/[0.02] border border-white/5 rounded-lg text-[13px] text-zinc-300 flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                         <div className="w-1 h-1 rounded-full bg-brass-400" />
-                         <span className="font-semibold text-brass-300">{timeStr}</span>
-                         <span className="truncate max-w-[120px]">{timer.message}</span>
+                         <div className="w-1 h-1 rounded-full bg-brass-400 shrink-0" />
+                         <span className="font-semibold text-brass-300 shrink-0">{timeStr}</span>
+                         <span className="truncate">{timer.message}</span>
                       </div>
                     </li>
                   )

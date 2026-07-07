@@ -81,14 +81,14 @@ export function TVIntegrationCard() {
 
   if (loading) {
     return (
-      <div className="w-[400px] glass-panel p-6 flex items-center justify-center h-[300px]">
+      <div className="w-full md:w-[400px] glass-panel p-6 flex items-center justify-center h-[300px]">
         <Loader2 className="w-8 h-8 animate-spin text-zinc-400" />
       </div>
     );
   }
 
   return (
-    <div className="w-[400px] glass-panel p-6 flex flex-col gap-4 h-fit">
+    <div className="w-full md:w-[400px] glass-panel p-6 flex flex-col gap-4 h-fit">
       <div className="flex items-center gap-4 relative">
         <div className="w-[52px] h-[52px] rounded-xl bg-gradient-to-br from-[#1428A0] to-[#0D1B6E] flex items-center justify-center text-white shrink-0 shadow-[0_0_20px_rgba(20,40,160,0.3)]">
           <Tv className="w-7 h-7" />

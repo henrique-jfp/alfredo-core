@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Sidebar, TabId } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { OverviewTab } from './components/tabs/OverviewTab';
@@ -10,9 +10,31 @@ import { SettingsTab } from './components/tabs/SettingsTab';
 import { IntegrationsTab } from './components/tabs/IntegrationsTab';
 import { DevicesTab } from './components/tabs/DevicesTab';
 import { VirtualKeyboard } from './components/VirtualKeyboard';
+import { WebMic } from './components/WebMic';
 
 export default function App() {
   const [activeTab, setActiveTab] = React.useState<TabId>('visao-geral');
+  const [isServerMode, setIsServerMode] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    // Check if mode is forced via URL or localStorage
+    const params = new URLSearchParams(window.location.search);
+    const urlMode = params.get('mode');
+    
+    if (urlMode === 'server') {
+      setIsServerMode(true);
+      localStorage.setItem('mode', 'server');
+    } else if (urlMode === 'desktop' || urlMode === 'mobile') {
+      setIsServerMode(false);
+      localStorage.setItem('mode', urlMode);
+    } else {
+      const storedMode = localStorage.getItem('mode');
+      if (storedMode === 'server') {
+        setIsServerMode(true);
+      }
+    }
+  }, []);
 
   const getTabTitle = (tab: TabId) => {
     switch (tab) {
@@ -30,15 +52,24 @@ export default function App() {
   const currentHeaders = getTabTitle(activeTab);
 
   return (
-    <div className="flex h-screen w-full bg-obsidian-900 text-zinc-100 overflow-hidden selection:bg-brass-500/30">
-      <VirtualKeyboard />
+    <div className="flex flex-col md:flex-row h-[100dvh] w-full bg-obsidian-900 text-zinc-100 overflow-hidden selection:bg-brass-500/30">
+      {isServerMode && (
+        <VirtualKeyboard onHeightChange={setKeyboardHeight} />
+      )}
+      <WebMic />
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
       
-      <main className="flex-grow flex flex-col pt-6 px-8 h-full min-w-0 relative z-10">
+      <main 
+        className="flex-grow flex flex-col pt-6 px-4 md:px-8 min-w-0 relative z-10 transition-all duration-300 ease-out"
+        style={{
+          paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined,
+          height: '100dvh'
+        }}
+      >
         <Topbar title={currentHeaders.title} subtitle={currentHeaders.sub} />
         
         <div className="flex-grow min-h-0 relative">
-          <div className="absolute inset-0 animate-in fade-in duration-500">
+          <div className="absolute inset-0 animate-in fade-in duration-500 overflow-y-auto overflow-x-hidden md:pb-6 pb-24">
             {activeTab === 'visao-geral' && <OverviewTab />}
             {activeTab === 'dispositivos' && <DevicesTab />}
             {activeTab === 'integracoes' && <IntegrationsTab />}

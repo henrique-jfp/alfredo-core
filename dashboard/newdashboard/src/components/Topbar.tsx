@@ -34,13 +34,13 @@ export function Topbar({ title, subtitle }: { title: string; subtitle: string })
   const nextAlarm = alarms.length > 0 ? [...alarms].sort((a, b) => new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime())[0] : null;
 
   return (
-    <header className="flex justify-between items-center py-2 px-1 mb-6">
+    <header className="flex flex-col md:flex-row md:justify-between items-start md:items-center py-2 px-1 mb-6 gap-4 md:gap-0">
       <div>
-        <h1 className="text-[28px] font-bold text-zinc-100 tracking-tight">{title}</h1>
-        <p className="text-[13px] text-zinc-400 mt-1">{subtitle}</p>
+        <h1 className="text-[24px] md:text-[28px] font-bold text-zinc-100 tracking-tight">{title}</h1>
+        <p className="text-[12px] md:text-[13px] text-zinc-400 mt-1 leading-tight">{subtitle}</p>
       </div>
 
-      <div className="flex items-center gap-6">
+      <div className="flex flex-wrap items-center gap-3 md:gap-6 w-full md:w-auto">
         {/* Next Alarm */}
         {nextAlarm && (
           <button 

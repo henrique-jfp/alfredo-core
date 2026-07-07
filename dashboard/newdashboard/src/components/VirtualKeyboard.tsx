@@ -3,7 +3,11 @@ import Keyboard from 'react-simple-keyboard';
 import 'react-simple-keyboard/build/css/index.css';
 import { X } from 'lucide-react';
 
-export function VirtualKeyboard() {
+interface VirtualKeyboardProps {
+  onHeightChange?: (height: number) => void;
+}
+
+export function VirtualKeyboard({ onHeightChange }: VirtualKeyboardProps) {
   const [inputName, setInputName] = useState<string>('default');
   const [layoutName, setLayoutName] = useState<string>('default');
   const [visible, setVisible] = useState<boolean>(false);
@@ -11,6 +15,19 @@ export function VirtualKeyboard() {
   
   const keyboardRef = useRef<any>(null);
   const activeInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Notify parent of height changes
+  useEffect(() => {
+    if (onHeightChange) {
+      if (visible && containerRef.current) {
+        // Obter altura atual do teclado e notificar parent
+        onHeightChange(containerRef.current.offsetHeight);
+      } else {
+        onHeightChange(0);
+      }
+    }
+  }, [visible, onHeightChange]);
 
   useEffect(() => {
     const handleFocus = (event: Event) => {
@@ -36,6 +53,13 @@ export function VirtualKeyboard() {
         if (keyboardRef.current) {
           keyboardRef.current.setInput(input.value);
         }
+
+        // Scroll input into view after keyboard animation/render
+        setTimeout(() => {
+          if (activeInputRef.current) {
+            activeInputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 300);
       }
     };
 
@@ -131,7 +155,7 @@ export function VirtualKeyboard() {
   if (!visible) return null;
 
   return (
-    <div className="virtual-keyboard-container fixed bottom-0 left-0 w-full z-[9999] p-4 bg-zinc-900/95 backdrop-blur-xl border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] flex flex-col items-center">
+    <div ref={containerRef} className="virtual-keyboard-container fixed bottom-0 left-0 w-full z-[9999] p-4 bg-zinc-900/95 backdrop-blur-xl border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] flex flex-col items-center animate-in slide-in-from-bottom-full duration-300">
       <div className="w-full max-w-4xl relative">
         <button 
           onClick={() => setVisible(false)}

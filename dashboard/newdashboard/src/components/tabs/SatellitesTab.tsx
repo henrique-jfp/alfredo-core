@@ -171,19 +171,19 @@ export function SatellitesTab() {
   };
 
   return (
-    <div className="flex gap-6 h-full pb-10">
+    <div className="flex flex-col lg:flex-row gap-6 h-full pb-10 overflow-y-auto lg:overflow-hidden">
       
       {/* List */}
-      <div className="w-1/2 glass-panel p-6 flex flex-col min-h-0 relative overflow-hidden">
+      <div className="w-full lg:w-1/3 xl:w-1/4 glass-panel p-6 flex flex-col min-h-0 relative overflow-hidden shrink-0">
         {/* Status Indicator */}
         <div className="absolute top-4 right-4 flex items-center gap-2 text-xs font-bold text-zinc-500">
           WS: {isConnected ? <span className="text-emerald-400">● Conectado</span> : <span className="text-rose-400">○ Desconectado</span>}
         </div>
 
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 gap-2">
           <div>
             <h2 className="text-[16px] font-semibold text-zinc-100 mb-2">Frota de Satélites</h2>
-            <p className="text-zinc-500 text-[13px]">Selecione um dispositivo para acessar telemetria e áudio.</p>
+            <p className="text-zinc-500 text-[13px] hidden md:block">Selecione um dispositivo para acessar telemetria e áudio.</p>
           </div>
           <button 
             onClick={() => {
@@ -194,7 +194,7 @@ export function SatellitesTab() {
                 setVolume(0);
               }
             }}
-            className="flex items-center gap-2 px-3 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 text-xs font-bold rounded-lg transition-colors"
+            className="flex items-center justify-center shrink-0 px-3 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 text-xs font-bold rounded-lg transition-colors"
           >
             Mutar Todos
           </button>
@@ -212,15 +212,15 @@ export function SatellitesTab() {
                   : "bg-white/[0.02] border-white/5 hover:bg-white/5 hover:border-white/10"
               )}
             >
-              <div className="flex justify-between items-start w-full">
+              <div className="flex justify-between items-start w-full gap-2">
                 <span className="text-[15px] font-semibold text-zinc-100">{sat.hardware}</span>
-                <span className={cn("text-[11px] font-bold tracking-wider px-2 py-1 rounded-full", sat.is_online ? "bg-emerald-500/10 text-emerald-400" : "bg-zinc-500/10 text-zinc-400")}>
+                <span className={cn("text-[11px] font-bold tracking-wider px-2 py-1 rounded-full whitespace-nowrap", sat.is_online ? "bg-emerald-500/10 text-emerald-400" : "bg-zinc-500/10 text-zinc-400")}>
                   {sat.is_online ? '● ONLINE' : '○ OFFLINE'}
                 </span>
               </div>
               <div className="flex justify-between w-full text-[12px] text-zinc-500 mt-2">
-                <span>Cômodo: {sat.room_id}</span>
-                <span className="font-mono">ID: {sat.device_id.split('-')[0]}</span>
+                <span className="truncate pr-2">Cômodo: {sat.room_id}</span>
+                <span className="font-mono whitespace-nowrap">ID: {sat.device_id.split('-')[0]}</span>
               </div>
               {/* Signal strength simulation bar */}
               {sat.is_online && (
@@ -232,7 +232,7 @@ export function SatellitesTab() {
       </div>
 
       {/* Details Panel */}
-      <div className={cn("w-1/2 glass-panel p-8 flex flex-col transition-opacity duration-300 overflow-y-auto custom-scrollbar min-h-0", !selectedSat ? "opacity-50 pointer-events-none" : "")}>
+      <div className={cn("w-full lg:w-2/3 xl:w-3/4 glass-panel p-6 md:p-8 flex flex-col transition-opacity duration-300 overflow-y-visible lg:overflow-y-auto custom-scrollbar min-h-0", !selectedSat ? "opacity-50 pointer-events-none hidden lg:flex" : "flex")}>
         {selectedSat && (
           <>
             <div className="flex justify-between items-start mb-6">
