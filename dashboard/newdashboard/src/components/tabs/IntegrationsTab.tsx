@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Music2, HelpCircle, X, ExternalLink, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { TVIntegrationCard } from '../TVIntegrationCard';
 
 interface SpotifyStatus {
   is_configured: boolean;
@@ -184,8 +183,7 @@ export function IntegrationsTab() {
               </div>
             </div>
           </div>
-          
-          <TVIntegrationCard />
+          </div>
         </div>
 
         {/* Coming Soon Cards Space */}

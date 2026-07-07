@@ -8,6 +8,7 @@ import { RoutinesTab } from './components/tabs/RoutinesTab';
 import { DreamsTab } from './components/tabs/DreamsTab';
 import { SettingsTab } from './components/tabs/SettingsTab';
 import { IntegrationsTab } from './components/tabs/IntegrationsTab';
+import { DevicesTab } from './components/tabs/DevicesTab';
 import { VirtualKeyboard } from './components/VirtualKeyboard';
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
   const getTabTitle = (tab: TabId) => {
     switch (tab) {
       case 'visao-geral': return { title: 'Visão Geral', sub: 'Centro de controle da sua casa inteligente.' };
+      case 'dispositivos': return { title: 'Dispositivos', sub: 'Controle manual de aparelhos, luzes e sensores.' };
       case 'integracoes': return { title: 'Integrações', sub: 'Conecte serviços externos para expandir os poderes.' };
       case 'rotinas': return { title: 'Rotinas Automáticas', sub: 'Ensine o Alfredo a ter iniciativa própria.' };
       case 'satelites': return { title: 'Controle de Frota', sub: 'Gerencie os satélites espalhados pela casa.' };
@@ -38,6 +40,7 @@ export default function App() {
         <div className="flex-grow min-h-0 relative">
           <div className="absolute inset-0 animate-in fade-in duration-500">
             {activeTab === 'visao-geral' && <OverviewTab />}
+            {activeTab === 'dispositivos' && <DevicesTab />}
             {activeTab === 'integracoes' && <IntegrationsTab />}
             {activeTab === 'rotinas' && <RoutinesTab />}
             {activeTab === 'satelites' && <SatellitesTab />}

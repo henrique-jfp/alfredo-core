@@ -8,10 +8,19 @@ import {
   Brain, 
   Cloud, 
   Settings,
-  CircleUser
+  CircleUser,
+  SlidersHorizontal
 } from 'lucide-react';
 
-export type TabId = 'visao-geral' | 'integracoes' | 'rotinas' | 'satelites' | 'inteligencia' | 'sonhos' | 'configuracoes';
+export type TabId = 
+  | 'visao-geral'
+  | 'satelites'
+  | 'inteligencia'
+  | 'rotinas'
+  | 'integracoes'
+  | 'dispositivos'
+  | 'sonhos'
+  | 'configuracoes';
 
 interface SidebarProps {
   activeTab: TabId;
@@ -22,6 +31,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   const navItems = [
     { id: 'visao-geral', label: 'Visão Geral', icon: LayoutGrid },
     { id: 'integracoes', label: 'Integrações', icon: Link2 },
+    { id: 'dispositivos', label: 'Dispositivos', icon: SlidersHorizontal },
     { id: 'rotinas', label: 'Rotinas', icon: Clock },
     { id: 'satelites', label: 'Satélites', icon: Cpu },
     { id: 'inteligencia', label: 'Inteligência', icon: Brain },
