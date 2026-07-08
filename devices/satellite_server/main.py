@@ -335,7 +335,7 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
     # barata (média simples), em vez de depender de downmix implícito de
     # alguma camada do PulseAudio/ALSA no meio do caminho.
     if indata.ndim > 1 and indata.shape[1] > 1:
-        flattened = indata[:, 0]
+        flattened = indata.mean(axis=1)
     else:
         flattened = indata.flatten()
     cleaned = flattened.astype(np.float32)
@@ -732,7 +732,7 @@ def websocket_loop():
 def main():
     global vosk_model, vosk_rec, vad, audio_stream
 
-    model_path = os.path.join(os.path.dirname(__file__), "..", "..", "core", "voice", "stt", "models", "vosk-model-small-pt-0.3")
+    model_path = os.path.join(os.path.dirname(__file__), "..", "core", "voice", "stt", "models", "vosk-model-small-pt-0.3")
 
     if not os.path.exists(model_path):
         print(f"❌ Modelo Vosk não encontrado em {model_path}.")
@@ -743,8 +743,8 @@ def main():
 
     vosk_model = Model(model_path)
     vosk_rec = KaldiRecognizer(vosk_model, RATE)
-    # Aumentando a agressividade do VAD para 3 (muito restrito) devido ao novo microfone super sensível
-    vad = webrtcvad.Vad(3)
+    # Baixando a agressividade do VAD de 3 (muito restrito) para 1 (mais sensível à voz de longe)
+    vad = webrtcvad.Vad(1)
 
     if not register_device():
         print("Falha ao registrar. Continuando mesmo assim...")
