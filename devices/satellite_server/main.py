@@ -95,7 +95,11 @@ recording_buffer = bytearray()
 full_audio_buffer = bytearray()
 dashcam_buffer = bytearray()
 is_streaming = False
-stream_queue: queue.Queue = queue.Queue()
+# FIX ATRASO NO "OUVIR AO VIVO": fila limitada a ~5 blocos (500ms). Sem
+# limite, se o envio via WebSocket ficar um pouco mais lento que 100ms por
+# vez (rede/CPU ocupada), a fila acumulava áudio indefinidamente e o
+# atraso só crescia com o tempo, sem nunca se recuperar.
+stream_queue: queue.Queue = queue.Queue(maxsize=5)
 ws_instance = None
 
 # Pre-amp de software controlável
@@ -393,25 +397,56 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
                 _start_recording()
 
     if is_streaming:
-        stream_queue.put_nowait(bytes_data)
+        try:
+            stream_queue.put_nowait(bytes_data)
+        except queue.Full:
+            # Fila cheia = o consumidor está atrasado. Descarta o pedaço
+            # mais antigo e insere o mais novo, priorizando "ao vivo de
+            # verdade" em vez de acumular atraso que só cresce.
+            try:
+                stream_queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                stream_queue.put_nowait(bytes_data)
+            except queue.Full:
+                pass
 
     if is_recording:
         recording_buffer.extend(bytes_data)
         full_audio_buffer.extend(bytes_data)
         
         # --- EMERGENCY STOP VIA VOSK ---
+        # FIX: antes usava "in" (substring), o que disparava com QUALQUER
+        # frase contendo "para" no meio (ex: "isso é para você", "parabéns")
+        # — palavras comuníssimas em português. Agora exige que o texto
+        # reconhecido seja CURTO (o usuário disse só o comando, não uma
+        # frase longa que por acaso contém a palavra) e que ela apareça
+        # como palavra inteira, não pedaço de outra palavra.
+        EMERGENCY_SINGLE_WORDS = {"para", "pausa", "chega", "silêncio", "silencio", "desliga"}
+        EMERGENCY_PHRASES = {"cala a boca"}
+
+        def _is_emergency_stop(candidate_text: str) -> bool:
+            trimmed = candidate_text.strip()
+            words = trimmed.split()
+            if not words or len(words) > 3:
+                return False  # frase longa demais para ser um comando isolado
+            if trimmed in EMERGENCY_PHRASES:
+                return True
+            return any(w in EMERGENCY_SINGLE_WORDS for w in words)
+
         if vosk_rec:
             if vosk_rec.AcceptWaveform(bytes_data):
                 res = json.loads(vosk_rec.Result())
                 text = res.get('text', '').lower()
-                if any(w in text for w in ["para", "pausa", "chega", "silêncio", "silencio", "desliga", "cala a boca"]):
+                if _is_emergency_stop(text):
                     print(f"🛑 [EMERGÊNCIA] Comando detectado ('{text}'). Cortando áudio!", flush=True)
                     has_spoken = True
                     silence_frames = float('inf')
             else:
                 partial = json.loads(vosk_rec.PartialResult())
                 text = partial.get('partial', '').lower()
-                if any(w in text for w in ["para", "pausa", "chega", "silêncio", "silencio", "desliga", "cala a boca"]):
+                if _is_emergency_stop(text):
                     print(f"🛑 [EMERGÊNCIA] Comando detectado rápido ('{text}'). Cortando áudio!", flush=True)
                     has_spoken = True
                     silence_frames = float('inf')
@@ -697,7 +732,7 @@ def websocket_loop():
 def main():
     global vosk_model, vosk_rec, vad, audio_stream
 
-    model_path = os.path.join(os.path.dirname(__file__), "..", "..", "core", "voice", "stt", "models", "vosk-model-small-pt-0.3")
+    model_path = os.path.join(os.path.dirname(__file__), "..", "core", "voice", "stt", "models", "vosk-model-small-pt-0.3")
 
     if not os.path.exists(model_path):
         print(f"❌ Modelo Vosk não encontrado em {model_path}.")
