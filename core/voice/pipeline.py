@@ -95,22 +95,38 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
         
         async def intercept_and_save_text(generator):
             full_text = ""
+            ttfb_saved = False
+            latency = 0
             try:
                 async for sentence in generator:
                     if sentence:
+                        if not ttfb_saved:
+                            latency = int((_time.time() - t_pipeline_start) * 1000)
+                            ttfb_saved = True
+                            
+                            # Salvar o TTFB imediatamente
+                            try:
+                                with SessionLocal() as new_db:
+                                    inter = new_db.query(models.Interaction).filter(models.Interaction.id == interaction_id).first()
+                                    if inter:
+                                        inter.latency_ms = latency
+                                        new_db.commit()
+                            except Exception as e:
+                                logger.error(f"Erro ao salvar latência: {e}")
+                                
                         full_text += sentence + " "
                         yield sentence
             except Exception as e:
                 logger.error(f"Erro no generator: {e}")
                 
-            # Salvar no DB usando uma NOVA sessão para evitar detached instance / lock errors
+            # Salvar no DB o texto final usando uma NOVA sessão
             try:
-                latency = int((_time.time() - t_pipeline_start) * 1000)
                 with SessionLocal() as new_db:
                     inter = new_db.query(models.Interaction).filter(models.Interaction.id == interaction_id).first()
                     if inter:
                         inter.output_text = full_text.strip()
-                        inter.latency_ms = latency
+                        if not ttfb_saved:
+                            inter.latency_ms = int((_time.time() - t_pipeline_start) * 1000)
                         new_db.commit()
             except Exception as e:
                 logger.error(f"Erro ao salvar interação final: {e}")

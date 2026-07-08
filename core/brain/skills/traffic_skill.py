@@ -216,8 +216,18 @@ class TrafficSkill(Skill):
             possible = [n for n in loc_dict if destination.lower() in n or n in destination.lower()]
             if possible:
                 dest_obj = loc_dict[possible[0]]
+
+        if dest_obj:
+            dest_lat = dest_obj.latitude
+            dest_lon = dest_obj.longitude
+        else:
+            # Se não achou no banco, usa o texto bruto caso tenhamos a chave do Maps (que aceita texto)
+            # ou retorna erro se for OSRM (que só aceita coordenadas)
+            if config.get("google_maps_api_key"):
+                dest_lat = destination
+                dest_lon = ""
             else:
-                return {"error": f"O destino '{destination}' não está nas localizações salvas. Cadastre ele no painel de configurações."}
+                return {"error": f"O destino '{destination}' não está nas localizações salvas. Cadastre ele no painel."}
 
         orig_obj = loc_dict.get(origin.lower())
         if not orig_obj:
@@ -229,11 +239,15 @@ class TrafficSkill(Skill):
             orig_lat = orig_obj.latitude
             orig_lon = orig_obj.longitude
         else:
-            orig_lat = os.getenv("WEATHER_LAT", "-23.550520")
-            orig_lon = os.getenv("WEATHER_LON", "-46.633308")
+            if config.get("google_maps_api_key"):
+                orig_lat = origin
+                orig_lon = ""
+            else:
+                orig_lat = os.getenv("WEATHER_LAT", "-23.550520")
+                orig_lon = os.getenv("WEATHER_LON", "-46.633308")
 
         gmaps_key = config.get("google_maps_api_key")
-        result = self._get_route(orig_lat, orig_lon, dest_obj.latitude, dest_obj.longitude, gmaps_key)
+        result = self._get_route(orig_lat, orig_lon, dest_lat, dest_lon, gmaps_key)
 
         if result.get("error"):
             return {"error": result["error"]}
