@@ -56,8 +56,21 @@ import asyncio
 import logging
 from core.brain.memory.database import SessionLocal
 from core.voice.pipeline import process_audio_pipeline
+import os
+import json
 
 satellite_logger = logging.getLogger("alfredo.satellite")
+
+# Carrega o modelo Vosk globalmente para atuar como Wake Word dos satélites Web (que não rodam IA local)
+global_vosk_model = None
+try:
+    from vosk import Model, KaldiRecognizer
+    model_path = os.path.join(os.getcwd(), "core", "voice", "stt", "models", "vosk-model-small-pt-0.3")
+    if os.path.exists(model_path):
+        global_vosk_model = Model(model_path)
+        satellite_logger.info("Modelo Vosk Global carregado com sucesso para Satélites Web.")
+except Exception as e:
+    satellite_logger.error(f"Erro ao carregar modelo Vosk Global: {e}")
 
 @router.websocket("/satellite/{device_id}")
 async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
@@ -84,6 +97,19 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
             satellite_logger.info(f"Processando áudio captado ({len(phrase_bytes)} bytes) do {device_id}")
             
             if device_id == "dashboard-virtual-mic":
+                # Filtro de Wake Word no Servidor para o Satélite Web
+                if global_vosk_model:
+                    rec = KaldiRecognizer(global_vosk_model, SAMPLE_RATE)
+                    rec.AcceptWaveform(phrase_bytes)
+                    res = json.loads(rec.Result())
+                    text = res.get('text', '').lower()
+                    
+                    wake_variants = ["alfredo", "alfre", "fredo", "frente", "al fredo", "alfredou", "alfreu", "alfrente", "alfred", "enredo", "enredou", "enreda", "alegre"]
+                    if not any(v in text for v in wake_variants):
+                        satellite_logger.info(f"Ignorando áudio (sem wake word): '{text}'")
+                        return
+                    satellite_logger.info(f"Wake Word detectado pelo Vosk do Servidor! Frase: '{text}'")
+
                 # Para o dashboard, não faz streaming de chunks, mas sim gera 1 único arquivo WAV com todo o texto
                 async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False, stream_tts=False):
                     if tts_chunk:
