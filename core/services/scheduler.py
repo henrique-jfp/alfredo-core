@@ -97,7 +97,7 @@ class SchedulerManager:
                                 if tts_filename:
                                     await ws.send_json({
                                         "type": "play_audio",
-                                        "url": f"/api/audio/{tts_filename}"
+                                        "url": f"http://127.0.0.1:10001/api/audio/{tts_filename}"
                                     })
                                 else:
                                     # Fallback
