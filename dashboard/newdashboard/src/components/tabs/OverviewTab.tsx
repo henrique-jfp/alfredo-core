@@ -240,7 +240,7 @@ export function OverviewTab() {
               {formatRio(time, { hour: '2-digit', minute: '2-digit' })}
             </h1>
             <span className="font-mono text-4xl font-medium text-[color:var(--text-tertiary)] md:text-5xl opacity-50">
-              :{formatRio(time, { second: '2-digit' })}
+              :{time.getSeconds().toString().padStart(2, '0')}
             </span>
           </div>
         </div>
@@ -259,8 +259,8 @@ export function OverviewTab() {
         )}
 
         {/* Direita: Clima */}
-        <div className="flex-shrink-0 w-full xl:w-[320px]">
-          <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-[linear-gradient(180deg,rgba(19,20,23,0.95),rgba(27,29,33,0.95))] p-4 md:p-5">
+        <div className="flex-shrink-0 w-full xl:w-[300px]">
+          <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-[linear-gradient(180deg,rgba(19,20,23,0.95),rgba(27,29,33,0.95))] p-3 md:p-4">
           <div className={cn(
             'absolute inset-0 pointer-events-none opacity-100',
             weatherKind === 'sun' && 'bg-[radial-gradient(circle_at_70%_20%,rgba(212,162,78,0.22),transparent_34%),radial-gradient(circle_at_40%_80%,rgba(212,162,78,0.08),transparent_32%)]',
@@ -269,17 +269,16 @@ export function OverviewTab() {
             weatherKind === 'snow' && 'bg-[radial-gradient(circle_at_50%_10%,rgba(255,255,255,0.14),transparent_36%)]',
             weatherKind === 'storm' && 'bg-[radial-gradient(circle_at_50%_15%,rgba(245,158,11,0.16),transparent_32%)]'
           )} />
-          <div className="relative flex h-full flex-col justify-between gap-4">
-            <div className="flex items-start justify-between gap-4">
+          <div className="relative flex flex-col justify-between gap-3">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="alfredo-section-label">Meteorologia</div>
-                <div className="mt-2 text-[15px] font-semibold tracking-wide text-[color:var(--text-primary)]">{weatherTitle}</div>
-                <div className="mt-1 text-[13px] text-[color:var(--text-secondary)]">{weather ? weather.description : 'Buscando...'}</div>
+                <div className="text-[15px] font-semibold tracking-wide text-[color:var(--text-primary)]">{weatherTitle}</div>
+                <div className="mt-0.5 text-[12px] text-[color:var(--text-secondary)]">{weather ? weather.description : 'Buscando...'}</div>
               </div>
 
               <div className="shrink-0 drop-shadow-[0_0_18px_rgba(255,255,255,0.12)]">
                 <div className={cn(
-                  'flex h-20 w-20 items-center justify-center rounded-full border',
+                  'flex h-14 w-14 items-center justify-center rounded-full border text-xl',
                   weatherKind === 'sun' && 'border-brass-500/20 bg-brass-500/10 text-brass-300 shadow-[0_0_30px_rgba(212,162,78,0.14)]',
                   weatherKind === 'cloud' && 'border-white/10 bg-white/[0.03] text-zinc-300',
                   weatherKind === 'rain' && 'border-blue-500/20 bg-blue-500/10 text-blue-400',
@@ -299,9 +298,9 @@ export function OverviewTab() {
               </div>
             </div>
 
-            <div className="grid gap-3 rounded-2xl border border-white/5 bg-black/20 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-[40px] font-semibold tracking-tight text-[color:var(--text-primary)]">
+            <div className="grid gap-2 rounded-2xl border border-white/5 bg-black/20 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-3xl font-semibold tracking-tight text-[color:var(--text-primary)]">
                   {weather ? `${weather.temperature}°` : '--°'}
                 </div>
                 <div className="text-right text-[12px] text-[color:var(--text-secondary)]">
@@ -309,12 +308,12 @@ export function OverviewTab() {
                   <div>Mín. <span className="font-semibold text-blue-400">{weather?.min_temp ?? '--'}°</span></div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-[12px] text-[color:var(--text-secondary)]">
-                <div className="rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2">
-                  Umidade: {weather?.humidity ?? '--'}%
+              <div className="grid grid-cols-2 gap-2 text-[11px] text-[color:var(--text-secondary)]">
+                <div className="rounded-xl border border-white/5 bg-white/[0.02] px-2 py-1.5 flex items-center justify-center">
+                  Umid: {weather?.humidity ?? '--'}%
                 </div>
-                <div className="rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2">
-                  {weather ? 'Atualizado agora' : 'Aguardando leitura'}
+                <div className="rounded-xl border border-white/5 bg-white/[0.02] px-2 py-1.5 flex items-center justify-center text-center leading-tight">
+                  {weather ? 'Agora' : 'Aguardando'}
                 </div>
               </div>
             </div>
