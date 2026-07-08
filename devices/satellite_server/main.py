@@ -25,16 +25,36 @@ import requests
 from websockets.sync.client import connect
 from vosk import Model, KaldiRecognizer
 import webrtcvad
-from dotenv import load_dotenv
-
-env_path = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
-load_dotenv(env_path)
 
 RATE = 16000
 CHANNELS = 1
 DTYPE = 'int16'
 BLOCKSIZE = 1600  # 100ms a 16kHz – mais estável, menos callbacks por segundo
 WAVE_OUTPUT = "request.wav"
+
+# Nome (ou parte dele) do dispositivo de microfone preferido. Se encontrado,
+# o satélite usa ele diretamente em vez do dispositivo "default" do sistema
+# — evita passar por camadas extras de reamostragem/downmix do PulseAudio/ALSA
+# que podem causar picotamento em CPUs fracas. Deixe None para usar o padrão.
+PREFERRED_MIC_NAME = os.getenv("ALFREDO_MIC_NAME", "USB_Camera")
+
+
+def _find_input_device(name_substring: Optional[str]):
+    """Procura um dispositivo de entrada cujo nome contenha `name_substring`.
+    Retorna (index, num_channels) ou (None, CHANNELS) se não encontrar."""
+    if not name_substring:
+        return None, CHANNELS
+    try:
+        devices = sd.query_devices()
+        for idx, dev in enumerate(devices):
+            if dev.get('max_input_channels', 0) > 0 and name_substring.lower() in dev.get('name', '').lower():
+                print(f"🎙️ [ÁUDIO] Dispositivo preferido encontrado: [{idx}] {dev['name']} "
+                      f"({dev['max_input_channels']} canais, {dev.get('default_samplerate')}Hz)", flush=True)
+                return idx, int(dev['max_input_channels'])
+    except Exception as e:
+        print(f"⚠️ [ÁUDIO] Erro ao buscar dispositivo preferido: {e}", flush=True)
+    print(f"⚠️ [ÁUDIO] Dispositivo '{name_substring}' não encontrado, usando padrão do sistema.", flush=True)
+    return None, CHANNELS
 WAVE_RESPONSE = "response.wav"
 SERVER_URL = "http://pvserver:10001"
 DEVICE_ID = "server-satellite-sala"
@@ -59,6 +79,14 @@ _playback_lock = threading.Lock()
 _session_mode = False
 _session_lock = threading.Lock()
 
+# FIX ECO/AUTOESCUTA: depois que o áudio termina de tocar, a reverberação
+# ainda fica "no ar" por uma fração de segundo. Sem esse cooldown, o
+# satélite reativava a escuta no instante exato em que o playback
+# terminava e podia capturar o próprio eco como se fosse fala do usuário
+# (especialmente no modo mãos-livres de sessões como quiz/receita).
+PLAYBACK_TAIL_COOLDOWN = 0.6  # segundos de silêncio forçado após tocar áudio
+_playback_cooldown_until = 0.0
+
 # Variáveis Globais de Estado
 is_recording = False
 has_spoken = False
@@ -68,7 +96,6 @@ full_audio_buffer = bytearray()
 dashcam_buffer = bytearray()
 is_streaming = False
 stream_queue: queue.Queue = queue.Queue()
-audio_queue: queue.Queue = queue.Queue()
 ws_instance = None
 
 # Pre-amp de software controlável
@@ -240,6 +267,8 @@ def play_audio(filename):
             print(f"Erro fatal ao reproduzir: {e2}", flush=True)
     with _playback_lock:
         _is_playing = False
+        global _playback_cooldown_until
+        _playback_cooldown_until = time.time() + PLAYBACK_TAIL_COOLDOWN
 
 
 def send_audio_and_play(filename):
@@ -297,143 +326,143 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
             print("⚠️ [AUDIO] Buffer overflow detectado! Áudio pode picotar.", flush=True)
         # Continua processando ao invés de descartar o frame
 
-    # Capturar apenas o PRIMEIRO canal para evitar 'comb filtering' robótico do ALSA downmix
-    if indata.shape[1] > 1:
-        single_channel = indata[:, 0]
+    # Downmix explícito: se o dispositivo tem mais de 1 canal (ex: array de
+    # 4 mics da PS3 Eye), reduz pra mono aqui mesmo, de forma controlada e
+    # barata (média simples), em vez de depender de downmix implícito de
+    # alguma camada do PulseAudio/ALSA no meio do caminho.
+    if indata.ndim > 1 and indata.shape[1] > 1:
+        flattened = indata.mean(axis=1)
     else:
-        single_channel = indata.flatten()
-        
-    cleaned = single_channel.astype(np.float32)
+        flattened = indata.flatten()
+    cleaned = flattened.astype(np.float32)
     
     # Amplificador de software dinâmico
     if SOFTWARE_MULTIPLIER != 1.0:
         cleaned = cleaned * SOFTWARE_MULTIPLIER
 
+    # Soft-clip: comprime gradualmente ao invés de cortar abruptamente
     cleaned = soft_clip(cleaned)
     cleaned = cleaned.astype(np.int16)
     bytes_data = cleaned.tobytes()
-    
-    # Calibração e gravação movidas para a thread vosk_worker para não travar o áudio
-    audio_queue.put_nowait(bytes_data)
 
-def vosk_worker():
-    global vosk_rec, is_recording, has_spoken, silence_frames, recording_buffer
-    global is_calibrated, calibration_frames, calibration_sum, noise_threshold
-    global full_audio_buffer, dashcam_buffer, noise_gate_hold, _session_mode
-    
-    while True:
-        bytes_data = audio_queue.get()
+    # Calibração inicial (aprox. 2 segundos para ler o chiado do ambiente)
+    if not is_calibrated:
+        rms = get_rms(bytes_data)
+        calibration_sum += rms
+        calibration_frames += 1
+        required_frames = int((RATE / BLOCKSIZE) * 2.0)
         
-        # Calibração inicial (aprox. 2 segundos para ler o chiado do ambiente)
-        if not is_calibrated:
-            rms = get_rms(bytes_data)
-            calibration_sum += rms
-            calibration_frames += 1
-            required_frames = int((RATE / BLOCKSIZE) * 2.0)
-            
-            if calibration_frames >= required_frames:
-                avg_noise = calibration_sum / calibration_frames
-                noise_threshold = avg_noise + 200
-                print(f"\n🎙️ [CALIBRAÇÃO] Ruído de fundo médio: {avg_noise:.1f}")
-                print(f"🎙️ [CALIBRAÇÃO] Noise Threshold dinâmico definido para: {noise_threshold:.1f}\n")
-                is_calibrated = True
-            continue
+        if calibration_frames >= required_frames:
+            avg_noise = calibration_sum / calibration_frames
+            # Margem um pouco acima do chiado ambiente para não bloquear voz distante
+            noise_threshold = avg_noise + 200
+            print(f"\n🎙️ [CALIBRAÇÃO] Ruído de fundo médio: {avg_noise:.1f}")
+            print(f"🎙️ [CALIBRAÇÃO] Noise Threshold dinâmico definido para: {noise_threshold:.1f}\n")
+            is_calibrated = True
+        return  # Não processa áudio durante os 2s de calibração
 
-        if vosk_rec and not is_recording:
-            with _playback_lock:
-                if getattr(sys.modules[__name__], '_is_playing', False):
-                    continue
+    if vosk_rec and not is_recording:
+        # Supressão durante playback + cooldown: não processa wake word
+        # enquanto toca áudio, nem durante a "cauda" de reverberação logo
+        # depois que o áudio termina de tocar.
+        if _is_playing or time.time() < _playback_cooldown_until:
+            return
 
-            dashcam_buffer.extend(bytes_data)
-            if len(dashcam_buffer) > DASHCAM_MAX_BYTES:
-                del dashcam_buffer[:-DASHCAM_MAX_BYTES]
+        # Dashcam: manter sempre os últimos 3 segundos na memória
+        dashcam_buffer.extend(bytes_data)
+        if len(dashcam_buffer) > DASHCAM_MAX_BYTES:
+            del dashcam_buffer[:-DASHCAM_MAX_BYTES]
 
-            partial = json.loads(vosk_rec.PartialResult())
-            partial_text = partial.get('partial', '').strip()
-            if partial_text:
-                print(f"  VOSK ouvindo: '{partial_text}'", flush=True)
+        # Log parcial para debug do wake word
+        partial = json.loads(vosk_rec.PartialResult())
+        partial_text = partial.get('partial', '').strip()
+        if partial_text:
+            print(f"  VOSK ouvindo: '{partial_text}'", flush=True)
 
+        if vosk_rec.AcceptWaveform(bytes_data):
+            result = json.loads(vosk_rec.Result())
+            text = result.get('text', '').lower()
+            print(f"  VOSK resultado: '{text}'", flush=True)
+            if text.strip() and any(v in text for v in wake_variants):
+                print(f"🔔 Palavra de ativação '{wake_word.upper()}' detectada pelo Vosk!", flush=True)
+                # Auto-mute TV
+                try:
+                    threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=2), daemon=True).start()
+                except:
+                    pass
+                _start_recording()
+
+    if is_streaming:
+        stream_queue.put_nowait(bytes_data)
+
+    if is_recording:
+        recording_buffer.extend(bytes_data)
+        full_audio_buffer.extend(bytes_data)
+        
+        # --- EMERGENCY STOP VIA VOSK ---
+        if vosk_rec:
             if vosk_rec.AcceptWaveform(bytes_data):
-                result = json.loads(vosk_rec.Result())
-                text = result.get('text', '').lower()
-                if text.strip() and text != getattr(vosk_worker, "last_print", ""):
-                    print(f"  VOSK resultado: '{text}'", flush=True)
-                    vosk_worker.last_print = text
-                if text.strip() and any(v in text for v in wake_variants):
-                    print(f"🔔 Palavra de ativação '{wake_word.upper()}' detectada pelo Vosk!", flush=True)
-                    try:
-                        threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=2), daemon=True).start()
-                    except:
-                        pass
-                    _start_recording()
-
-        if is_streaming:
-            stream_queue.put_nowait(bytes_data)
-
-        if is_recording:
-            recording_buffer.extend(bytes_data)
-            full_audio_buffer.extend(bytes_data)
-            
-            if vosk_rec:
-                if vosk_rec.AcceptWaveform(bytes_data):
-                    res = json.loads(vosk_rec.Result())
-                    text = res.get('text', '').lower()
-                    if any(w in text for w in ["para", "pausa", "chega", "silêncio", "silencio", "desliga", "cala a boca"]):
-                        print(f"🛑 [EMERGÊNCIA] Comando detectado ('{text}'). Cortando áudio!", flush=True)
-                        has_spoken = True
-                        silence_frames = float('inf')
-                else:
-                    partial = json.loads(vosk_rec.PartialResult())
-                    text = partial.get('partial', '').lower()
-                    if any(w in text for w in ["para", "pausa", "chega", "silêncio", "silencio", "desliga", "cala a boca"]):
-                        print(f"🛑 [EMERGÊNCIA] Comando detectado rápido ('{text}'). Cortando áudio!", flush=True)
-                        has_spoken = True
-                        silence_frames = float('inf')
-
-            offset = 0
-            while offset + 320 <= len(recording_buffer):
-                chunk = recording_buffer[offset:offset + 320]
-                offset += 320
-                is_speech = vad.is_speech(chunk, RATE)
-                rms = get_rms(chunk)
-                
-                if rms < noise_threshold:
-                    if noise_gate_hold > 0:
-                        noise_gate_hold -= 1
-                    else:
-                        is_speech = False
-                else:
-                    noise_gate_hold = NOISE_GATE_HOLD_FRAMES
-                    
-                if is_speech:
+                res = json.loads(vosk_rec.Result())
+                text = res.get('text', '').lower()
+                if any(w in text for w in ["para", "pausa", "chega", "silêncio", "silencio", "desliga", "cala a boca"]):
+                    print(f"🛑 [EMERGÊNCIA] Comando detectado ('{text}'). Cortando áudio!", flush=True)
                     has_spoken = True
-                    silence_frames = 0
-                elif has_spoken:
-                    silence_frames += 1
-                    
-            recording_buffer = bytearray(recording_buffer[offset:])
-
-            total_frames = len(full_audio_buffer) // 320
-            max_silence = int(1.5 * RATE / 160)
-            timeout_frames = int(20 * RATE / 160) if _session_mode else int(5 * RATE / 160)
-            max_total = int(15 * RATE / 160)
-
-            if has_spoken and silence_frames > max_silence:
-                print("⏹️ Silêncio detectado. Fim da gravação.", flush=True)
-                _finish_recording()
-            elif not has_spoken and total_frames > timeout_frames:
-                if _session_mode:
-                    with _session_lock:
-                        _session_mode = False
-                    print("⏳ Ninguém respondeu. Saindo do modo mãos-livres.", flush=True)
+                    silence_frames = float('inf')
+            else:
+                partial = json.loads(vosk_rec.PartialResult())
+                text = partial.get('partial', '').lower()
+                if any(w in text for w in ["para", "pausa", "chega", "silêncio", "silencio", "desliga", "cala a boca"]):
+                    print(f"🛑 [EMERGÊNCIA] Comando detectado rápido ('{text}'). Cortando áudio!", flush=True)
+                    has_spoken = True
+                    silence_frames = float('inf')
+        # --------------------------------
+        offset = 0
+        while offset + 320 <= len(recording_buffer):
+            chunk = recording_buffer[offset:offset + 320]
+            offset += 320
+            is_speech = vad.is_speech(chunk, RATE)
+            rms = get_rms(chunk)
+            
+            # Noise Gate com Hold Time: mantém o gate aberto por 200ms
+            # após a última detecção de voz, evitando cortar sílabas fracas
+            if rms < noise_threshold:
+                if noise_gate_hold > 0:
+                    noise_gate_hold -= 1
+                    # Gate ainda aberto (hold) – respeita o VAD original
                 else:
-                    print("⏳ Ninguém falou nada (5s). Cancelando gravação.", flush=True)
-                is_recording = False
-                recording_buffer.clear()
-                full_audio_buffer.clear()
-            elif total_frames > max_total:
-                print("⏱️ Tempo máximo de gravação atingido.", flush=True)
-                _finish_recording()
+                    is_speech = False
+            else:
+                noise_gate_hold = NOISE_GATE_HOLD_FRAMES  # Reset hold timer
+                
+            if is_speech:
+                has_spoken = True
+                silence_frames = 0
+            elif has_spoken:
+                silence_frames += 1
+                
+        recording_buffer = bytearray(recording_buffer[offset:])
+
+        total_frames = len(full_audio_buffer) // 320
+        # 150 frames de 10ms = 1.5s de silêncio após a fala
+        max_silence = int(1.5 * RATE / 160)
+        timeout_frames = int(20 * RATE / 160) if _session_mode else int(5 * RATE / 160)
+        max_total = int(15 * RATE / 160)
+
+        if has_spoken and silence_frames > max_silence:
+            print("⏹️ Silêncio detectado. Fim da gravação.", flush=True)
+            _finish_recording()
+        elif not has_spoken and total_frames > timeout_frames:
+            if _session_mode:
+                with _session_lock:
+                    _session_mode = False
+                print("⏳ Ninguém respondeu. Saindo do modo mãos-livres.", flush=True)
+            else:
+                print("⏳ Ninguém falou nada (5s). Cancelando gravação.", flush=True)
+            is_recording = False
+            recording_buffer.clear()
+        elif total_frames > max_total:
+            print("⏳ Tempo máximo atingido.", flush=True)
+            _finish_recording()
 
 
 def _start_recording():
@@ -535,11 +564,19 @@ def _send_and_play(audio_data: bytes):
     finally:
         with _playback_lock:
             _is_playing = False
+            global _playback_cooldown_until
+            _playback_cooldown_until = time.time() + PLAYBACK_TAIL_COOLDOWN
         # Auto-unmute TV
         try:
             threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=false", timeout=2), daemon=True).start()
         except:
             pass
+
+    # FIX ECO/AUTOESCUTA: aguarda o cooldown terminar antes de reativar a
+    # escuta no modo mãos-livres. Sem isso, _start_recording() era chamado
+    # no instante exato em que o áudio parava de tocar, capturando a
+    # reverberação da própria voz do Alfredo como se fosse o usuário falando.
+    time.sleep(PLAYBACK_TAIL_COOLDOWN)
 
     # Modo mãos-livres: se houver sessão ativa, grava a próxima resposta sem wake word
     try:
@@ -660,7 +697,7 @@ def websocket_loop():
 def main():
     global vosk_model, vosk_rec, vad, audio_stream
 
-    model_path = os.path.join(os.path.dirname(__file__), "..", "..", "core", "voice", "stt", "models", "vosk-model-small-pt-0.3")
+    model_path = os.path.join(os.path.dirname(__file__), "..", "core", "voice", "stt", "models", "vosk-model-small-pt-0.3")
 
     if not os.path.exists(model_path):
         print(f"❌ Modelo Vosk não encontrado em {model_path}.")
@@ -679,36 +716,17 @@ def main():
 
     threading.Thread(target=websocket_loop, daemon=True).start()
     threading.Thread(target=stream_worker, daemon=True).start()
-    threading.Thread(target=vosk_worker, daemon=True).start()
 
     print(f"\n🎧 [Satélite da Sala] MODO VOSK (Contínuo Offline) ONLINE e ouvindo silenciosamente...")
     print(f"👉 Diga '{wake_word.upper()}' para me chamar!\n")
 
-    device_kw = os.getenv("MIC_DEVICE_NAME")
-    device_index = None
-    if device_kw:
-        try:
-            devices = sd.query_devices()
-            for i, dev in enumerate(devices):
-                if device_kw.lower() in dev['name'].lower() and dev['max_input_channels'] > 0:
-                    device_index = i
-                    print(f"🎤 Usando microfone configurado via .env: {dev['name']} (Index {i})")
-                    break
-        except Exception as e:
-            print(f"Erro ao buscar microfone: {e}")
+    device_index, device_channels = _find_input_device(PREFERRED_MIC_NAME)
 
     try:
-        if device_index is not None:
-            native_channels = sd.query_devices(device_index)['max_input_channels']
-        else:
-            native_channels = sd.query_devices(sd.default.device[0])['max_input_channels']
-            
-        print(f"🎙️ Capturando áudio em {native_channels} canais nativos para evitar distorção de downmix do ALSA...")
-        
         with sd.InputStream(
             device=device_index,
             samplerate=RATE,
-            channels=native_channels,
+            channels=device_channels,
             dtype=DTYPE,
             blocksize=BLOCKSIZE,
             callback=audio_callback

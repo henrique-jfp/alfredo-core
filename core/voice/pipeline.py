@@ -35,9 +35,14 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
     transcribed_text = ""
     try:
         stt_engine = get_stt_engine()
-        if hasattr(stt_engine, 'transcribe_bytes') and not is_webm:
-            if audio_bytes.startswith(b'RIFF'):
-                wav_bytes = audio_bytes
+        if hasattr(stt_engine, 'transcribe_bytes'):
+            # FIX DE LATÊNCIA: antes, áudio webm era escrito em disco e passava
+            # por uma conversão via ffmpeg (subprocess bloqueante) antes de ir
+            # pro Groq. A API do Groq aceita webm/ogg/mp3 diretamente — então
+            # agora mandamos os bytes originais direto em memória, sem
+            # subprocess e sem I/O de disco, tanto pra wav quanto pra webm.
+            if is_webm:
+                transcribed_text = stt_engine.transcribe_bytes(audio_bytes, filename="audio.webm")
             else:
                 import io, wave
                 with io.BytesIO() as wav_io:
@@ -47,7 +52,7 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
                         wav_file.setframerate(16000)
                         wav_file.writeframes(audio_bytes)
                     wav_bytes = wav_io.getvalue()
-            transcribed_text = stt_engine.transcribe_bytes(wav_bytes)
+                transcribed_text = stt_engine.transcribe_bytes(wav_bytes)
         else:
             temp_dir = os.path.join(os.getcwd(), "tmp")
             os.makedirs(temp_dir, exist_ok=True)

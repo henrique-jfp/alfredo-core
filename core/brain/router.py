@@ -262,8 +262,7 @@ class AgentRouter:
                             "properties": {
                                 "action": {"type": "STRING", "description": "Ação a realizar: 'power_on', 'power_off', 'mute', 'unmute', 'volume_up', 'volume_down', 'set_volume', 'open_app'"},
                                 "app_name": {"type": "STRING", "description": "Nome do aplicativo para abrir (apenas para action='open_app')"},
-                                "volume": {"type": "INTEGER", "description": "Nível de volume desejado de 0 a 100 (apenas para action='set_volume')"},
-                                "target_room": {"type": "STRING", "description": "Cômodo alvo (ex: 'sala', 'quarto', 'escritório'). Se não especificado, usa o cômodo atual."}
+                                "volume": {"type": "INTEGER", "description": "Nível de volume desejado de 0 a 100 (apenas para action='set_volume')"}
                             },
                             "required": ["action"]
                         }
@@ -569,8 +568,7 @@ class AgentRouter:
             "NUNCA use emojis. "
             "Traduções: use <lang=\"LOCALE\">texto</lang> (ex: <lang=\"en-US\">apple</lang>). "
             "Quiz ativo: valide, corrija e faça nova pergunta. "
-            "Receita ativa: UM passo por vez, sempre cite o prato. "
-            "REGRA DE OURO: Você tem ferramentas reais para controlar a casa. NUNCA 'finja' ou 'faça de conta' que fez uma ação (como ligar a TV, acender luz, mudar canal) apenas falando. Você DEVE e OBRIGATORIAMENTE tem que chamar a ferramenta correspondente (ex: manage_tv) ANTES de confirmar qualquer coisa ao usuário. Se o usuário pedir para ligar a TV, chame a ferramenta manage_tv, NUNCA responda 'Ligando a TV' sem chamar a ferramenta! "
+            "Receita ativa: UM passo por vez, sempre cite o prato."
         )
         
         if long_term_memory:
@@ -690,7 +688,9 @@ class AgentRouter:
                             )
                             db.add(ai_usage)
                             db.commit()
-                        # Ignora o texto alucinado do Gemini se a tool tem resposta direta
+                        # Concatena o texto do Gemini com o resultado real da tool
+                        if gemini_text.strip():
+                            return f"{gemini_text} {tool_result_obj['direct_response']}"
                         return tool_result_obj["direct_response"]
 
                     logger.info("Enviando resultado da ferramenta de volta para o Gemini...")
@@ -771,31 +771,18 @@ class AgentRouter:
         """
         import asyncio
         import time
-        
-        global _global_key_idx
-        keys_env = os.getenv("GEMINI_API_KEYS")
-        if keys_env:
-            keys = [k.strip() for k in keys_env.split(",") if k.strip()]
-        else:
-            single = os.getenv("GEMINI_API_KEY")
-            keys = [single.strip()] if single else []
 
-        if not keys:
-            yield "Erro: Nenhuma chave do Gemini configurada."
-            return
-            
-        current_key = keys[_global_key_idx % len(keys)]
-        _global_key_idx += 1
-        
-        # Limpar o cache do SDK para forçar a nova chave de API em clientes assíncronos
-        try:
-            from google.generativeai.client import _client_manager
-            _client_manager.clients.clear()
-        except Exception:
-            pass
-            
-        genai.configure(api_key=current_key)
-        
+        # ──────────────────────────────────────────────────────────────
+        # FIX DE LATÊNCIA: checar o fast path do Groq ANTES de mexer no
+        # cliente do Gemini. Antes, a rotação de chave + limpeza do cache
+        # do SDK (_client_manager.clients.clear() + genai.configure())
+        # rodava em TODA requisição, mesmo nas que caem no fast path e
+        # nunca chegam a chamar o Gemini nesse turno. Isso forçava a
+        # reconstrução do cliente HTTP/gRPC (custo de conexão) à toa.
+        # Movendo pra depois do fast path, esse custo só é pago quando
+        # o Gemini de fato vai ser usado.
+        # ──────────────────────────────────────────────────────────────
+
         # Fast path: Groq para queries simples que não precisam de ferramentas
         if self._is_simple_query(text):
             fast_result = await asyncio.to_thread(self._process_fast, text, context)
@@ -808,6 +795,31 @@ class AgentRouter:
                     yield remainder.strip()
                 return
             logger.info("Groq fast path falhou, caindo para Gemini (stream)")
+
+        global _global_key_idx
+        keys_env = os.getenv("GEMINI_API_KEYS")
+        if keys_env:
+            keys = [k.strip() for k in keys_env.split(",") if k.strip()]
+        else:
+            single = os.getenv("GEMINI_API_KEY")
+            keys = [single.strip()] if single else []
+
+        if not keys:
+            yield "Erro: Nenhuma chave do Gemini configurada."
+            return
+
+        current_key = keys[_global_key_idx % len(keys)]
+        _global_key_idx += 1
+
+        # Limpar o cache do SDK para forçar a nova chave de API em clientes assíncronos
+        # (só executado agora, quando realmente vamos chamar o Gemini)
+        try:
+            from google.generativeai.client import _client_manager
+            _client_manager.clients.clear()
+        except Exception:
+            pass
+
+        genai.configure(api_key=current_key)
 
         # Montar contexto idêntico ao `process`
         db = context.get("db")
@@ -854,8 +866,6 @@ class AgentRouter:
             "Você é o Alfredo, um assistente virtual ultra avançado para automação residencial. "
             "Responda sempre de forma natural, amigável e conversacional. Seja breve, no máximo 2 frases. "
             "NUNCA utilize emojis ou símbolos complexos nas suas respostas. "
-            "REGRA DE OURO: Você tem ferramentas reais para controlar a casa. NUNCA 'finja' ou 'faça de conta' que fez uma ação (como ligar a TV, acender luz, mudar canal) apenas falando. Você DEVE e OBRIGATORIAMENTE tem que chamar a ferramenta correspondente (ex: manage_tv) ANTES de confirmar qualquer coisa ao usuário. Se o usuário pedir para ligar a TV, chame a ferramenta manage_tv, NUNCA responda 'Ligando a TV' sem chamar a ferramenta! "
-            "Se o usuário pedir algo e a ferramenta retornar um erro ou aviso, repasse a informação."
         )
         if long_term_memory: system_prompt += f"\n{long_term_memory}"
         if session_context: system_prompt += session_context
@@ -964,12 +974,14 @@ class AgentRouter:
                             logger.info(f"Sessão salva para sala {room_id}: {tool_name}")
 
                 if isinstance(tool_result_obj, str):
-                    logger.info(f"Tool retornou string direta — pulando segunda chamada Gemini. Ignorando buffer: {buffer}")
-                    yield tool_result_obj.strip()
+                    logger.info(f"Tool retornou string direta — pulando segunda chamada Gemini")
+                    direct = f"{buffer} {tool_result_obj}" if buffer.strip() else tool_result_obj
+                    yield direct.strip()
                     buffer = ""  # Já fez yield
                 elif isinstance(tool_result_obj, dict) and tool_result_obj.get("direct_response"):
-                    logger.info(f"Tool tem direct_response — pulando segunda chamada Gemini. Ignorando buffer: {buffer}")
-                    yield tool_result_obj["direct_response"].strip()
+                    logger.info(f"Tool tem direct_response — pulando segunda chamada Gemini")
+                    direct = f"{buffer} {tool_result_obj['direct_response']}" if buffer.strip() else tool_result_obj["direct_response"]
+                    yield direct.strip()
                     buffer = ""  # Já fez yield
                 else:
                     # Segunda chamada ao Gemini para formatar a resposta da tool — TAMBÉM em streaming real
