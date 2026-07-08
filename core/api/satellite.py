@@ -56,21 +56,8 @@ import asyncio
 import logging
 from core.brain.memory.database import SessionLocal
 from core.voice.pipeline import process_audio_pipeline
-import os
-import json
 
 satellite_logger = logging.getLogger("alfredo.satellite")
-
-# Carrega o modelo Vosk globalmente para atuar como Wake Word dos satélites Web (que não rodam IA local)
-global_vosk_model = None
-try:
-    from vosk import Model, KaldiRecognizer
-    model_path = os.path.join(os.getcwd(), "core", "voice", "stt", "models", "vosk-model-small-pt-0.3")
-    if os.path.exists(model_path):
-        global_vosk_model = Model(model_path)
-        satellite_logger.info("Modelo Vosk Global carregado com sucesso para Satélites Web.")
-except Exception as e:
-    satellite_logger.error(f"Erro ao carregar modelo Vosk Global: {e}")
 
 @router.websocket("/satellite/{device_id}")
 async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
@@ -97,23 +84,6 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
             satellite_logger.info(f"Processando áudio captado ({len(phrase_bytes)} bytes) do {device_id}")
             
             if device_id == "dashboard-virtual-mic":
-                # Filtro de Wake Word no Servidor para o Satélite Web
-                if global_vosk_model:
-                    rec = KaldiRecognizer(global_vosk_model, SAMPLE_RATE)
-                    rec.AcceptWaveform(phrase_bytes)
-                    res = json.loads(rec.Result())
-                    text = res.get('text', '').lower()
-                    
-                    wake_variants = ["alfredo", "alfre", "fredo", "frente", "al fredo", "alfredou", "alfreu", "alfrente", "alfred", "enredo", "enredou", "enreda", "alegre"]
-                    if not any(v in text for v in wake_variants):
-                        satellite_logger.info(f"Ignorando áudio (sem wake word): '{text}'")
-                        return
-                    satellite_logger.info(f"Wake Word detectado pelo Vosk do Servidor! Frase: '{text}'")
-                    try:
-                        await websocket.send_text(json.dumps({"type": "WAKE_WORD_DETECTED"}))
-                    except:
-                        pass
-
                 # Para o dashboard, não faz streaming de chunks, mas sim gera 1 único arquivo WAV com todo o texto
                 async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False, stream_tts=False):
                     if tts_chunk:
@@ -132,54 +102,43 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
             data = await websocket.receive_bytes()
             await manager.broadcast_to_dashboards(data)
             
-            # VAD no servidor apenas para satélites Web (que não rodam VAD local)
-            if device_id.startswith("dashboard-") or device_id.startswith("web-"):
-                audio_buffer.extend(data)
+            audio_buffer.extend(data)
+            
+            while len(audio_buffer) >= BYTES_PER_FRAME:
+                frame = bytes(audio_buffer[:BYTES_PER_FRAME])
+                del audio_buffer[:BYTES_PER_FRAME]
                 
-                while len(audio_buffer) >= BYTES_PER_FRAME:
-                    frame = bytes(audio_buffer[:BYTES_PER_FRAME])
-                    del audio_buffer[:BYTES_PER_FRAME]
+                try:
+                    is_speech = vad.is_speech(frame, SAMPLE_RATE)
+                except:
+                    is_speech = False
                     
-                    try:
-                        is_speech = vad.is_speech(frame, SAMPLE_RATE)
-                    except:
-                        is_speech = False
-                        
-                    if is_speech:
-                        is_speaking = True
-                        silence_frames = 0
+                if is_speech:
+                    is_speaking = True
+                    silence_frames = 0
+                    speech_buffer.extend(frame)
+                else:
+                    if is_speaking:
+                        silence_frames += 1
                         speech_buffer.extend(frame)
                         
-                        # Limite de segurança: corta após 10s contínuos para não ficar 1 minuto ouvindo barulho de fundo
-                        if len(speech_buffer) > 10 * SAMPLE_RATE * 2:
+                        if silence_frames >= SILENCE_THRESHOLD:
                             is_speaking = False
+                            silence_frames = 0
                             phrase_bytes = bytes(speech_buffer)
                             speech_buffer = bytearray()
-                            asyncio.create_task(handle_phrase(phrase_bytes))
-                    else:
-                        if is_speaking:
-                            silence_frames += 1
-                            speech_buffer.extend(frame)
                             
-                            if silence_frames >= SILENCE_THRESHOLD:
-                                is_speaking = False
-                                silence_frames = 0
-                                phrase_bytes = bytes(speech_buffer)
-                                speech_buffer = bytearray()
-                                
-                                # Ignora ruídos rápidos (menos de 0.25s de áudio efetivo)
-                                if len(phrase_bytes) > 8000:
-                                    asyncio.create_task(handle_phrase(phrase_bytes))
+                            # Ignora ruídos rápidos (menos de 0.25s de áudio efetivo)
+                            if len(phrase_bytes) > 8000:
+                                asyncio.create_task(handle_phrase(phrase_bytes))
     except WebSocketDisconnect:
-        if device_id.startswith("dashboard-") or device_id.startswith("web-"):
-            if len(speech_buffer) > 8000:
-                asyncio.create_task(handle_phrase(bytes(speech_buffer)))
+        if len(speech_buffer) > 8000:
+            asyncio.create_task(handle_phrase(bytes(speech_buffer)))
         manager.disconnect_satellite(device_id)
     except Exception as e:
         satellite_logger.error(f"Erro no websocket do satélite: {e}")
-        if device_id.startswith("dashboard-") or device_id.startswith("web-"):
-            if len(speech_buffer) > 8000:
-                asyncio.create_task(handle_phrase(bytes(speech_buffer)))
+        if len(speech_buffer) > 8000:
+            asyncio.create_task(handle_phrase(bytes(speech_buffer)))
         manager.disconnect_satellite(device_id)
 
 @router.websocket("/dashboard")
