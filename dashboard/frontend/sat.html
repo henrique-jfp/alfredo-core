@@ -53,13 +53,32 @@
             statusLabel.innerText = "Pedindo permissão do Microfone...";
             
             try {
-                // O navegador (Chrome) sempre tem acesso ao microfone!
-                const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+                await fetch('/api/devices/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        device_id: 'dashboard-virtual-mic',
+                        room_id: 'ROOM_LIVING',
+                        hardware: 'web-browser',
+                        firmware_version: '1.0.0',
+                        capabilities: ['microphone', 'speaker']
+                    })
+                });
+
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
                 statusLabel.innerText = "Microfone OK. Conectando ao cérebro...";
                 
                 context = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
                 const source = context.createMediaStreamSource(stream);
                 const processor = context.createScriptProcessor(4096, 1, 1);
+                
+                let isPlaying = false;
                 
                 source.connect(processor);
                 processor.connect(context.destination);
@@ -80,7 +99,7 @@
                 };
                 
                 processor.onaudioprocess = (e) => {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
+                    if (ws && ws.readyState === WebSocket.OPEN && !isPlaying) {
                         const float32Array = e.inputBuffer.getChannelData(0);
                         const int16Array = new Int16Array(float32Array.length);
                         for (let i = 0; i < float32Array.length; i++) {
@@ -94,13 +113,18 @@
                 ws.onmessage = async (e) => {
                     if (e.data instanceof ArrayBuffer) {
                         try {
+                            isPlaying = true;
                             const audioBuffer = await context.decodeAudioData(e.data);
                             const playSource = context.createBufferSource();
                             playSource.buffer = audioBuffer;
                             playSource.connect(context.destination);
+                            playSource.onended = () => {
+                                setTimeout(() => { isPlaying = false; }, 500); // Cooldown de 0.5s após falar
+                            };
                             playSource.start();
                         } catch (err) {
                             console.error("Erro ao tocar resposta", err);
+                            isPlaying = false;
                         }
                     }
                 };
