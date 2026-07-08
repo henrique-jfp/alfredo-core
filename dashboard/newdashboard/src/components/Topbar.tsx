@@ -33,7 +33,7 @@ function TimerDisplay({ timer, onDelete }: { timer: TimerItem, onDelete: (id: nu
           onDelete(timer.id);
         }
       }}
-      className="alfredo-card alfredo-card-hover flex flex-col items-end justify-between p-4 text-right"
+      className="alfredo-card alfredo-card-hover flex min-w-[190px] flex-col items-end justify-between p-4 text-right"
       title="Cancelar timer"
     >
       <div className="flex items-center gap-2">
@@ -105,7 +105,7 @@ export function Topbar({ title, subtitle }: { title: string; subtitle: string })
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="flex flex-wrap gap-3">
         {/* Active Timers */}
         {timers.map(t => (
           <TimerDisplay key={t.id} timer={t} onDelete={deleteTimer} />
@@ -119,7 +119,7 @@ export function Topbar({ title, subtitle }: { title: string; subtitle: string })
                 deleteTimer(nextAlarm.id);
               }
             }}
-            className="alfredo-card alfredo-card-hover group flex flex-col items-end justify-between p-4 text-right"
+            className="alfredo-card alfredo-card-hover group flex min-w-[190px] flex-col items-end justify-between p-4 text-right"
             title="Desligar despertador"
           >
             <div className="flex items-center gap-2">

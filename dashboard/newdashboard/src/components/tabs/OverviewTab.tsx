@@ -121,23 +121,47 @@ export function OverviewTab() {
     lembretes: timers.length,
   };
 
+  const weatherCode = weather?.weather_code ?? -1;
+  const weatherKind =
+    weatherCode <= 1 ? 'sun' :
+    weatherCode <= 3 ? 'cloud' :
+    (weatherCode <= 69 || (weatherCode >= 80 && weatherCode <= 82)) ? 'rain' :
+    (weatherCode >= 71 && weatherCode <= 77) ? 'snow' :
+    weatherCode >= 95 ? 'storm' : 'cloud';
+
+  const weatherTitle =
+    weatherKind === 'sun' ? 'Ensolarado' :
+    weatherKind === 'cloud' ? 'Nublado' :
+    weatherKind === 'rain' ? 'Chuva' :
+    weatherKind === 'snow' ? 'Neve' : 'Tempestade';
+
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto pr-2 pb-10">
       <div className="alfredo-card relative overflow-hidden px-5 py-5 md:px-6 md:py-6">
         <div className="absolute right-0 top-0 h-56 w-56 translate-x-1/2 -translate-y-1/2 rounded-full bg-brass-500/10 blur-[80px]" />
-        <div className="relative z-10 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <div className="flex flex-col gap-4">
-            <div className="alfredo-section-label">Briefing da casa</div>
-            <div>
-              <h1 className="text-5xl font-semibold tracking-tight text-[color:var(--text-primary)] md:text-6xl" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                {time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                <span className="ml-2 align-baseline text-2xl font-normal text-[color:var(--text-tertiary)] md:text-3xl">
-                  {time.toLocaleTimeString('pt-BR', { second: '2-digit' })}
-                </span>
-              </h1>
-              <p className="mt-2 text-[15px] font-medium capitalize text-brass-400">
-                {time.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
-              </p>
+        <div className="relative z-10 grid gap-6 xl:grid-cols-[1.15fr_0.85fr] xl:items-stretch">
+          <div className="flex min-h-[240px] flex-col justify-between gap-5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="max-w-xl">
+                <div className="alfredo-section-label mb-2">Agora na casa</div>
+                <h1 className="text-5xl font-semibold tracking-tight text-[color:var(--text-primary)] md:text-7xl" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  <span className="ml-2 align-baseline text-2xl font-normal text-[color:var(--text-tertiary)] md:text-3xl">
+                    {time.toLocaleTimeString('pt-BR', { second: '2-digit' })}
+                  </span>
+                </h1>
+                <p className="mt-3 text-[15px] font-medium capitalize text-brass-400 md:text-[16px]">
+                  {time.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
+                </p>
+              </div>
+
+              <button
+                onClick={fetchData}
+                className="alfredo-pill hidden border-brass-500/20 bg-brass-500/10 text-brass-300 md:inline-flex"
+              >
+                <RefreshCw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
+                Atualizar clima
+              </button>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -147,37 +171,62 @@ export function OverviewTab() {
             </div>
           </div>
 
-          <div className="alfredo-card bg-[linear-gradient(180deg,rgba(19,20,23,0.95),rgba(27,29,33,0.95))] p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="alfredo-section-label">Clima</div>
-                <div className="mt-2 flex items-baseline gap-2">
-                  <div className="text-[40px] font-semibold tracking-tight text-[color:var(--text-primary)]">{weather ? `${weather.temperature}°` : '--°'}</div>
-                  <div className="text-[13px] text-[color:var(--text-secondary)]">{weather ? weather.description : 'Buscando...'}</div>
+          <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-[linear-gradient(180deg,rgba(19,20,23,0.95),rgba(27,29,33,0.95))] p-5 md:p-6">
+            <div className={cn(
+              'absolute inset-0 pointer-events-none opacity-100',
+              weatherKind === 'sun' && 'bg-[radial-gradient(circle_at_70%_20%,rgba(212,162,78,0.22),transparent_34%),radial-gradient(circle_at_40%_80%,rgba(212,162,78,0.08),transparent_32%)]',
+              weatherKind === 'cloud' && 'bg-[radial-gradient(circle_at_60%_22%,rgba(255,255,255,0.09),transparent_30%)]',
+              weatherKind === 'rain' && 'bg-[radial-gradient(circle_at_50%_10%,rgba(96,165,250,0.14),transparent_36%)]',
+              weatherKind === 'snow' && 'bg-[radial-gradient(circle_at_50%_10%,rgba(255,255,255,0.14),transparent_36%)]',
+              weatherKind === 'storm' && 'bg-[radial-gradient(circle_at_50%_15%,rgba(245,158,11,0.16),transparent_32%)]'
+            )} />
+            <div className="relative flex h-full flex-col justify-between gap-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="alfredo-section-label">Meteorologia</div>
+                  <div className="mt-2 text-[15px] font-semibold tracking-wide text-[color:var(--text-primary)]">{weatherTitle}</div>
+                  <div className="mt-1 text-[13px] text-[color:var(--text-secondary)]">{weather ? weather.description : 'Buscando...'}</div>
                 </div>
-                {weather && weather.max_temp !== '—' && (
-                  <div className="mt-2 flex gap-3 text-xs font-semibold">
-                    <span className="text-rose-400">↑ {weather.max_temp}°</span>
-                    <span className="text-blue-400">↓ {weather.min_temp}°</span>
+
+                <div className="shrink-0 drop-shadow-[0_0_18px_rgba(255,255,255,0.12)]">
+                  <div className={cn(
+                    'flex h-20 w-20 items-center justify-center rounded-full border',
+                    weatherKind === 'sun' && 'border-brass-500/20 bg-brass-500/10 text-brass-300 shadow-[0_0_30px_rgba(212,162,78,0.14)]',
+                    weatherKind === 'cloud' && 'border-white/10 bg-white/[0.03] text-zinc-300',
+                    weatherKind === 'rain' && 'border-blue-500/20 bg-blue-500/10 text-blue-400',
+                    weatherKind === 'snow' && 'border-white/10 bg-white/[0.03] text-white',
+                    weatherKind === 'storm' && 'border-amber-500/20 bg-amber-500/10 text-yellow-400'
+                  )}>
+                    <div className={cn(
+                      weatherKind === 'sun' && 'animate-[spin_20s_linear_infinite]',
+                      weatherKind === 'cloud' && 'animate-[pulse_4s_ease-in-out_infinite]',
+                      weatherKind === 'rain' && 'animate-[bounce_2s_infinite]',
+                      weatherKind === 'snow' && 'animate-pulse',
+                      weatherKind === 'storm' && 'animate-[pulse_1s_ease-in-out_infinite]'
+                    )}>
+                      {getWeatherIcon(weatherCode)}
+                    </div>
                   </div>
-                )}
+                </div>
               </div>
-              <div className="shrink-0 drop-shadow-[0_0_15px_rgba(255,255,255,0.08)]">
-                {getWeatherIcon(weather?.weather_code ?? -1)}
-              </div>
-            </div>
-            <div className="mt-4 grid gap-3 rounded-2xl border border-white/5 bg-black/20 p-4">
-              <div className="flex items-center justify-between text-[12px] text-[color:var(--text-secondary)]">
-                <span>Última atualização</span>
-                <button
-                  onClick={fetchData}
-                  className="inline-flex items-center gap-2 rounded-full border border-brass-500/20 bg-brass-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-brass-300 transition-colors hover:bg-brass-500/15"
-                >
-                  <RefreshCw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
-                  Atualizar
-                </button>
-              </div>
-              <div className="font-mono text-[13px] text-[color:var(--text-primary)]">{time.toLocaleTimeString('pt-BR')}</div>
+
+              {weather && (
+                <div className="grid gap-3 rounded-2xl border border-white/5 bg-black/20 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[40px] font-semibold tracking-tight text-[color:var(--text-primary)]">
+                      {weather.temperature}°
+                    </div>
+                    <div className="text-right text-[12px] text-[color:var(--text-secondary)]">
+                      <div>Máx. <span className="font-semibold text-rose-400">{weather.max_temp}°</span></div>
+                      <div>Mín. <span className="font-semibold text-blue-400">{weather.min_temp}°</span></div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[12px] text-[color:var(--text-secondary)]">
+                    <div className="rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2">Umidade: {weather.humidity}%</div>
+                    <div className="rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2">Atualizado agora</div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
