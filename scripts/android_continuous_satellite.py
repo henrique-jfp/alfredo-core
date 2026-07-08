@@ -1,9 +1,24 @@
 import os, sys, time, threading, subprocess
 
+# HACK PARA O TERMUX: O Android esconde as bibliotecas do sistema,
+# então enganamos o Python para apontar direto para o arquivo do Termux.
+import ctypes.util
+original_find_library = ctypes.util.find_library
+
+def patch_find_library(name):
+    if name == 'portaudio':
+        return '/data/data/com.termux/files/usr/lib/libportaudio.so'
+    return original_find_library(name)
+
+ctypes.util.find_library = patch_find_library
+
 try:
     import sounddevice as sd
 except ImportError:
     print("Erro: sounddevice não instalado. Execute: pip install sounddevice")
+    sys.exit(1)
+except OSError as e:
+    print(f"Erro no PortAudio: {e}. Execute: pkg install portaudio -y")
     sys.exit(1)
 
 try:
@@ -59,13 +74,12 @@ def on_close(ws, close_status_code, close_msg):
 
 def on_open(ws):
     print(f"Conectado ao servidor {SERVER_URL} com sucesso!")
-    print("Abrindo microfone via sounddevice (sem bugs) e iniciando transmissão...")
+    print("Abrindo microfone via sounddevice (Termux mode) e iniciando transmissão...")
     
     def audio_callback(indata, frames, time_info, status):
         if status:
             print(status)
         if ws.keep_running:
-            # indata já vem como bytes crus (RawInputStream)
             try:
                 ws.send(bytes(indata), opcode=websocket.ABNF.OPCODE_BINARY)
             except:
