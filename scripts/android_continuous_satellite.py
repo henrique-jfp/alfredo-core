@@ -1,8 +1,9 @@
 import os, sys, time, threading, subprocess
+
 try:
-    import pyaudio
+    import sounddevice as sd
 except ImportError:
-    print("Erro: PyAudio não instalado. Execute: pkg install python-pyaudio")
+    print("Erro: sounddevice não instalado. Execute: pip install sounddevice")
     sys.exit(1)
 
 try:
@@ -15,12 +16,8 @@ SERVER_URL = "ws://192.168.0.56:10001"
 DEVICE_ID = "android-m21s"
 ROOM_ID = "ROOM_LIVING"
 
-FORMAT = pyaudio.paInt16
-CHANNELS = 1
 RATE = 16000
 CHUNK = 960  # 30ms 
-
-audio = pyaudio.PyAudio()
 
 ffplay_proc = None
 last_byte_time = 0
@@ -29,7 +26,6 @@ def on_message(ws, message):
     global ffplay_proc, last_byte_time
     if isinstance(message, bytes):
         last_byte_time = time.time()
-        # Se não há um ffplay rodando, abre um novo recebendo via pipe
         if ffplay_proc is None or ffplay_proc.poll() is not None:
             ffplay_proc = subprocess.Popen(
                 ['ffplay', '-nodisp', '-autoexit', '-i', 'pipe:0'],
@@ -44,7 +40,6 @@ def on_message(ws, message):
         print(f"[Comando do Servidor]: {message}")
 
 def watchdog_audio():
-    """Fecha a entrada do ffplay se o servidor parar de mandar áudio por 1.5s"""
     global ffplay_proc, last_byte_time
     while True:
         time.sleep(0.5)
@@ -64,22 +59,26 @@ def on_close(ws, close_status_code, close_msg):
 
 def on_open(ws):
     print(f"Conectado ao servidor {SERVER_URL} com sucesso!")
-    print("Abrindo microfone e iniciando transmissão contínua...")
+    print("Abrindo microfone via sounddevice (sem bugs) e iniciando transmissão...")
     
+    def audio_callback(indata, frames, time_info, status):
+        if status:
+            print(status)
+        if ws.keep_running:
+            # indata já vem como bytes crus (RawInputStream)
+            try:
+                ws.send(bytes(indata), opcode=websocket.ABNF.OPCODE_BINARY)
+            except:
+                pass
+
     def record_and_send():
-        stream = audio.open(format=FORMAT, channels=CHANNELS,
-                            rate=RATE, input=True,
-                            frames_per_buffer=CHUNK)
         try:
-            while ws.keep_running:
-                # exception_on_overflow=False evita que o PyAudio quebre se o Termux travar um milissegundo
-                data = stream.read(CHUNK, exception_on_overflow=False)
-                ws.send(data, opcode=websocket.ABNF.OPCODE_BINARY)
+            with sd.RawInputStream(samplerate=RATE, channels=1, dtype='int16', 
+                                   blocksize=CHUNK, callback=audio_callback):
+                while ws.keep_running:
+                    time.sleep(0.1)
         except Exception as e:
             print(f"Erro no streaming de microfone: {e}")
-        finally:
-            stream.stop_stream()
-            stream.close()
 
     t = threading.Thread(target=record_and_send)
     t.daemon = True
@@ -91,12 +90,10 @@ def main():
     print("=========================================")
     print(f"Dispositivo: {DEVICE_ID} | Sala: {ROOM_ID}")
     
-    # Inicia o vigilante de áudio
     watchdog_thread = threading.Thread(target=watchdog_audio)
     watchdog_thread.daemon = True
     watchdog_thread.start()
     
-    # Substitui http/https por ws/wss se o usuário esqueceu
     ws_url = SERVER_URL.replace("http://", "ws://").replace("https://", "wss://")
     url = f"{ws_url}/api/ws/satellite/{DEVICE_ID}"
     

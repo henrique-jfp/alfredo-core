@@ -36,8 +36,8 @@ def get_current_weather(db: Session = None) -> dict:
                 "humidity": cached.humidity,
                 "description": cached.description,
                 "weather_code": cached.weather_code,
-                "max_temp": "—", 
-                "min_temp": "—"
+                "max_temp": cached.max_temp or "—", 
+                "min_temp": cached.min_temp or "—"
             }
 
     if not api_key:
@@ -78,7 +78,9 @@ def get_current_weather(db: Session = None) -> dict:
                 temperature=temp,
                 humidity=hum,
                 weather_code=code,
-                description=desc
+                description=desc,
+                max_temp=max_temp,
+                min_temp=min_temp
             )
             db.add(new_cache)
             db.commit()

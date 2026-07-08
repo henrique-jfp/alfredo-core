@@ -57,6 +57,8 @@ class WeatherCache(Base):
     humidity = Column(String, nullable=False)
     weather_code = Column(Integer, nullable=False)
     description = Column(String, nullable=False)
+    max_temp = Column(String, nullable=True)
+    min_temp = Column(String, nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 class Timer(Base):
