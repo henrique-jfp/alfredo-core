@@ -697,7 +697,7 @@ def websocket_loop():
 def main():
     global vosk_model, vosk_rec, vad, audio_stream
 
-    model_path = os.path.join(os.path.dirname(__file__), "..", "core", "voice", "stt", "models", "vosk-model-small-pt-0.3")
+    model_path = os.path.join(os.path.dirname(__file__), "..", "..", "core", "voice", "stt", "models", "vosk-model-small-pt-0.3")
 
     if not os.path.exists(model_path):
         print(f"❌ Modelo Vosk não encontrado em {model_path}.")
