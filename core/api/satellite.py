@@ -109,6 +109,10 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
                         satellite_logger.info(f"Ignorando áudio (sem wake word): '{text}'")
                         return
                     satellite_logger.info(f"Wake Word detectado pelo Vosk do Servidor! Frase: '{text}'")
+                    try:
+                        await websocket.send_text(json.dumps({"type": "WAKE_WORD_DETECTED"}))
+                    except:
+                        pass
 
                 # Para o dashboard, não faz streaming de chunks, mas sim gera 1 único arquivo WAV com todo o texto
                 async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False, stream_tts=False):

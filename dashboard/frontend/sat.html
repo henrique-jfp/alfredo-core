@@ -1,56 +1,114 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
     <meta charset="utf-8">
-    <title>Satélite M21s</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Satélite M21s (Appliance)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+    <meta name="theme-color" content="#000000">
     <style>
         body { 
             background-color: #000; 
             color: #fff; 
-            font-family: Arial, sans-serif; 
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             height: 100vh;
             margin: 0;
+            overflow: hidden;
         }
-        button { 
-            padding: 25px 40px; 
-            font-size: 24px; 
+        #btn { 
+            padding: 20px 40px; 
+            font-size: 20px; 
             font-weight: bold;
-            background: #ff5e00; 
-            color: white; 
-            border: none; 
+            background: #222; 
+            color: #aaa; 
+            border: 2px solid #333; 
             border-radius: 50px; 
             cursor: pointer;
-            box-shadow: 0 4px 15px rgba(255, 94, 0, 0.4);
             transition: 0.3s;
+            z-index: 10;
         }
-        button:active { transform: scale(0.95); }
+        #btn:active { transform: scale(0.95); }
+        
+        #visualizer {
+            position: absolute;
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            background: transparent;
+            border: 4px solid transparent;
+            transition: all 0.5s ease-in-out;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* Estado Escutando / Animação Wake Word */
+        .listening {
+            border-color: rgba(0, 255, 136, 0.8) !important;
+            box-shadow: 0 0 40px rgba(0, 255, 136, 0.4), inset 0 0 20px rgba(0, 255, 136, 0.2);
+            animation: pulse 1.5s infinite alternate;
+        }
+        
+        /* Estado Falando */
+        .speaking {
+            border-color: rgba(0, 153, 255, 0.8) !important;
+            box-shadow: 0 0 50px rgba(0, 153, 255, 0.5), inset 0 0 30px rgba(0, 153, 255, 0.3);
+            animation: pulseFast 0.5s infinite alternate;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.8; }
+            100% { transform: scale(1.1); opacity: 1; }
+        }
+        @keyframes pulseFast {
+            0% { transform: scale(1); opacity: 0.7; }
+            100% { transform: scale(1.15); opacity: 1; }
+        }
+
         #status { 
-            margin-top: 30px; 
-            font-size: 18px; 
-            color: #888; 
+            position: absolute;
+            bottom: 30px; 
+            font-size: 14px; 
+            color: #444; 
             text-align: center;
         }
     </style>
 </head>
 <body>
-    <button id="btn" onclick="startSatellite()">🚀 Ativar Satélite</button>
-    <div id="status">Aguardando ativação...</div>
+    <div id="visualizer"></div>
+    <button id="btn" onclick="startSatellite()">TOCAR PARA INICIAR</button>
+    <div id="status">Desconectado</div>
 
     <script>
         let ws;
         let context;
+        let isPlaying = false;
+        let reconnectTimeout;
+        let isStarted = false;
         
+        const btn = document.getElementById('btn');
+        const statusLabel = document.getElementById('status');
+        const visualizer = document.getElementById('visualizer');
+        
+        function setUIState(state) {
+            visualizer.className = '';
+            if (state === 'listening') {
+                visualizer.classList.add('listening');
+            } else if (state === 'speaking') {
+                visualizer.classList.add('speaking');
+            }
+        }
+
         async function startSatellite() {
-            const btn = document.getElementById('btn');
-            const statusLabel = document.getElementById('status');
+            if (isStarted && ws && ws.readyState === WebSocket.OPEN) return;
+            isStarted = true;
             
             btn.style.display = 'none';
-            statusLabel.innerText = "Pedindo permissão do Microfone...";
+            statusLabel.innerText = "Iniciando hardware de áudio...";
+            clearTimeout(reconnectTimeout);
             
             try {
                 await fetch('/api/devices/register', {
@@ -58,7 +116,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         device_id: 'dashboard-virtual-mic',
-                        room_id: 'ROOM_LIVING',
+                        room_id: 'ROOM_BEDROOM',
                         hardware: 'web-browser',
                         firmware_version: '1.0.0',
                         capabilities: ['microphone', 'speaker']
@@ -72,30 +130,34 @@
                         autoGainControl: true
                     }
                 });
-                statusLabel.innerText = "Microfone OK. Conectando ao cérebro...";
+                statusLabel.innerText = "Conectando ao servidor...";
                 
                 context = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
                 const source = context.createMediaStreamSource(stream);
                 const processor = context.createScriptProcessor(4096, 1, 1);
                 
-                let isPlaying = false;
-                
                 source.connect(processor);
                 processor.connect(context.destination);
                 
-                // Conecta usando o ID mágico que diz pro servidor mandar o áudio inteiro e não quebrado
                 const wsProtocol = window.location.protocol === "https:" ? "wss://" : "ws://";
                 ws = new WebSocket(wsProtocol + window.location.host + "/api/ws/satellite/dashboard-virtual-mic");
                 ws.binaryType = "arraybuffer";
                 
                 ws.onopen = () => {
-                    statusLabel.innerHTML = "<h2 style='color:#00ff00'>🟢 Satélite Online e Ouvindo 24/7</h2><p>Pode desligar a tela se quiser!</p>";
+                    statusLabel.innerText = "Satélite Online (AMOLED Black)";
+                    statusLabel.style.color = "#222"; // Muito escuro para não atrapalhar à noite
                 };
                 
                 ws.onclose = () => {
-                    statusLabel.innerHTML = "<h2 style='color:red'>🔴 Caiu a conexão.</h2><p>Recarregue a página.</p>";
-                    btn.style.display = 'block';
-                    btn.innerText = "Reconectar";
+                    statusLabel.innerText = "Conexão perdida. Reconectando em 5s...";
+                    statusLabel.style.color = "red";
+                    setUIState('idle');
+                    ws = null;
+                    reconnectTimeout = setTimeout(startSatellite, 5000);
+                };
+                
+                ws.onerror = (err) => {
+                    console.error("Erro no WebSocket", err);
                 };
                 
                 processor.onaudioprocess = (e) => {
@@ -112,28 +174,57 @@
                 
                 ws.onmessage = async (e) => {
                     if (e.data instanceof ArrayBuffer) {
+                        // Recebendo áudio para tocar
                         try {
                             isPlaying = true;
+                            setUIState('speaking');
                             const audioBuffer = await context.decodeAudioData(e.data);
                             const playSource = context.createBufferSource();
                             playSource.buffer = audioBuffer;
                             playSource.connect(context.destination);
                             playSource.onended = () => {
-                                setTimeout(() => { isPlaying = false; }, 500); // Cooldown de 0.5s após falar
+                                setTimeout(() => { 
+                                    isPlaying = false; 
+                                    setUIState('idle');
+                                }, 500); // Cooldown após falar
                             };
                             playSource.start();
                         } catch (err) {
                             console.error("Erro ao tocar resposta", err);
                             isPlaying = false;
+                            setUIState('idle');
                         }
+                    } else if (typeof e.data === "string") {
+                        // Recebendo JSON/Eventos do Servidor
+                        try {
+                            const msg = JSON.parse(e.data);
+                            if (msg.type === "WAKE_WORD_DETECTED") {
+                                setUIState('listening');
+                                // Se não tocar áudio logo em seguida, volta pro idle após alguns segundos
+                                setTimeout(() => {
+                                    if (!isPlaying) setUIState('idle');
+                                }, 4000);
+                            }
+                        } catch (err) { }
                     }
                 };
                 
             } catch (err) {
-                statusLabel.innerText = "Erro: " + err.message + "\n\nPermita o microfone no Chrome!";
+                statusLabel.innerText = "Erro: " + err.message;
+                statusLabel.style.color = "red";
                 btn.style.display = 'block';
+                isStarted = false;
+                // Em modo kiosk, tenta de novo mesmo se der erro (pode ser delay do SO)
+                reconnectTimeout = setTimeout(startSatellite, 10000);
             }
         }
+
+        // Tenta auto-iniciar. Browsers em modo Kiosk ou se já teve permissão antes podem permitir.
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                if (!isStarted) startSatellite();
+            }, 1000);
+        });
     </script>
 </body>
 </html>
