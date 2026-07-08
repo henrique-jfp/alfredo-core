@@ -227,50 +227,50 @@ export function OverviewTab() {
 
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto pr-2 pb-10">
-      <div className={cn(
-        'alfredo-card relative overflow-hidden px-5 py-5 md:px-6 md:py-6',
-        hasPinnedTimers ? 'xl:grid xl:grid-cols-[minmax(0,1.1fr)_minmax(220px,0.72fr)_minmax(0,0.88fr)] xl:gap-4' : 'xl:grid xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.88fr)] xl:gap-4'
-      )}>
-        <div className="absolute right-0 top-0 h-56 w-56 translate-x-1/2 -translate-y-1/2 rounded-full bg-brass-500/10 blur-[80px]" />
-        <div className="absolute left-0 bottom-0 h-56 w-56 -translate-x-1/2 translate-y-1/2 rounded-full bg-blue-500/10 blur-[90px]" />
-
-        <div className="relative z-10 flex min-h-[260px] flex-col justify-between gap-5">
-          <div className="max-w-xl">
-            <div className="alfredo-section-label mb-2">Relógio da casa</div>
-            <div className="text-[12px] uppercase tracking-[0.22em] text-[color:var(--text-tertiary)]">
-              {formatRio(time, { weekday: 'long', day: '2-digit', month: 'long' })}
-            </div>
-            <h1 className="mt-2 text-7xl font-semibold leading-none tracking-tight text-[color:var(--text-primary)] md:text-[92px]" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {formatRio(time, { hour: '2-digit', minute: '2-digit' })}
-            </h1>
-            <div className="mt-3 flex items-end gap-3">
-              <span className="font-mono text-[18px] text-[color:var(--text-tertiary)] md:text-[22px]">
-                {formatRio(time, { second: '2-digit' })}
-              </span>
-              <span className="pb-0.5 text-[15px] font-medium capitalize text-brass-400 md:text-[16px]">
-                Briefing do Dia
-              </span>
-            </div>
+      {/* NOVO CABEÇALHO (Relógio + Timers + Clima) */}
+      <div className="flex flex-col xl:flex-row w-full items-start xl:items-stretch justify-between gap-5 xl:gap-8 mb-2">
+        
+        {/* Esquerda: Relógio */}
+        <div className="flex flex-col justify-center xl:min-w-[340px]">
+          <div className="alfredo-section-label mb-2">Visão Geral</div>
+          <div className="text-[12px] uppercase tracking-[0.22em] text-[color:var(--text-tertiary)]">
+            {formatRio(time, { weekday: 'long', day: '2-digit', month: 'long' })}
+          </div>
+          <h1 className="mt-2 text-7xl font-semibold leading-none tracking-tight text-[color:var(--text-primary)] md:text-[92px]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {formatRio(time, { hour: '2-digit', minute: '2-digit' })}
+          </h1>
+          <div className="mt-3 flex items-end gap-3">
+            <span className="font-mono text-[18px] text-[color:var(--text-tertiary)] md:text-[22px]">
+              {formatRio(time, { second: '2-digit' })}
+            </span>
+            <span className="pb-0.5 text-[15px] font-medium capitalize text-brass-400 md:text-[16px]">
+              Briefing do Dia
+            </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="mt-6 flex flex-wrap items-center gap-2">
             <StatusPulse label="Sistema em escuta" tone="success" />
             <StatusPulse label={`${stats?.active_timers ?? 0} timers vivos`} tone="warning" />
             <StatusPulse label={`${stats?.devices ?? 0} satélites`} tone="info" />
           </div>
         </div>
 
+        {/* Centro: Timers (se existirem) */}
         {hasPinnedTimers && (
-          <div className="relative z-10 mt-4 grid gap-3 md:mt-0 md:grid-cols-2">
-            {pinnedTimers.map((timer) => (
-              <div key={timer.id} className="min-w-0">
-                <TimerCard timer={timer} onDelete={deleteTimer} />
-              </div>
-            ))}
+          <div className="flex-1 w-full flex items-center justify-center">
+            <div className="grid gap-3 w-full max-w-lg md:grid-cols-2">
+              {pinnedTimers.map((timer) => (
+                <div key={timer.id} className="min-w-0">
+                  <TimerCard timer={timer} onDelete={deleteTimer} />
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
-        <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-[linear-gradient(180deg,rgba(19,20,23,0.95),rgba(27,29,33,0.95))] p-5 md:p-6">
+        {/* Direita: Clima */}
+        <div className="flex-shrink-0 w-full xl:w-[380px]">
+          <div className="relative h-full overflow-hidden rounded-3xl border border-white/5 bg-[linear-gradient(180deg,rgba(19,20,23,0.95),rgba(27,29,33,0.95))] p-5 md:p-6">
           <div className={cn(
             'absolute inset-0 pointer-events-none opacity-100',
             weatherKind === 'sun' && 'bg-[radial-gradient(circle_at_70%_20%,rgba(212,162,78,0.22),transparent_34%),radial-gradient(circle_at_40%_80%,rgba(212,162,78,0.08),transparent_32%)]',
@@ -330,6 +330,7 @@ export function OverviewTab() {
             </div>
           </div>
         </div>
+      </div>
       </div>
 
       <SpotifyCard />

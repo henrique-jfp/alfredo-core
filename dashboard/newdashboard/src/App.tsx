@@ -66,7 +66,7 @@ export default function App() {
           height: '100dvh'
         }}
       >
-        <Topbar title={currentHeaders.title} subtitle={currentHeaders.sub} />
+        {activeTab !== 'visao-geral' && <Topbar title={currentHeaders.title} subtitle={currentHeaders.sub} />}
         
         <div className="relative min-h-0 flex-1 overflow-hidden">
           <div className="h-full overflow-x-hidden overflow-y-auto pb-28 md:pb-6 fade-up">
