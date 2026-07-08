@@ -11,6 +11,7 @@ After=network.target
 
 [Service]
 Type=oneshot
+KillMode=process
 ExecStart=/bin/bash /home/pvserver/alfredo-core/scripts/auto_deploy.sh
 WorkingDirectory=/home/pvserver/alfredo-core
 StandardOutput=append:/home/pvserver/alfredo-core/logs/auto_deploy.log
