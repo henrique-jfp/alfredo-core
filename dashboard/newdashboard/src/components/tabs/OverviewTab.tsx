@@ -228,30 +228,20 @@ export function OverviewTab() {
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto pr-2 pb-10">
       {/* NOVO CABEÇALHO (Relógio + Timers + Clima) */}
-      <div className="flex flex-col xl:flex-row w-full items-start xl:items-stretch justify-between gap-5 xl:gap-8 mb-2">
+      <div className="flex flex-col xl:flex-row w-full items-start xl:items-center justify-between gap-5 xl:gap-8 mb-4">
         
         {/* Esquerda: Relógio */}
-        <div className="flex flex-col justify-center xl:min-w-[340px]">
-          <div className="alfredo-section-label mb-2">Visão Geral</div>
-          <div className="text-[12px] uppercase tracking-[0.22em] text-[color:var(--text-tertiary)]">
+        <div className="flex flex-col xl:min-w-[340px]">
+          <div className="text-[13px] font-medium uppercase tracking-[0.22em] text-[color:var(--text-tertiary)]">
             {formatRio(time, { weekday: 'long', day: '2-digit', month: 'long' })}
           </div>
-          <h1 className="mt-2 text-7xl font-semibold leading-none tracking-tight text-[color:var(--text-primary)] md:text-[92px]" style={{ fontVariantNumeric: 'tabular-nums' }}>
-            {formatRio(time, { hour: '2-digit', minute: '2-digit' })}
-          </h1>
-          <div className="mt-3 flex items-end gap-3">
-            <span className="font-mono text-[18px] text-[color:var(--text-tertiary)] md:text-[22px]">
-              {formatRio(time, { second: '2-digit' })}
+          <div className="mt-1 flex items-baseline gap-2">
+            <h1 className="text-7xl font-semibold leading-none tracking-tight text-[color:var(--text-primary)] md:text-[92px]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {formatRio(time, { hour: '2-digit', minute: '2-digit' })}
+            </h1>
+            <span className="font-mono text-4xl font-medium text-[color:var(--text-tertiary)] md:text-5xl opacity-50">
+              :{formatRio(time, { second: '2-digit' })}
             </span>
-            <span className="pb-0.5 text-[15px] font-medium capitalize text-brass-400 md:text-[16px]">
-              Briefing do Dia
-            </span>
-          </div>
-
-          <div className="mt-6 flex flex-wrap items-center gap-2">
-            <StatusPulse label="Sistema em escuta" tone="success" />
-            <StatusPulse label={`${stats?.active_timers ?? 0} timers vivos`} tone="warning" />
-            <StatusPulse label={`${stats?.devices ?? 0} satélites`} tone="info" />
           </div>
         </div>
 
@@ -269,8 +259,8 @@ export function OverviewTab() {
         )}
 
         {/* Direita: Clima */}
-        <div className="flex-shrink-0 w-full xl:w-[380px]">
-          <div className="relative h-full overflow-hidden rounded-3xl border border-white/5 bg-[linear-gradient(180deg,rgba(19,20,23,0.95),rgba(27,29,33,0.95))] p-5 md:p-6">
+        <div className="flex-shrink-0 w-full xl:w-[320px]">
+          <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-[linear-gradient(180deg,rgba(19,20,23,0.95),rgba(27,29,33,0.95))] p-4 md:p-5">
           <div className={cn(
             'absolute inset-0 pointer-events-none opacity-100',
             weatherKind === 'sun' && 'bg-[radial-gradient(circle_at_70%_20%,rgba(212,162,78,0.22),transparent_34%),radial-gradient(circle_at_40%_80%,rgba(212,162,78,0.08),transparent_32%)]',
