@@ -108,7 +108,10 @@ function SatellitesTabContent() {
           source.connect(audioCtx.destination);
 
           const w = window as any;
-          if (!w.nextAudioTime || w.nextAudioTime < audioCtx.currentTime) {
+          
+          // Se o buffer acumulou muito (mais de 500ms de atraso), reseta para o tempo atual!
+          // Isso impede que o áudio fique 1 minuto atrasado se a aba ficar em background ou houver jitter
+          if (!w.nextAudioTime || w.nextAudioTime < audioCtx.currentTime || (w.nextAudioTime - audioCtx.currentTime > 0.5)) {
             w.nextAudioTime = audioCtx.currentTime + 0.15;
           }
 

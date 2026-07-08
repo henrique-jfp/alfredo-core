@@ -347,9 +347,9 @@ def processing_worker():
 
         # --- Início do processamento pesado ---
         
-        # Downmix explícito: se o dispositivo tem mais de 1 canal, reduz pra mono
+        # Downmix explícito: se o dispositivo tem mais de 1 canal, pega só o primeiro (evita cancelamento de fase)
         if indata.ndim > 1 and indata.shape[1] > 1:
-            flattened = indata.mean(axis=1)
+            flattened = indata[:, 0]
         else:
             flattened = indata.flatten()
         cleaned = flattened.astype(np.float32)

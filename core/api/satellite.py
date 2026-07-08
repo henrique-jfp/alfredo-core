@@ -149,6 +149,13 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
                         is_speaking = True
                         silence_frames = 0
                         speech_buffer.extend(frame)
+                        
+                        # Limite de segurança: corta após 10s contínuos para não ficar 1 minuto ouvindo barulho de fundo
+                        if len(speech_buffer) > 10 * SAMPLE_RATE * 2:
+                            is_speaking = False
+                            phrase_bytes = bytes(speech_buffer)
+                            speech_buffer = bytearray()
+                            asyncio.create_task(handle_phrase(phrase_bytes))
                     else:
                         if is_speaking:
                             silence_frames += 1
