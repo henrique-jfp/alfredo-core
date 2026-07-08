@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Satélite M21s</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { 
+            background-color: #000; 
+            color: #fff; 
+            font-family: Arial, sans-serif; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        button { 
+            padding: 25px 40px; 
+            font-size: 24px; 
+            font-weight: bold;
+            background: #ff5e00; 
+            color: white; 
+            border: none; 
+            border-radius: 50px; 
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255, 94, 0, 0.4);
+            transition: 0.3s;
+        }
+        button:active { transform: scale(0.95); }
+        #status { 
+            margin-top: 30px; 
+            font-size: 18px; 
+            color: #888; 
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <button id="btn" onclick="startSatellite()">🚀 Ativar Satélite</button>
+    <div id="status">Aguardando ativação...</div>
+
+    <script>
+        let ws;
+        let context;
+        
+        async function startSatellite() {
+            const btn = document.getElementById('btn');
+            const statusLabel = document.getElementById('status');
+            
+            btn.style.display = 'none';
+            statusLabel.innerText = "Pedindo permissão do Microfone...";
+            
+            try {
+                // O navegador (Chrome) sempre tem acesso ao microfone!
+                const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+                statusLabel.innerText = "Microfone OK. Conectando ao cérebro...";
+                
+                context = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
+                const source = context.createMediaStreamSource(stream);
+                const processor = context.createScriptProcessor(4096, 1, 1);
+                
+                source.connect(processor);
+                processor.connect(context.destination);
+                
+                // Conecta usando o ID mágico que diz pro servidor mandar o áudio inteiro e não quebrado
+                ws = new WebSocket("ws://" + window.location.host + "/api/ws/satellite/dashboard-virtual-mic");
+                ws.binaryType = "arraybuffer";
+                
+                ws.onopen = () => {
+                    statusLabel.innerHTML = "<h2 style='color:#00ff00'>🟢 Satélite Online e Ouvindo 24/7</h2><p>Pode desligar a tela se quiser!</p>";
+                };
+                
+                ws.onclose = () => {
+                    statusLabel.innerHTML = "<h2 style='color:red'>🔴 Caiu a conexão.</h2><p>Recarregue a página.</p>";
+                    btn.style.display = 'block';
+                    btn.innerText = "Reconectar";
+                };
+                
+                processor.onaudioprocess = (e) => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        const float32Array = e.inputBuffer.getChannelData(0);
+                        const int16Array = new Int16Array(float32Array.length);
+                        for (let i = 0; i < float32Array.length; i++) {
+                            let s = Math.max(-1, Math.min(1, float32Array[i]));
+                            int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                        }
+                        ws.send(int16Array.buffer);
+                    }
+                };
+                
+                ws.onmessage = async (e) => {
+                    if (e.data instanceof ArrayBuffer) {
+                        try {
+                            const audioBuffer = await context.decodeAudioData(e.data);
+                            const playSource = context.createBufferSource();
+                            playSource.buffer = audioBuffer;
+                            playSource.connect(context.destination);
+                            playSource.start();
+                        } catch (err) {
+                            console.error("Erro ao tocar resposta", err);
+                        }
+                    }
+                };
+                
+            } catch (err) {
+                statusLabel.innerText = "Erro: " + err.message + "\n\nPermita o microfone no Chrome!";
+                btn.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>
