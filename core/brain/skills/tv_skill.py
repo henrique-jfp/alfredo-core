@@ -6,17 +6,41 @@ class TVSkill:
         action = arguments.get("action")
         app_name = arguments.get("app_name")
         volume = arguments.get("volume")
+        target_room = arguments.get("target_room")
         
         db = context.get("db")
         room_id = context.get("room_id")
         
-        if not db or not room_id:
-            return "Erro: banco de dados ou room_id não disponíveis."
+        if not db:
+            return "Erro: banco de dados não disponível."
             
         from core.brain.memory import models
-        config = db.query(models.TVConfig).filter(models.TVConfig.room_id == room_id).first()
+        from sqlalchemy import or_
+
+        config = None
+        
+        # Se o usuário especificou um cômodo, procura por ele na descrição ou id
+        if target_room:
+            t_room = target_room.lower()
+            if "sala" in t_room:
+                config = db.query(models.TVConfig).filter(or_(models.TVConfig.room_id == "ROOM_SALA", models.TVConfig.room_id == "sala")).first()
+            elif "quarto" in t_room:
+                config = db.query(models.TVConfig).filter(or_(models.TVConfig.room_id == "ROOM_BEDROOM", models.TVConfig.room_id == "quarto")).first()
+            elif "escritorio" in t_room or "escritório" in t_room:
+                config = db.query(models.TVConfig).filter(or_(models.TVConfig.room_id == "ROOM_OFFICE", models.TVConfig.room_id == "escritorio")).first()
+            else:
+                config = db.query(models.TVConfig).filter(models.TVConfig.room_id.ilike(f"%{t_room}%")).first()
+
+        # Se não especificou ou não achou com o nome, tenta o cômodo atual do satélite
+        if not config and room_id:
+            config = db.query(models.TVConfig).filter(models.TVConfig.room_id == room_id).first()
+            
+        # Fallback: Se não achou de nenhum jeito, pega a primeira TV que existir configurada
+        if not config:
+            config = db.query(models.TVConfig).filter(models.TVConfig.ip_address != None).first()
+
         if not config or not config.ip_address:
-            return "Não encontrei nenhuma TV configurada para este cômodo. Por favor, configure o IP da TV no painel de controle."
+            return "Não encontrei nenhuma TV configurada na rede. Por favor, configure o IP da TV no painel de controle."
             
         tv = SamsungTVManager(
             ip=config.ip_address,
@@ -25,12 +49,23 @@ class TVSkill:
             smartthings_device_id=config.smartthings_device_id
         )
         
+        # Verifica o status atual antes de agir
+        tv_info = tv.get_status()
+        is_on = tv_info.get("status") != "offline"
+        
         if action == "power_on":
-            tv.power_on()
-            tv.send_key("KEY_POWER")
+            if is_on:
+                return "A TV já está ligada."
+                
+            if not tv.power_on():
+                # Se não tem SmartThings nem MAC configurado, tenta mandar a tecla pelo WebSocket (pode falhar se a TV estiver totalmente desligada)
+                tv.send_key("KEY_POWER")
             return "Ligando a TV."
             
         elif action == "power_off":
+            if not is_on:
+                return "A TV já está desligada."
+                
             tv.send_key("KEY_POWER")
             return "Desligando a TV."
             

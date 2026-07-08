@@ -21,7 +21,8 @@ class SamsungTVManager:
         self.token_file = os.path.join(os.getcwd(), "tmp", f"samsung_tv_token_{ip.replace('.', '_')}.txt")
         # Ensure tmp dir exists
         os.makedirs(os.path.dirname(self.token_file), exist_ok=True)
-        self.tv = SamsungTVWS(host=ip, port=8002, token_file=self.token_file, timeout=5)
+        # Timeout de 15s para dar tempo de o usuário apertar "Permitir" na TV no primeiro acesso
+        self.tv = SamsungTVWS(host=ip, port=8002, token_file=self.token_file, timeout=15)
         
     def power_on(self):
         """Tenta ligar a TV via SmartThings (Nível 1) ou Wake-on-LAN (Nível 2)."""

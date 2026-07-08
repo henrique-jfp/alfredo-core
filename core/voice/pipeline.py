@@ -36,14 +36,17 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
     try:
         stt_engine = get_stt_engine()
         if hasattr(stt_engine, 'transcribe_bytes') and not is_webm:
-            import io, wave
-            with io.BytesIO() as wav_io:
-                with wave.open(wav_io, 'wb') as wav_file:
-                    wav_file.setnchannels(1)
-                    wav_file.setsampwidth(2)
-                    wav_file.setframerate(16000)
-                    wav_file.writeframes(audio_bytes)
-                wav_bytes = wav_io.getvalue()
+            if audio_bytes.startswith(b'RIFF'):
+                wav_bytes = audio_bytes
+            else:
+                import io, wave
+                with io.BytesIO() as wav_io:
+                    with wave.open(wav_io, 'wb') as wav_file:
+                        wav_file.setnchannels(1)
+                        wav_file.setsampwidth(2)
+                        wav_file.setframerate(16000)
+                        wav_file.writeframes(audio_bytes)
+                    wav_bytes = wav_io.getvalue()
             transcribed_text = stt_engine.transcribe_bytes(wav_bytes)
         else:
             temp_dir = os.path.join(os.getcwd(), "tmp")

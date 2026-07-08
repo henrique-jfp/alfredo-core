@@ -7,38 +7,13 @@ from core.brain.memory import models
 
 logger = logging.getLogger("alfredo.weather")
 
-def get_weather_description(code: int) -> str:
-    """Traduz o código WMO para uma descrição em português."""
-    wmo_map = {
-        0: "céu limpo",
-        1: "céu predominantemente limpo",
-        2: "céu parcialmente nublado",
-        3: "céu nublado",
-        45: "com neblina",
-        48: "com neblina densa",
-        51: "com garoa leve",
-        53: "com garoa moderada",
-        55: "com garoa densa",
-        61: "com chuva leve",
-        63: "com chuva moderada",
-        65: "com chuva forte",
-        71: "com queda de neve leve",
-        80: "com pancadas de chuva leves",
-        81: "com pancadas de chuva moderadas",
-        82: "com pancadas de chuva violentas",
-        95: "com tempestade",
-        96: "com tempestade e granizo leve",
-        99: "com tempestade e granizo forte"
-    }
-    return wmo_map.get(code, "condição desconhecida")
-
 def get_current_weather(db: Session = None) -> dict:
     """
-    Retorna o clima atual usando cache de 30 minutos.
-    Se db for None (ou se não houver registro), faz requisição à API.
+    Retorna o clima atual usando OpenWeatherMap com cache de 30 minutos.
     """
     lat = os.getenv("WEATHER_LATITUDE", "-23.5505")
     lon = os.getenv("WEATHER_LONGITUDE", "-46.6333")
+    api_key = os.getenv("OPENWEATHER_API_KEY")
     
     if db:
         settings = db.query(models.Setting).all()
@@ -55,7 +30,6 @@ def get_current_weather(db: Session = None) -> dict:
         ).order_by(models.WeatherCache.id.desc()).first()
         
         if cached:
-            # We don't cache min/max yet, so if we hit cache we might miss them, but we will add them next time.
             logger.info("Retornando clima do cache do SQLite.")
             return {
                 "temperature": cached.temperature,
@@ -66,24 +40,26 @@ def get_current_weather(db: Session = None) -> dict:
                 "min_temp": "—"
             }
 
-    # Sem cache válido, busca na API
-    logger.info("Buscando clima atualizado na API Open-Meteo...")
+    if not api_key:
+        logger.error("OPENWEATHER_API_KEY não configurada no .env!")
+        return {"temperature": "?", "humidity": "?", "description": "chave de API ausente", "weather_code": -1, "max_temp": "?", "min_temp": "?"}
+
+    logger.info("Buscando clima atualizado na API OpenWeatherMap...")
     try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=America%2FSao_Paulo"
+        url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=pt_br"
         resp = requests.get(url, timeout=5)
         resp.raise_for_status()
         data = resp.json()
         
-        current = data.get("current", {})
-        daily = data.get("daily", {})
-        temp = str(current.get("temperature_2m", "0"))
-        hum = str(current.get("relative_humidity_2m", "0"))
-        code = int(current.get("weather_code", -1))
+        temp = str(round(data["main"]["temp"]))
+        hum = str(data["main"]["humidity"])
+        code = data["weather"][0]["id"]
+        desc = data["weather"][0]["description"].capitalize()
         
-        max_temp = str(daily.get("temperature_2m_max", ["—"])[0]) if daily.get("temperature_2m_max") else "—"
-        min_temp = str(daily.get("temperature_2m_min", ["—"])[0]) if daily.get("temperature_2m_min") else "—"
-        
-        desc = get_weather_description(code)
+        # A API de weather (current) só retorna o max/min do momento, 
+        # mas é o suficiente para não quebrar a interface
+        max_temp = str(round(data["main"]["temp_max"]))
+        min_temp = str(round(data["main"]["temp_min"]))
         
         result = {
             "temperature": temp,
@@ -97,8 +73,8 @@ def get_current_weather(db: Session = None) -> dict:
         # Salva no cache
         if db:
             new_cache = models.WeatherCache(
-                latitude=lat,
-                longitude=lon,
+                latitude=str(lat),
+                longitude=str(lon),
                 temperature=temp,
                 humidity=hum,
                 weather_code=code,
@@ -110,12 +86,11 @@ def get_current_weather(db: Session = None) -> dict:
         return result
         
     except Exception as e:
-        logger.error(f"Erro ao buscar clima no Open-Meteo: {e}")
-        # Retorna algo genérico em caso de falha completa
+        logger.error(f"Erro ao buscar clima no OpenWeatherMap: {e}")
         return {
             "temperature": "?",
             "humidity": "?",
-            "description": "indisponível",
+            "description": "indisponível temporariamente",
             "weather_code": -1,
             "max_temp": "?",
             "min_temp": "?"
@@ -125,20 +100,24 @@ def get_weather_data_for_tool(db: Session, location: str, date_str: str) -> dict
     """Busca o clima ou previsão baseado nos parâmetros do LLM."""
     lat = os.getenv("WEATHER_LATITUDE", "-23.5505")
     lon = os.getenv("WEATHER_LONGITUDE", "-46.6333")
+    api_key = os.getenv("OPENWEATHER_API_KEY")
     
+    if not api_key:
+        return {"error": "A chave da API OpenWeatherMap não está configurada no servidor."}
+        
     if location:
         try:
-            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location}&count=1&language=pt&format=json"
+            geo_url = f"http://api.openweathermap.org/geo/1.0/direct?q={location}&limit=1&appid={api_key}"
             geo_resp = requests.get(geo_url, timeout=5)
             geo_resp.raise_for_status()
             geo_data = geo_resp.json()
-            if geo_data.get("results") and len(geo_data["results"]) > 0:
-                lat = str(geo_data["results"][0].get("latitude", lat))
-                lon = str(geo_data["results"][0].get("longitude", lon))
+            if geo_data and len(geo_data) > 0:
+                lat = str(geo_data[0]["lat"])
+                lon = str(geo_data[0]["lon"])
             else:
                 return {"error": f"Não consegui encontrar a localização para '{location}'."}
         except Exception as e:
-            logger.error(f"Erro no geocoding do Open-Meteo: {e}")
+            logger.error(f"Erro no geocoding do OpenWeatherMap: {e}")
             return {"error": f"Erro ao buscar coordenadas para '{location}'."}
     elif db:
         settings = db.query(models.Setting).all()
@@ -146,40 +125,62 @@ def get_weather_data_for_tool(db: Session, location: str, date_str: str) -> dict
         lat = config.get("home_lat", lat)
         lon = config.get("home_lon", lon)
 
-    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=America%2FSao_Paulo"
+    date_lower = str(date_str).lower()
     
+    # Se for agora/hoje, chama a API current
+    if "amanhã" not in date_lower and "amanha" not in date_lower:
+        url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=pt_br"
+        try:
+            resp = requests.get(url, timeout=5)
+            resp.raise_for_status()
+            data = resp.json()
+            return {
+                "target_date": "agora",
+                "temperature": round(data["main"]["temp"]),
+                "humidity": data["main"]["humidity"],
+                "description": data["weather"][0]["description"].capitalize()
+            }
+        except Exception as e:
+            logger.error(f"Erro no get_weather_data_for_tool (current): {e}")
+            return {"error": "Não foi possível buscar a previsão atual."}
+            
+    # Se for amanhã ou depois, chama a API de forecast de 5 dias
+    url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=pt_br"
     try:
         resp = requests.get(url, timeout=5)
         resp.raise_for_status()
         data = resp.json()
         
-        date_lower = str(date_str).lower()
-        if "amanhã" in date_lower or "amanha" in date_lower:
-            # Índice 1 = Amanhã
-            daily = data.get("daily", {})
-            return {
-                "target_date": "amanhã",
-                "max_temp": daily.get("temperature_2m_max", [0, 0])[1],
-                "min_temp": daily.get("temperature_2m_min", [0, 0])[1],
-                "description": get_weather_description(daily.get("weather_code", [0, 0])[1])
-            }
-        elif "depois de amanhã" in date_lower:
-            daily = data.get("daily", {})
-            return {
-                "target_date": "depois de amanhã",
-                "max_temp": daily.get("temperature_2m_max", [0, 0, 0])[2],
-                "min_temp": daily.get("temperature_2m_min", [0, 0, 0])[2],
-                "description": get_weather_description(daily.get("weather_code", [0, 0, 0])[2])
-            }
-        else:
-            # Hoje (Atual)
-            current = data.get("current", {})
-            return {
-                "target_date": "agora",
-                "temperature": current.get("temperature_2m"),
-                "humidity": current.get("relative_humidity_2m"),
-                "description": get_weather_description(current.get("weather_code", -1))
-            }
+        # Encontra o offset em dias
+        target_offset = 1 if "amanhã" in date_lower or "amanha" in date_lower else 2
+        if "depois" in date_lower:
+            target_offset = 2
+            
+        target_date_obj = datetime.now() + timedelta(days=target_offset)
+        target_day_str = target_date_obj.strftime("%Y-%m-%d")
+        
+        # Filtra os blocos de 3 horas que caem no dia alvo
+        day_forecasts = [item for item in data.get("list", []) if item.get("dt_txt", "").startswith(target_day_str)]
+        
+        if not day_forecasts:
+            return {"error": "Previsão não disponível para esta data."}
+            
+        # Calcula max e min
+        temps = [item["main"]["temp"] for item in day_forecasts]
+        max_temp = round(max(temps))
+        min_temp = round(min(temps))
+        
+        # Pega a descrição do horário do meio-dia ou o primeiro disponível
+        midday_item = next((item for item in day_forecasts if "12:00:00" in item.get("dt_txt", "")), day_forecasts[0])
+        description = midday_item["weather"][0]["description"].capitalize()
+        
+        return {
+            "target_date": "amanhã" if target_offset == 1 else "depois de amanhã",
+            "max_temp": max_temp,
+            "min_temp": min_temp,
+            "description": description
+        }
+        
     except Exception as e:
-        logger.error(f"Erro no get_weather_data_for_tool: {e}")
-        return {"error": "Não foi possível buscar a previsão na API externa."}
+        logger.error(f"Erro no get_weather_data_for_tool (forecast): {e}")
+        return {"error": "Não foi possível buscar a previsão futura na API."}

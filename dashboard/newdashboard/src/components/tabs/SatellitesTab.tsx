@@ -4,7 +4,31 @@ import { Satellite } from '../../types';
 import { Cpu, Power, Volume2, Sun, Mic, Radio, Zap, Volume1, Lightbulb, Activity } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
+export class SatellitesTabBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: any}> {
+  constructor(props: {children: React.ReactNode}) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return <div className="text-red-500 p-10 font-mono"><h1>Component Crash:</h1><pre>{String(this.state.error?.stack || this.state.error)}</pre></div>;
+    }
+    return this.props.children;
+  }
+}
+
 export function SatellitesTab() {
+  return (
+    <SatellitesTabBoundary>
+      <SatellitesTabContent />
+    </SatellitesTabBoundary>
+  );
+}
+
+function SatellitesTabContent() {
   const [satellites, setSatellites] = useState<Satellite[]>([]);
   const [selectedSat, setSelectedSat] = useState<Satellite | null>(null);
   
@@ -36,9 +60,9 @@ export function SatellitesTab() {
     });
 
     // Initialize WebSocket connection to dashboard
-    const host = window.location.hostname;
-    // Assume backend is on port 10001 (or same port if proxied)
-    const wsUrl = `ws://${host}:10001/api/ws/dashboard`;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const hostInfo = window.location.host; // includes port if present (e.g., localhost:10001)
+    const wsUrl = `${protocol}//${hostInfo}/api/ws/dashboard`;
     
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -58,21 +82,27 @@ export function SatellitesTab() {
       if (event.data instanceof Blob && audioCtxRef.current) {
         const arrayBuffer = await event.data.arrayBuffer();
         
-        // Basic PCM playback (Assuming 16-bit PCM, 16kHz, Mono)
-        // If it's a WAV, we could use decodeAudioData, but for raw PCM we construct the buffer:
         try {
           const audioCtx = audioCtxRef.current;
-          // Note: In a real scenario, you'd buffer chunks smoothly. This is a naive playback for POC.
           const view = new Int16Array(arrayBuffer);
           const audioBuffer = audioCtx.createBuffer(1, view.length, 16000);
           const channelData = audioBuffer.getChannelData(0);
           for (let i = 0; i < view.length; i++) {
             channelData[i] = view[i] / 32768.0; // convert int16 to float32
           }
+          
           const source = audioCtx.createBufferSource();
           source.buffer = audioBuffer;
           source.connect(audioCtx.destination);
-          source.start();
+          
+          // Schedule playback to avoid stuttering (network jitter buffer)
+          const w = window as any;
+          if (!w.nextAudioTime || w.nextAudioTime < audioCtx.currentTime) {
+            w.nextAudioTime = audioCtx.currentTime + 0.15; // 150ms buffer
+          }
+          
+          source.start(w.nextAudioTime);
+          w.nextAudioTime += audioBuffer.duration;
         } catch (e) {
           console.error("Audio playback error:", e);
         }
@@ -159,9 +189,12 @@ export function SatellitesTab() {
     }
   };
 
-  const parseCapabilities = (capStr: string) => {
+  const parseCapabilities = (capInput: any) => {
+    if (Array.isArray(capInput)) return capInput;
+    if (!capInput || typeof capInput !== 'string') return [];
     try {
-      return JSON.parse(capStr) as string[];
+      const parsed = JSON.parse(capInput);
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }

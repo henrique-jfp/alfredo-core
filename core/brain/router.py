@@ -262,7 +262,8 @@ class AgentRouter:
                             "properties": {
                                 "action": {"type": "STRING", "description": "Ação a realizar: 'power_on', 'power_off', 'mute', 'unmute', 'volume_up', 'volume_down', 'set_volume', 'open_app'"},
                                 "app_name": {"type": "STRING", "description": "Nome do aplicativo para abrir (apenas para action='open_app')"},
-                                "volume": {"type": "INTEGER", "description": "Nível de volume desejado de 0 a 100 (apenas para action='set_volume')"}
+                                "volume": {"type": "INTEGER", "description": "Nível de volume desejado de 0 a 100 (apenas para action='set_volume')"},
+                                "target_room": {"type": "STRING", "description": "Cômodo alvo (ex: 'sala', 'quarto', 'escritório'). Se não especificado, usa o cômodo atual."}
                             },
                             "required": ["action"]
                         }
@@ -568,7 +569,8 @@ class AgentRouter:
             "NUNCA use emojis. "
             "Traduções: use <lang=\"LOCALE\">texto</lang> (ex: <lang=\"en-US\">apple</lang>). "
             "Quiz ativo: valide, corrija e faça nova pergunta. "
-            "Receita ativa: UM passo por vez, sempre cite o prato."
+            "Receita ativa: UM passo por vez, sempre cite o prato. "
+            "REGRA DE OURO: Você tem ferramentas reais para controlar a casa. NUNCA 'finja' ou 'faça de conta' que fez uma ação (como ligar a TV, acender luz, mudar canal) apenas falando. Você DEVE e OBRIGATORIAMENTE tem que chamar a ferramenta correspondente (ex: manage_tv) ANTES de confirmar qualquer coisa ao usuário. Se o usuário pedir para ligar a TV, chame a ferramenta manage_tv, NUNCA responda 'Ligando a TV' sem chamar a ferramenta! "
         )
         
         if long_term_memory:
@@ -688,9 +690,7 @@ class AgentRouter:
                             )
                             db.add(ai_usage)
                             db.commit()
-                        # Concatena o texto do Gemini com o resultado real da tool
-                        if gemini_text.strip():
-                            return f"{gemini_text} {tool_result_obj['direct_response']}"
+                        # Ignora o texto alucinado do Gemini se a tool tem resposta direta
                         return tool_result_obj["direct_response"]
 
                     logger.info("Enviando resultado da ferramenta de volta para o Gemini...")
@@ -854,6 +854,8 @@ class AgentRouter:
             "Você é o Alfredo, um assistente virtual ultra avançado para automação residencial. "
             "Responda sempre de forma natural, amigável e conversacional. Seja breve, no máximo 2 frases. "
             "NUNCA utilize emojis ou símbolos complexos nas suas respostas. "
+            "REGRA DE OURO: Você tem ferramentas reais para controlar a casa. NUNCA 'finja' ou 'faça de conta' que fez uma ação (como ligar a TV, acender luz, mudar canal) apenas falando. Você DEVE e OBRIGATORIAMENTE tem que chamar a ferramenta correspondente (ex: manage_tv) ANTES de confirmar qualquer coisa ao usuário. Se o usuário pedir para ligar a TV, chame a ferramenta manage_tv, NUNCA responda 'Ligando a TV' sem chamar a ferramenta! "
+            "Se o usuário pedir algo e a ferramenta retornar um erro ou aviso, repasse a informação."
         )
         if long_term_memory: system_prompt += f"\n{long_term_memory}"
         if session_context: system_prompt += session_context
@@ -962,14 +964,12 @@ class AgentRouter:
                             logger.info(f"Sessão salva para sala {room_id}: {tool_name}")
 
                 if isinstance(tool_result_obj, str):
-                    logger.info(f"Tool retornou string direta — pulando segunda chamada Gemini")
-                    direct = f"{buffer} {tool_result_obj}" if buffer.strip() else tool_result_obj
-                    yield direct.strip()
+                    logger.info(f"Tool retornou string direta — pulando segunda chamada Gemini. Ignorando buffer: {buffer}")
+                    yield tool_result_obj.strip()
                     buffer = ""  # Já fez yield
                 elif isinstance(tool_result_obj, dict) and tool_result_obj.get("direct_response"):
-                    logger.info(f"Tool tem direct_response — pulando segunda chamada Gemini")
-                    direct = f"{buffer} {tool_result_obj['direct_response']}" if buffer.strip() else tool_result_obj["direct_response"]
-                    yield direct.strip()
+                    logger.info(f"Tool tem direct_response — pulando segunda chamada Gemini. Ignorando buffer: {buffer}")
+                    yield tool_result_obj["direct_response"].strip()
                     buffer = ""  # Já fez yield
                 else:
                     # Segunda chamada ao Gemini para formatar a resposta da tool — TAMBÉM em streaming real
