@@ -23,6 +23,7 @@ export const api = {
   getHistory: () => fetchFromAPI<HistoryItem[]>('/api/dashboard/history'),
   getLists: () => fetchFromAPI<{ compras: ListItem[]; tarefas: ListItem[] }>('/api/dashboard/lists'),
   getTimers: () => fetchFromAPI<TimerItem[]>('/api/dashboard/timers'),
+  deleteTimer: (id: number) => fetchFromAPI<any>(`/api/dashboard/timers/${id}`, { method: 'DELETE' }),
   getSatellites: () => fetchFromAPI<Satellite[]>('/api/satellite/devices'),
   getRoutines: () => fetchFromAPI<Routine[]>('/api/dashboard/routines'),
   getMemories: () => fetchFromAPI<Memory[]>('/api/dashboard/memories'),

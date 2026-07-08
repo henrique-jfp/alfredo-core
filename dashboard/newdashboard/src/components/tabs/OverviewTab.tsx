@@ -8,7 +8,6 @@ import {
   Cpu,
   Mic,
   MessageSquare,
-  RefreshCw,
   ShoppingCart,
   Sun,
   Cloud,
@@ -25,6 +24,90 @@ import { SpotifyCard } from '../SpotifyCard';
 import { EmptyState, MetricCard, SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
 
 type WidgetKey = 'compras' | 'tarefas' | 'lembretes';
+const RIO_TIME_ZONE = 'America/Sao_Paulo';
+
+function formatRio(date: Date, options: Intl.DateTimeFormatOptions) {
+  return new Intl.DateTimeFormat('pt-BR', { timeZone: RIO_TIME_ZONE, ...options }).format(date);
+}
+
+function formatCountdown(expiresAt: string) {
+  const now = Date.now();
+  const end = new Date(expiresAt).getTime();
+  const diff = Math.max(0, Math.floor((end - now) / 1000));
+  const minutes = Math.floor(diff / 60);
+  const seconds = diff % 60;
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function getWeatherKind(code: number) {
+  if (code <= 1) return 'sun';
+  if (code <= 3) return 'cloud';
+  if (code <= 69 || (code >= 80 && code <= 82)) return 'rain';
+  if (code >= 71 && code <= 77) return 'snow';
+  if (code >= 95) return 'storm';
+  return 'cloud';
+}
+
+function TimerCard({
+  timer,
+  onDelete,
+}: {
+  timer: TimerItem;
+  onDelete: (id: number) => void;
+}) {
+  const [timeLeft, setTimeLeft] = useState(() => formatCountdown(timer.expires_at));
+
+  useEffect(() => {
+    const tick = () => setTimeLeft(formatCountdown(timer.expires_at));
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [timer.expires_at]);
+
+  const isAlarm = timer.timer_type === 'alarm' || (timer.message && timer.message.toLowerCase().includes('despertar'));
+  const accent = isAlarm
+    ? 'border-brass-500/20 bg-brass-500/10 text-brass-300'
+    : 'border-blue-500/20 bg-blue-500/10 text-blue-300';
+  const glow = isAlarm
+    ? 'shadow-[0_0_24px_rgba(212,162,78,0.14)]'
+    : 'shadow-[0_0_24px_rgba(96,165,250,0.12)]';
+  const label = isAlarm ? 'Despertador' : 'Timer';
+  const icon = isAlarm
+    ? <AlarmClock className="h-5 w-5 shrink-0 text-brass-400" />
+    : <TimerReset className="h-5 w-5 shrink-0 text-blue-400" />;
+
+  return (
+    <button
+      onClick={() => {
+        if (window.confirm(`Você quer cancelar ${label.toLowerCase()} ${timer.message ? `(${timer.message})` : ''}?`)) {
+          onDelete(timer.id);
+        }
+      }}
+      className={cn(
+        'group flex min-w-0 flex-col justify-between rounded-3xl border p-4 text-left transition-all duration-200 hover:-translate-y-0.5',
+        accent,
+        glow
+      )}
+      title={label}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="alfredo-section-label mb-2 text-[10px]">{label}</div>
+          <div className="font-mono text-[24px] font-semibold tracking-tight tabular-nums">{timeLeft}</div>
+        </div>
+        {icon}
+      </div>
+      <div className="mt-3 min-w-0">
+        <div className="truncate text-[13px] font-medium text-[color:var(--text-primary)]">
+          {timer.message || `${label} ativo`}
+        </div>
+        <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-[color:var(--text-tertiary)]">
+          {formatRio(new Date(timer.expires_at), { hour: '2-digit', minute: '2-digit' })}
+        </div>
+      </div>
+    </button>
+  );
+}
 
 export function OverviewTab() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -36,6 +119,7 @@ export function OverviewTab() {
   const [time, setTime] = useState(new Date());
   const [commandText, setCommandText] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [lastCommandLatencyMs, setLastCommandLatencyMs] = useState<number | null>(null);
   const [activeWidget, setActiveWidget] = useState<WidgetKey>('compras');
 
   const fetchData = async () => {
@@ -70,12 +154,14 @@ export function OverviewTab() {
     if (!commandText.trim()) return;
 
     setIsSending(true);
+    const startedAt = performance.now();
     try {
       await fetch('/api/dashboard/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: commandText }),
       });
+      setLastCommandLatencyMs(Math.max(0, Math.round(performance.now() - startedAt)));
       setCommandText('');
       fetchData();
     } catch (error) {
@@ -122,12 +208,16 @@ export function OverviewTab() {
   };
 
   const weatherCode = weather?.weather_code ?? -1;
-  const weatherKind =
-    weatherCode <= 1 ? 'sun' :
-    weatherCode <= 3 ? 'cloud' :
-    (weatherCode <= 69 || (weatherCode >= 80 && weatherCode <= 82)) ? 'rain' :
-    (weatherCode >= 71 && weatherCode <= 77) ? 'snow' :
-    weatherCode >= 95 ? 'storm' : 'cloud';
+  const weatherKind = getWeatherKind(weatherCode);
+  const activeTimers = timers.filter((t) => t.timer_type === 'timer' && !(t.message && t.message.toLowerCase().includes('despertar')));
+  const activeAlarms = alarms;
+  const hasPinnedTimers = activeTimers.length > 0 || activeAlarms.length > 0;
+  const pinnedTimers =
+    activeTimers.length > 0 && activeAlarms.length > 0
+      ? [activeTimers[0], activeAlarms[0]]
+      : activeTimers.length > 0
+        ? activeTimers.slice(0, 2)
+        : activeAlarms.slice(0, 2);
 
   const weatherTitle =
     weatherKind === 'sun' ? 'Ensolarado' :
@@ -137,96 +227,106 @@ export function OverviewTab() {
 
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto pr-2 pb-10">
-      <div className="alfredo-card relative overflow-hidden px-5 py-5 md:px-6 md:py-6">
+      <div className={cn(
+        'alfredo-card relative overflow-hidden px-5 py-5 md:px-6 md:py-6',
+        hasPinnedTimers ? 'xl:grid xl:grid-cols-[minmax(0,1.1fr)_minmax(220px,0.72fr)_minmax(0,0.88fr)] xl:gap-4' : 'xl:grid xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.88fr)] xl:gap-4'
+      )}>
         <div className="absolute right-0 top-0 h-56 w-56 translate-x-1/2 -translate-y-1/2 rounded-full bg-brass-500/10 blur-[80px]" />
-        <div className="relative z-10 grid gap-6 xl:grid-cols-[1.15fr_0.85fr] xl:items-stretch">
-          <div className="flex min-h-[240px] flex-col justify-between gap-5">
-            <div className="flex items-center justify-between gap-4">
-              <div className="max-w-xl">
-                <div className="alfredo-section-label mb-2">Agora na casa</div>
-                <h1 className="text-5xl font-semibold tracking-tight text-[color:var(--text-primary)] md:text-7xl" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                  {time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                  <span className="ml-2 align-baseline text-2xl font-normal text-[color:var(--text-tertiary)] md:text-3xl">
-                    {time.toLocaleTimeString('pt-BR', { second: '2-digit' })}
-                  </span>
-                </h1>
-                <p className="mt-3 text-[15px] font-medium capitalize text-brass-400 md:text-[16px]">
-                  {time.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
-                </p>
-              </div>
+        <div className="absolute left-0 bottom-0 h-56 w-56 -translate-x-1/2 translate-y-1/2 rounded-full bg-blue-500/10 blur-[90px]" />
 
-              <button
-                onClick={fetchData}
-                className="alfredo-pill hidden border-brass-500/20 bg-brass-500/10 text-brass-300 md:inline-flex"
-              >
-                <RefreshCw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
-                Atualizar clima
-              </button>
+        <div className="relative z-10 flex min-h-[260px] flex-col justify-between gap-5">
+          <div className="max-w-xl">
+            <div className="alfredo-section-label mb-2">Relógio da casa</div>
+            <div className="text-[12px] uppercase tracking-[0.22em] text-[color:var(--text-tertiary)]">
+              {formatRio(time, { weekday: 'long', day: '2-digit', month: 'long' })}
             </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusPulse label="Sistema em escuta" tone="success" />
-              <StatusPulse label={`${stats?.active_timers ?? 0} timers vivos`} tone="warning" />
-              <StatusPulse label={`${stats?.devices ?? 0} satélites`} tone="info" />
+            <h1 className="mt-2 text-7xl font-semibold leading-none tracking-tight text-[color:var(--text-primary)] md:text-[92px]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {formatRio(time, { hour: '2-digit', minute: '2-digit' })}
+            </h1>
+            <div className="mt-3 flex items-end gap-3">
+              <span className="font-mono text-[18px] text-[color:var(--text-tertiary)] md:text-[22px]">
+                {formatRio(time, { second: '2-digit' })}
+              </span>
+              <span className="pb-0.5 text-[15px] font-medium capitalize text-brass-400 md:text-[16px]">
+                Briefing do Dia
+              </span>
             </div>
           </div>
 
-          <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-[linear-gradient(180deg,rgba(19,20,23,0.95),rgba(27,29,33,0.95))] p-5 md:p-6">
-            <div className={cn(
-              'absolute inset-0 pointer-events-none opacity-100',
-              weatherKind === 'sun' && 'bg-[radial-gradient(circle_at_70%_20%,rgba(212,162,78,0.22),transparent_34%),radial-gradient(circle_at_40%_80%,rgba(212,162,78,0.08),transparent_32%)]',
-              weatherKind === 'cloud' && 'bg-[radial-gradient(circle_at_60%_22%,rgba(255,255,255,0.09),transparent_30%)]',
-              weatherKind === 'rain' && 'bg-[radial-gradient(circle_at_50%_10%,rgba(96,165,250,0.14),transparent_36%)]',
-              weatherKind === 'snow' && 'bg-[radial-gradient(circle_at_50%_10%,rgba(255,255,255,0.14),transparent_36%)]',
-              weatherKind === 'storm' && 'bg-[radial-gradient(circle_at_50%_15%,rgba(245,158,11,0.16),transparent_32%)]'
-            )} />
-            <div className="relative flex h-full flex-col justify-between gap-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="alfredo-section-label">Meteorologia</div>
-                  <div className="mt-2 text-[15px] font-semibold tracking-wide text-[color:var(--text-primary)]">{weatherTitle}</div>
-                  <div className="mt-1 text-[13px] text-[color:var(--text-secondary)]">{weather ? weather.description : 'Buscando...'}</div>
-                </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPulse label="Sistema em escuta" tone="success" />
+            <StatusPulse label={`${stats?.active_timers ?? 0} timers vivos`} tone="warning" />
+            <StatusPulse label={`${stats?.devices ?? 0} satélites`} tone="info" />
+          </div>
+        </div>
 
-                <div className="shrink-0 drop-shadow-[0_0_18px_rgba(255,255,255,0.12)]">
+        {hasPinnedTimers && (
+          <div className="relative z-10 mt-4 grid gap-3 md:mt-0 md:grid-cols-2">
+            {pinnedTimers.map((timer) => (
+              <div key={timer.id} className="min-w-0">
+                <TimerCard timer={timer} onDelete={deleteTimer} />
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-[linear-gradient(180deg,rgba(19,20,23,0.95),rgba(27,29,33,0.95))] p-5 md:p-6">
+          <div className={cn(
+            'absolute inset-0 pointer-events-none opacity-100',
+            weatherKind === 'sun' && 'bg-[radial-gradient(circle_at_70%_20%,rgba(212,162,78,0.22),transparent_34%),radial-gradient(circle_at_40%_80%,rgba(212,162,78,0.08),transparent_32%)]',
+            weatherKind === 'cloud' && 'bg-[radial-gradient(circle_at_60%_22%,rgba(255,255,255,0.09),transparent_30%)]',
+            weatherKind === 'rain' && 'bg-[radial-gradient(circle_at_50%_10%,rgba(96,165,250,0.14),transparent_36%)]',
+            weatherKind === 'snow' && 'bg-[radial-gradient(circle_at_50%_10%,rgba(255,255,255,0.14),transparent_36%)]',
+            weatherKind === 'storm' && 'bg-[radial-gradient(circle_at_50%_15%,rgba(245,158,11,0.16),transparent_32%)]'
+          )} />
+          <div className="relative flex h-full flex-col justify-between gap-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="alfredo-section-label">Meteorologia</div>
+                <div className="mt-2 text-[15px] font-semibold tracking-wide text-[color:var(--text-primary)]">{weatherTitle}</div>
+                <div className="mt-1 text-[13px] text-[color:var(--text-secondary)]">{weather ? weather.description : 'Buscando...'}</div>
+              </div>
+
+              <div className="shrink-0 drop-shadow-[0_0_18px_rgba(255,255,255,0.12)]">
+                <div className={cn(
+                  'flex h-20 w-20 items-center justify-center rounded-full border',
+                  weatherKind === 'sun' && 'border-brass-500/20 bg-brass-500/10 text-brass-300 shadow-[0_0_30px_rgba(212,162,78,0.14)]',
+                  weatherKind === 'cloud' && 'border-white/10 bg-white/[0.03] text-zinc-300',
+                  weatherKind === 'rain' && 'border-blue-500/20 bg-blue-500/10 text-blue-400',
+                  weatherKind === 'snow' && 'border-white/10 bg-white/[0.03] text-white',
+                  weatherKind === 'storm' && 'border-amber-500/20 bg-amber-500/10 text-yellow-400'
+                )}>
                   <div className={cn(
-                    'flex h-20 w-20 items-center justify-center rounded-full border',
-                    weatherKind === 'sun' && 'border-brass-500/20 bg-brass-500/10 text-brass-300 shadow-[0_0_30px_rgba(212,162,78,0.14)]',
-                    weatherKind === 'cloud' && 'border-white/10 bg-white/[0.03] text-zinc-300',
-                    weatherKind === 'rain' && 'border-blue-500/20 bg-blue-500/10 text-blue-400',
-                    weatherKind === 'snow' && 'border-white/10 bg-white/[0.03] text-white',
-                    weatherKind === 'storm' && 'border-amber-500/20 bg-amber-500/10 text-yellow-400'
+                    weatherKind === 'sun' && 'animate-[spin_20s_linear_infinite]',
+                    weatherKind === 'cloud' && 'animate-[pulse_4s_ease-in-out_infinite]',
+                    weatherKind === 'rain' && 'animate-[bounce_2s_infinite]',
+                    weatherKind === 'snow' && 'animate-pulse',
+                    weatherKind === 'storm' && 'animate-[pulse_1s_ease-in-out_infinite]'
                   )}>
-                    <div className={cn(
-                      weatherKind === 'sun' && 'animate-[spin_20s_linear_infinite]',
-                      weatherKind === 'cloud' && 'animate-[pulse_4s_ease-in-out_infinite]',
-                      weatherKind === 'rain' && 'animate-[bounce_2s_infinite]',
-                      weatherKind === 'snow' && 'animate-pulse',
-                      weatherKind === 'storm' && 'animate-[pulse_1s_ease-in-out_infinite]'
-                    )}>
-                      {getWeatherIcon(weatherCode)}
-                    </div>
+                    {getWeatherIcon(weatherCode)}
                   </div>
                 </div>
               </div>
+            </div>
 
-              {weather && (
-                <div className="grid gap-3 rounded-2xl border border-white/5 bg-black/20 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-[40px] font-semibold tracking-tight text-[color:var(--text-primary)]">
-                      {weather.temperature}°
-                    </div>
-                    <div className="text-right text-[12px] text-[color:var(--text-secondary)]">
-                      <div>Máx. <span className="font-semibold text-rose-400">{weather.max_temp}°</span></div>
-                      <div>Mín. <span className="font-semibold text-blue-400">{weather.min_temp}°</span></div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-[12px] text-[color:var(--text-secondary)]">
-                    <div className="rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2">Umidade: {weather.humidity}%</div>
-                    <div className="rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2">Atualizado agora</div>
-                  </div>
+            <div className="grid gap-3 rounded-2xl border border-white/5 bg-black/20 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[40px] font-semibold tracking-tight text-[color:var(--text-primary)]">
+                  {weather ? `${weather.temperature}°` : '--°'}
                 </div>
-              )}
+                <div className="text-right text-[12px] text-[color:var(--text-secondary)]">
+                  <div>Máx. <span className="font-semibold text-rose-400">{weather?.max_temp ?? '--'}°</span></div>
+                  <div>Mín. <span className="font-semibold text-blue-400">{weather?.min_temp ?? '--'}°</span></div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[12px] text-[color:var(--text-secondary)]">
+                <div className="rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2">
+                  Umidade: {weather?.humidity ?? '--'}%
+                </div>
+                <div className="rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2">
+                  {weather ? 'Atualizado agora' : 'Aguardando leitura'}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -236,15 +336,16 @@ export function OverviewTab() {
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
         {kpis.map((kpi) => (
-          <MetricCard
-            key={kpi.label}
-            icon={kpi.icon}
-            label={kpi.label}
-            value={kpi.value}
-            detail={kpi.detail}
-            tone={kpi.tone}
-            sparkline={kpi.label === 'IA' ? [0.35, 0.42, 0.38, 0.55, 0.62, 0.8] : [0.24, 0.28, 0.4, 0.52, 0.48, 0.66]}
-          />
+          <div key={kpi.label}>
+            <MetricCard
+              icon={kpi.icon}
+              label={kpi.label}
+              value={kpi.value}
+              detail={kpi.detail}
+              tone={kpi.tone}
+              sparkline={kpi.label === 'IA' ? [0.35, 0.42, 0.38, 0.55, 0.62, 0.8] : [0.24, 0.28, 0.4, 0.52, 0.48, 0.66]}
+            />
+          </div>
         ))}
       </div>
 
@@ -290,23 +391,34 @@ export function OverviewTab() {
                 className="py-12"
               />
             ) : (
-              recentActivities.map((item) => (
-                <div key={item.id} className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]">
-                  <div className="flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--text-tertiary)]">
-                    <span className="truncate">{item.room_id} • {item.device_id}</span>
-                    <span>{new Date(item.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-                  </div>
-                  <div className="mt-3 flex gap-3">
-                    <div className="mt-0.5 h-2.5 w-2.5 rounded-full bg-brass-400 shadow-[0_0_12px_rgba(212,162,78,0.25)]" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[14px] font-medium text-[color:var(--text-primary)]">{item.input_text}</p>
-                      <p className="mt-2 rounded-xl border border-white/5 bg-black/20 px-3 py-2 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
-                        {item.output_text}
-                      </p>
+              recentActivities.map((item, index) => {
+                const isLatest = index === 0;
+                const rioTime = formatRio(new Date(item.timestamp), { hour: '2-digit', minute: '2-digit' });
+                return (
+                  <div key={item.id} className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]">
+                    <div className="flex items-start justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--text-tertiary)]">
+                      <span className="truncate">{item.room_id} • {item.device_id}</span>
+                      <div className="flex flex-col items-end gap-1 text-right">
+                        <span>{rioTime}</span>
+                        {isLatest && lastCommandLatencyMs !== null && (
+                          <span className="rounded-full border border-white/5 bg-black/30 px-2 py-0.5 text-[9px] tracking-[0.16em] text-[color:var(--text-secondary)]">
+                            Latência {lastCommandLatencyMs} ms
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-3 flex gap-3">
+                      <div className="mt-0.5 h-2.5 w-2.5 rounded-full bg-brass-400 shadow-[0_0_12px_rgba(212,162,78,0.25)]" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[14px] font-medium text-[color:var(--text-primary)]">{item.input_text}</p>
+                        <p className="mt-2 rounded-xl border border-white/5 bg-black/20 px-3 py-2 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
+                          {item.output_text || 'Processando resposta...'}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </section>

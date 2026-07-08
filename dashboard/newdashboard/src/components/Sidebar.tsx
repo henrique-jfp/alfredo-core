@@ -1,6 +1,5 @@
 import React from 'react';
-import { cn } from '../lib/utils';
-import { 
+import { type LucideIcon, 
   LayoutGrid, 
   Link2, 
   Clock, 
@@ -12,8 +11,11 @@ import {
   SlidersHorizontal,
   House,
   Sparkles,
-  Layers3
+  Layers3,
+  RefreshCw
 } from 'lucide-react';
+import { cn } from '../lib/utils';
+import { StatusPulse } from './ui/DashboardPrimitives';
 
 export type TabId = 
   | 'visao-geral'
@@ -31,7 +33,11 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
-  const navSections = [
+  const navSections: {
+    label: string;
+    icon: LucideIcon;
+    items: { id: TabId; label: string; icon: LucideIcon }[];
+  }[] = [
     {
       label: 'Casa',
       icon: House,
@@ -111,6 +117,18 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
             );
           })}
         </nav>
+
+        <div className="mt-6 flex items-center gap-2">
+          <StatusPulse label="Sistema online" tone="success" className="flex-1 justify-center" />
+          <button
+            onClick={() => window.location.reload()}
+            className="alfredo-pill border-brass-500/25 bg-brass-500/10 text-brass-300 hover:bg-brass-500/15"
+            title="Recarregar Dashboard"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Recarregar
+          </button>
+        </div>
 
         {/* Footer */}
         <div className="mt-6 flex items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.02] px-3 py-3 text-[color:var(--text-tertiary)]">

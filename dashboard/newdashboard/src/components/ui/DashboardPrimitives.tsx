@@ -153,15 +153,17 @@ export function StatusPulse({
   label,
   tone = 'success',
   icon: Icon,
+  className,
 }: {
   label: string;
   tone?: Tone;
   icon?: LucideIcon;
+  className?: string;
 }) {
   const styles = toneStyles[tone];
 
   return (
-    <span className={cn('alfredo-pill', styles.bg, styles.text, styles.ring)}>
+    <span className={cn('alfredo-pill', styles.bg, styles.text, styles.ring, className)}>
       <span className={cn('relative flex h-2 w-2', tone === 'success' && 'motion-safe:animate-pulse')}>
         <span className={cn('absolute inset-0 rounded-full opacity-60', styles.text, 'bg-current')} />
         <span className={cn('relative h-2 w-2 rounded-full bg-current', tone === 'success' && 'shadow-[0_0_8px_rgba(74,222,128,0.45)]')} />
