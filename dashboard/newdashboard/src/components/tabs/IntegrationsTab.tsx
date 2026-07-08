@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Music2, HelpCircle, X, ExternalLink, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Music2, HelpCircle, X, ExternalLink, CheckCircle, Sparkles, Shield, Radio } from 'lucide-react';
+import { SectionHeading, StatusPulse, SkeletonBlock } from '../ui/DashboardPrimitives';
 
 interface SpotifyStatus {
   is_configured: boolean;
@@ -83,8 +84,43 @@ export function IntegrationsTab() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-8 h-8 animate-spin text-zinc-400" />
+      <div className="grid h-full gap-5 pb-10 pr-2 overflow-y-auto xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="flex min-w-0 flex-col gap-5">
+          <div className="alfredo-card p-6">
+            <div className="flex items-center gap-4">
+              <SkeletonBlock className="h-[52px] w-[52px] rounded-2xl" />
+              <div className="flex-1 space-y-2">
+                <SkeletonBlock className="h-4 w-32 rounded-full" />
+                <SkeletonBlock className="h-3 w-24 rounded-full" />
+              </div>
+              <SkeletonBlock className="h-6 w-28 rounded-full" />
+            </div>
+            <div className="mt-5 space-y-3">
+              <SkeletonBlock className="h-3 w-full rounded-full" />
+              <SkeletonBlock className="h-3 w-5/6 rounded-full" />
+            </div>
+            <div className="mt-5 space-y-4">
+              <SkeletonBlock className="h-12 rounded-xl" />
+              <SkeletonBlock className="h-12 rounded-xl" />
+              <div className="flex gap-2">
+                <SkeletonBlock className="h-11 flex-1 rounded-full" />
+                <SkeletonBlock className="h-11 flex-1 rounded-full" />
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="alfredo-card p-6">
+          <div className="space-y-3">
+            <SkeletonBlock className="h-4 w-36 rounded-full" />
+            <SkeletonBlock className="h-3 w-48 rounded-full" />
+          </div>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <SkeletonBlock className="h-36 rounded-2xl" />
+            <SkeletonBlock className="h-36 rounded-2xl" />
+            <SkeletonBlock className="h-36 rounded-2xl" />
+            <SkeletonBlock className="h-36 rounded-2xl" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -94,19 +130,19 @@ export function IntegrationsTab() {
 
   return (
     <>
-      <div className="flex flex-col lg:flex-row gap-6 h-full pb-10 overflow-y-auto custom-scrollbar pr-2">
-        <div className="flex flex-col gap-6 w-full lg:flex-1 lg:max-w-[500px]">
-          <div className="w-full glass-panel p-6 flex flex-col gap-4 h-fit">
-            <div className="flex items-center gap-4 relative">
-              <div className="w-[52px] h-[52px] rounded-xl bg-gradient-to-br from-[#1DB954] to-[#169c46] flex items-center justify-center text-white shrink-0 shadow-[0_0_20px_rgba(29,185,84,0.3)]">
+      <div className="grid h-full gap-5 pb-10 pr-2 overflow-y-auto xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="flex min-w-0 flex-col gap-5">
+          <div className="alfredo-card p-6">
+            <div className="flex items-center gap-4">
+              <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#1DB954] to-[#169c46] text-white shadow-[0_0_20px_rgba(29,185,84,0.22)]">
                 <Music2 className="w-7 h-7" />
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-[18px] font-bold text-zinc-100">Spotify</h2>
+                  <h2 className="text-[18px] font-semibold text-[color:var(--text-primary)]">Spotify</h2>
                   <button
                     onClick={() => setShowHelp(true)}
-                    className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                    className="text-[color:var(--text-tertiary)] transition-colors hover:text-[color:var(--text-primary)]"
                     title="Ajuda: como configurar"
                   >
                     <HelpCircle className="w-4 h-4" />
@@ -114,39 +150,37 @@ export function IntegrationsTab() {
                 </div>
               </div>
               {sp?.is_connected ? (
-                <span className="bg-emerald-500/10 text-emerald-400 text-[9px] font-bold tracking-widest uppercase px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3" /> Conectado
-                </span>
+                <StatusPulse label="Conectado" tone="success" />
               ) : (
-                <span className="bg-rose-500/10 text-rose-400 text-[9px] font-bold tracking-widest uppercase px-2.5 py-1 rounded-full border border-rose-500/20">
+                <span className="alfredo-pill border-rose-500/20 bg-rose-500/10 text-rose-400">
                   {sp?.is_configured ? 'Não conectado' : 'Não configurado'}
                 </span>
               )}
             </div>
 
-            <p className="text-[13px] text-zinc-400 leading-relaxed">
+            <p className="mt-4 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
               Controle músicas, playlists e alto-falantes pela voz em toda a casa de forma nativa.
             </p>
 
-            <div className="flex flex-col gap-3 mt-2">
+            <div className="mt-5 flex flex-col gap-3">
               <div>
-                <label className="text-[11px] text-zinc-500 uppercase tracking-wider font-medium">Client ID</label>
+                <label className="alfredo-section-label">Client ID</label>
                 <input
                   type="text"
                   value={clientId}
                   onChange={e => setClientId(e.target.value)}
                   placeholder="seu-client-id-do-spotify"
-                  className="w-full mt-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-[#1DB954]/50 transition-colors"
+                  className="alfredo-input mt-1"
                 />
               </div>
               <div>
-                <label className="text-[11px] text-zinc-500 uppercase tracking-wider font-medium">Client Secret</label>
+                <label className="alfredo-section-label">Client Secret</label>
                 <input
                   type="password"
                   value={clientSecret}
                   onChange={e => setClientSecret(e.target.value)}
                   placeholder="seu-client-secret-do-spotify"
-                  className="w-full mt-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-[#1DB954]/50 transition-colors"
+                  className="alfredo-input mt-1"
                 />
               </div>
               
@@ -156,18 +190,18 @@ export function IntegrationsTab() {
                 </p>
               )}
 
-              <div className="flex gap-2 mt-1">
+              <div className="mt-1 flex gap-2">
                 <button
                   onClick={handleSave}
                   disabled={saving}
-                  className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm font-medium transition-all text-zinc-200 disabled:opacity-50"
+                  className="alfredo-pill flex-1 justify-center border-white/10 bg-white/[0.03] text-[color:var(--text-primary)]"
                 >
-                  {saving ? 'Salvando...' : 'Salvar Credenciais'}
+                  {saving ? 'Salvando...' : 'Salvar credenciais'}
                 </button>
                 {sp?.is_connected ? (
                   <button
                     onClick={handleTestSpotify}
-                    className="flex-1 py-2.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-400 font-bold rounded-lg text-sm transition-all shadow-[0_0_15px_rgba(59,130,246,0.1)]"
+                    className="alfredo-pill flex-1 justify-center border-blue-500/20 bg-blue-500/10 text-blue-400"
                   >
                     Testar
                   </button>
@@ -175,51 +209,70 @@ export function IntegrationsTab() {
                   <button
                     onClick={handleConnect}
                     disabled={!sp?.is_configured}
-                    className="flex-1 py-2.5 bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold rounded-lg text-sm transition-all disabled:opacity-30 disabled:hover:bg-[#1DB954] shadow-[0_0_15px_rgba(29,185,84,0.3)] disabled:shadow-none"
+                    className="alfredo-pill flex-1 justify-center border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    Log In
+                    Log in
                   </button>
                 )}
               </div>
             </div>
           </div>
+
+          <div className="alfredo-card p-6">
+            <SectionHeading
+              eyebrow="Estado"
+              title="Integração ativa"
+              subtitle={`IP local: ${localIp}`}
+              action={<StatusPulse label={sp?.is_connected ? 'Online' : 'Aguardando'} tone={sp?.is_connected ? 'success' : 'warning'} />}
+            />
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div className="alfredo-surface p-4">
+                <div className="alfredo-section-label">Fluxo</div>
+                <div className="mt-2 text-[15px] text-[color:var(--text-primary)]">Spotify via OAuth</div>
+                <p className="mt-1 text-[13px] text-[color:var(--text-secondary)]">Conecte para tocar e controlar mídia por voz.</p>
+              </div>
+              <div className="alfredo-surface p-4">
+                <div className="alfredo-section-label">Atalho</div>
+                <div className="mt-2 text-[15px] text-[color:var(--text-primary)]">`/api/spotify/login`</div>
+                <p className="mt-1 text-[13px] text-[color:var(--text-secondary)]">Abre o fluxo de autenticação da conta.</p>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Coming Soon Cards Space */}
-        <div className="flex-1 flex flex-col gap-6">
-          <h2 className="text-[18px] font-bold text-zinc-100 flex items-center gap-2">
-            Futuras Integrações <span className="text-xs bg-white/5 text-zinc-500 px-2 py-0.5 rounded-full border border-white/10">Em breve</span>
-          </h2>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div className="glass-panel p-5 opacity-40 border-dashed border-white/10 select-none grayscale hover:grayscale-0 transition-all duration-500 cursor-not-allowed">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400">
-                  <span className="font-bold text-lg">P</span>
-                </div>
-                <h3 className="text-[15px] font-bold text-zinc-100">Philips Hue</h3>
-              </div>
-              <p className="text-xs text-zinc-400">Controle avançado de lâmpadas, zonas e cenas.</p>
-            </div>
-            
-            <div className="glass-panel p-5 opacity-40 border-dashed border-white/10 select-none grayscale hover:grayscale-0 transition-all duration-500 cursor-not-allowed">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-lg bg-orange-500/20 flex items-center justify-center text-orange-400">
-                  <span className="font-bold text-lg">T</span>
-                </div>
-                <h3 className="text-[15px] font-bold text-zinc-100">Tuya / SmartLife</h3>
-              </div>
-              <p className="text-xs text-zinc-400">Integração nativa via local key e cloud API.</p>
-            </div>
+        <div className="flex min-w-0 flex-col gap-5">
+          <div className="alfredo-card p-6">
+            <SectionHeading
+              eyebrow="Próximas conexões"
+              title="Futuras integrações"
+              subtitle="Os cards em breve ocupam o grid com peso e intenção, mesmo sem dados configurados."
+            />
 
-            <div className="glass-panel p-5 opacity-40 border-dashed border-white/10 select-none grayscale hover:grayscale-0 transition-all duration-500 cursor-not-allowed">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-lg bg-rose-500/20 flex items-center justify-center text-rose-400">
-                  <span className="font-bold text-lg">G</span>
-                </div>
-                <h3 className="text-[15px] font-bold text-zinc-100">Google Calendar</h3>
-              </div>
-              <p className="text-xs text-zinc-400">Resumo matinal com sua agenda do dia.</p>
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              {[
+                { name: 'Philips Hue', subtitle: 'Cenas, zonas e automações', tone: 'info', icon: Sparkles },
+                { name: 'Google Calendar', subtitle: 'Resumo matinal e agenda', tone: 'warning', icon: Radio },
+                { name: 'Casa Segura', subtitle: 'Sensores, portas e alertas', tone: 'danger', icon: Shield },
+                { name: 'Música local', subtitle: 'Players e rádios internos', tone: 'success', icon: Music2 },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div key={item.name} className="alfredo-card border-dashed border-white/10 p-4 opacity-80">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/[0.03] text-[color:var(--text-secondary)]">
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[15px] font-semibold text-[color:var(--text-primary)]">{item.name}</div>
+                        <div className="mt-1 text-[13px] text-[color:var(--text-secondary)]">{item.subtitle}</div>
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <StatusPulse label="Em breve" tone="info" />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -228,19 +281,19 @@ export function IntegrationsTab() {
 
       {showHelp && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto">
+          <div className="alfredo-card mx-4 max-h-[80vh] w-full max-w-lg overflow-y-auto p-8">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-bold text-zinc-100">Como configurar o Spotify</h3>
-              <button onClick={() => setShowHelp(false)} className="text-zinc-500 hover:text-zinc-300">
+              <h3 className="text-lg font-semibold text-[color:var(--text-primary)]">Como configurar o Spotify</h3>
+              <button onClick={() => setShowHelp(false)} className="text-[color:var(--text-tertiary)] hover:text-[color:var(--text-primary)]">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <ol className="flex flex-col gap-5 text-sm text-zinc-300">
+            <ol className="flex flex-col gap-5 text-sm text-[color:var(--text-secondary)]">
               <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">1</span>
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#1DB954]/20 text-xs font-bold text-[#1DB954] mt-0.5">1</span>
                 <div>
-                  <p className="font-medium text-zinc-100">Acesse o Spotify for Developers</p>
+                  <p className="font-medium text-[color:var(--text-primary)]">Acesse o Spotify for Developers</p>
                   <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer"
                      className="text-[#1DB954] hover:underline flex items-center gap-1 mt-1">
                     developer.spotify.com/dashboard <ExternalLink className="w-3 h-3" />
@@ -314,12 +367,9 @@ export function IntegrationsTab() {
               </p>
             </div>
 
-            <button
-              onClick={() => setShowHelp(false)}
-              className="w-full mt-6 py-3 bg-[#1DB954] hover:bg-[#169c46] rounded-xl text-sm font-bold text-black transition-all"
-            >
-              Entendi, vou configurar!
-            </button>
+              <button onClick={() => setShowHelp(false)} className="mt-6 w-full rounded-xl bg-[#1DB954] py-3 text-sm font-bold text-black transition-all hover:bg-[#169c46]">
+                Entendi, vou configurar!
+              </button>
           </div>
         </div>
       )}

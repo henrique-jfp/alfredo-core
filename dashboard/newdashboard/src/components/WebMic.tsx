@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Mic, Square, Loader2, Volume2, MonitorSpeaker, Smartphone } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { StatusPulse } from './ui/DashboardPrimitives';
 
 export function WebMic() {
   const [isRecording, setIsRecording] = useState(false);
@@ -160,21 +161,21 @@ export function WebMic() {
   };
 
   return (
-    <div className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50 flex items-center gap-4">
+    <div className="fixed bottom-24 right-4 z-50 flex items-center gap-3 md:bottom-8 md:right-8">
       
       {/* Toggle Output Target */}
       <button 
         onClick={() => setPlayOnServer(!playOnServer)}
-        className="bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 flex items-center gap-2 hover:bg-white/10 transition-colors"
+        className="alfredo-card flex items-center gap-2 rounded-full px-4 py-2 text-[13px] text-[color:var(--text-secondary)] transition-colors hover:border-brass-500/20 hover:bg-white/[0.04]"
         title="Onde o Alfredo vai falar?"
       >
-        <span className="text-xs font-semibold text-zinc-400">Responder no:</span>
+        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--text-tertiary)]">Responder no</span>
         {playOnServer ? (
-          <div className="flex items-center gap-1 text-brass-400 font-bold text-sm">
+          <div className="flex items-center gap-1 text-sm font-semibold text-brass-300">
             <MonitorSpeaker className="w-4 h-4" /> Satélite
           </div>
         ) : (
-          <div className="flex items-center gap-1 text-indigo-400 font-bold text-sm">
+          <div className="flex items-center gap-1 text-sm font-semibold text-blue-400">
             <Smartphone className="w-4 h-4" /> Celular
           </div>
         )}
@@ -182,10 +183,15 @@ export function WebMic() {
 
       {/* Visual Indicator */}
       {(isRecording || isProcessing || isPlaying) && (
-        <div className="bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 flex items-center gap-2 animate-in fade-in slide-in-from-right-4">
-          {isRecording && <span className="text-rose-400 font-bold text-sm flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" /> Ouvindo...</span>}
-          {isProcessing && <span className="text-brass-400 font-bold text-sm flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Pensando...</span>}
-          {isPlaying && <span className="text-indigo-400 font-bold text-sm flex items-center gap-2"><Volume2 className="w-4 h-4 animate-pulse" /> Falando...</span>}
+        <div className="alfredo-card flex items-center gap-2 rounded-full px-4 py-2">
+          {isRecording && <StatusPulse label="Ouvindo" tone="danger" />}
+          {isProcessing && (
+            <span className="alfredo-pill border-brass-500/20 bg-brass-500/10 text-brass-300">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Pensando
+            </span>
+          )}
+          {isPlaying && <StatusPulse label="Falando" tone="info" icon={Volume2} />}
         </div>
       )}
 
@@ -200,11 +206,14 @@ export function WebMic() {
         }}
         disabled={isProcessing || isPlaying}
         className={cn(
-          "w-16 h-16 rounded-full flex items-center justify-center text-white shadow-2xl transition-all duration-300 shrink-0",
-          isRecording ? "bg-rose-600 scale-110 shadow-[0_0_30px_rgba(225,29,72,0.5)]" : 
-          isProcessing ? "bg-brass-600 cursor-not-allowed" :
-          isPlaying ? "bg-indigo-600 shadow-[0_0_30px_rgba(79,70,229,0.5)]" :
-          "bg-gradient-to-br from-[#1428A0] to-[#0D1B6E] hover:scale-105 hover:shadow-[0_0_20px_rgba(20,40,160,0.4)]"
+          "flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-white transition-all duration-300",
+          isRecording
+            ? "bg-rose-600 shadow-[0_0_30px_rgba(225,29,72,0.42)] scale-110"
+            : isProcessing
+            ? "bg-brass-600 cursor-not-allowed"
+            : isPlaying
+            ? "bg-blue-600 shadow-[0_0_30px_rgba(59,130,246,0.35)]"
+            : "bg-gradient-to-br from-brass-400 to-brass-600 text-[color:var(--bg-base)] shadow-[0_0_24px_rgba(212,162,78,0.22)] hover:scale-105"
         )}
       >
         {isRecording ? (

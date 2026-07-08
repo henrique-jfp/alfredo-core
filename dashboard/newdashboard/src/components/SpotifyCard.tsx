@@ -77,9 +77,9 @@ export function SpotifyCard() {
 
   if (!state || (!state.is_playing && !state.track_name)) {
     return (
-      <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 flex flex-col items-center justify-center border border-white/10 h-[200px] shadow-lg">
-        <Music className="w-10 h-10 text-emerald-500 mb-3 opacity-50" />
-        <p className="text-white/50 text-sm font-medium">Spotify Desconectado ou Pausado</p>
+      <div className="alfredo-card flex h-[200px] flex-col items-center justify-center p-6">
+        <Music className="mb-3 h-10 w-10 text-emerald-400/70" />
+        <p className="text-sm font-medium text-[color:var(--text-secondary)]">Spotify desconectado ou pausado</p>
       </div>
     );
   }
@@ -89,7 +89,7 @@ export function SpotifyCard() {
     : 0;
 
   return (
-    <div className="relative overflow-hidden bg-black/40 backdrop-blur-xl rounded-2xl border border-white/10 p-5 shadow-2xl transition-colors hover:bg-black/50 group">
+    <div className="alfredo-card group relative overflow-hidden p-5 transition-colors hover:bg-[color:var(--bg-surface-2)]">
       {/* Imagem de fundo borrada otimizada */}
       {state.album_art && (
         <>
@@ -132,12 +132,12 @@ export function SpotifyCard() {
             key={state.artist_name}
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-emerald-400 text-sm font-medium truncate mt-0.5"
+            className="text-sm font-medium text-emerald-400 truncate mt-0.5"
           >
             {state.artist_name}
           </motion.p>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-white/40 bg-white/10 px-2 py-0.5 rounded-full">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-[color:var(--text-secondary)] bg-white/[0.04] px-2 py-0.5 rounded-full border border-white/5">
               {state.device_name || "Spotify Connect"}
             </span>
             {state.is_playing && (
@@ -152,16 +152,16 @@ export function SpotifyCard() {
 
         {/* Controles */}
         <div className="flex items-center gap-3">
-          <button 
-            onClick={() => handleControl('prev')}
-            className="p-2.5 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors active:scale-95"
+            <button 
+              onClick={() => handleControl('prev')}
+            className="rounded-full p-2.5 text-[color:var(--text-secondary)] transition-colors hover:bg-white/[0.05] hover:text-[color:var(--text-primary)] active:scale-95"
           >
             <SkipBack className="w-5 h-5 fill-current" />
           </button>
           
           <button 
             onClick={() => handleControl(state.is_playing ? 'pause' : 'play')}
-            className="p-3 rounded-full bg-emerald-500 hover:bg-emerald-400 text-black transition-all active:scale-95 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40"
+            className="rounded-full bg-brass-500 p-3 text-[color:var(--bg-base)] transition-all hover:bg-brass-400 active:scale-95 shadow-[0_0_20px_rgba(212,162,78,0.2)] hover:shadow-[0_0_28px_rgba(212,162,78,0.25)]"
           >
             {state.is_playing ? (
               <Pause className="w-6 h-6 fill-current" />
@@ -172,7 +172,7 @@ export function SpotifyCard() {
           
           <button 
             onClick={() => handleControl('next')}
-            className="p-2.5 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors active:scale-95"
+            className="rounded-full p-2.5 text-[color:var(--text-secondary)] transition-colors hover:bg-white/[0.05] hover:text-[color:var(--text-primary)] active:scale-95"
           >
             <SkipForward className="w-5 h-5 fill-current" />
           </button>
@@ -180,9 +180,9 @@ export function SpotifyCard() {
       </div>
 
       {/* Barra de Progresso Animada */}
-      <div className="absolute bottom-0 left-0 w-full h-1 bg-white/10 overflow-hidden">
+      <div className="absolute bottom-0 left-0 h-1 w-full overflow-hidden bg-white/10">
         <motion.div 
-          className="w-full h-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)] origin-left"
+          className="h-full w-full origin-left bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.6)]"
           initial={{ scaleX: 0 }}
           animate={{ scaleX: progressPercent / 100 }}
           transition={{ ease: "linear", duration: 1 }}

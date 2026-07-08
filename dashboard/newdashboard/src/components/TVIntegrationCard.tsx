@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Tv, CheckCircle, Loader2 } from 'lucide-react';
+import { Tv, CheckCircle } from 'lucide-react';
+import { SkeletonBlock } from './ui/DashboardPrimitives';
 
 interface TVConfig {
   configured: boolean;
@@ -81,79 +82,102 @@ export function TVIntegrationCard() {
 
   if (loading) {
     return (
-      <div className="w-full md:w-[400px] glass-panel p-6 flex items-center justify-center h-[300px]">
-        <Loader2 className="w-8 h-8 animate-spin text-zinc-400" />
+      <div className="alfredo-card flex h-[300px] w-full flex-col gap-4 p-6 md:w-[400px]">
+        <div className="flex items-center gap-4">
+          <SkeletonBlock className="h-[52px] w-[52px] rounded-2xl" />
+          <div className="flex-1 space-y-2">
+            <SkeletonBlock className="h-4 w-32 rounded-full" />
+            <SkeletonBlock className="h-3 w-24 rounded-full" />
+          </div>
+          <SkeletonBlock className="h-6 w-24 rounded-full" />
+        </div>
+        <div className="space-y-3">
+          <SkeletonBlock className="h-3 w-full rounded-full" />
+          <SkeletonBlock className="h-3 w-5/6 rounded-full" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <SkeletonBlock className="h-12 rounded-xl" />
+          <SkeletonBlock className="h-12 rounded-xl" />
+        </div>
+        <div className="space-y-3">
+          <SkeletonBlock className="h-12 rounded-xl" />
+          <SkeletonBlock className="h-12 rounded-xl" />
+        </div>
+        <div className="flex gap-2 pt-1">
+          <SkeletonBlock className="h-11 flex-1 rounded-full" />
+          <SkeletonBlock className="h-11 w-28 rounded-full" />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="w-full md:w-[400px] glass-panel p-6 flex flex-col gap-4 h-fit">
+    <div className="alfredo-card flex h-fit w-full flex-col gap-4 p-6 md:w-[400px]">
       <div className="flex items-center gap-4 relative">
-        <div className="w-[52px] h-[52px] rounded-xl bg-gradient-to-br from-[#1428A0] to-[#0D1B6E] flex items-center justify-center text-white shrink-0 shadow-[0_0_20px_rgba(20,40,160,0.3)]">
+        <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#1428A0] to-[#0D1B6E] text-white shadow-[0_0_20px_rgba(20,40,160,0.22)]">
           <Tv className="w-7 h-7" />
         </div>
         <div className="flex-1">
-          <h2 className="text-[18px] font-bold text-zinc-100">Samsung TV</h2>
+          <h2 className="text-[18px] font-semibold text-[color:var(--text-primary)]">Samsung TV</h2>
         </div>
         {config?.configured ? (
-          <span className="bg-emerald-500/10 text-emerald-400 text-[9px] font-bold tracking-widest uppercase px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1">
+          <span className="alfredo-pill border-emerald-500/20 bg-emerald-500/10 text-emerald-400">
             <CheckCircle className="w-3 h-3" /> Configurado
           </span>
         ) : (
-          <span className="bg-rose-500/10 text-rose-400 text-[9px] font-bold tracking-widest uppercase px-2.5 py-1 rounded-full border border-rose-500/20">
+          <span className="alfredo-pill border-rose-500/20 bg-rose-500/10 text-rose-400">
             Não configurado
           </span>
         )}
       </div>
 
-      <p className="text-[13px] text-zinc-400 leading-relaxed">
+      <p className="text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
         Controle o volume, abra apps (Netflix, YT) via voz e use o Auto-Mute para falar com o Alfredo.
       </p>
 
-      <div className="flex flex-col gap-3 mt-2">
+      <div className="mt-2 flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-[11px] text-zinc-500 uppercase tracking-wider font-medium">IP Address</label>
+            <label className="alfredo-section-label">IP Address</label>
             <input
               type="text"
               value={ipAddress}
               onChange={e => setIpAddress(e.target.value)}
               placeholder="192.168.1.100"
-              className="w-full mt-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-[#1428A0]/50 transition-colors"
+              className="alfredo-input mt-1"
             />
           </div>
           <div>
-            <label className="text-[11px] text-zinc-500 uppercase tracking-wider font-medium">MAC Address (WoL)</label>
+            <label className="alfredo-section-label">MAC Address (WoL)</label>
             <input
               type="text"
               value={macAddress}
               onChange={e => setMacAddress(e.target.value)}
               placeholder="00:11:22:33:44:55"
-              className="w-full mt-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-[#1428A0]/50 transition-colors"
+              className="alfredo-input mt-1"
             />
           </div>
         </div>
 
         <div>
-          <label className="text-[11px] text-zinc-500 uppercase tracking-wider font-medium">SmartThings PAT (Opcional)</label>
+          <label className="alfredo-section-label">SmartThings PAT (Opcional)</label>
           <input
             type="password"
             value={stPat}
             onChange={e => setStPat(e.target.value)}
             placeholder="Personal Access Token"
-            className="w-full mt-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-[#1428A0]/50 transition-colors"
+            className="alfredo-input mt-1"
           />
         </div>
         
         <div>
-          <label className="text-[11px] text-zinc-500 uppercase tracking-wider font-medium">SmartThings Device ID (Opcional)</label>
+          <label className="alfredo-section-label">SmartThings Device ID (Opcional)</label>
           <input
             type="text"
             value={stDeviceId}
             onChange={e => setStDeviceId(e.target.value)}
             placeholder="Device ID"
-            className="w-full mt-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-[#1428A0]/50 transition-colors"
+            className="alfredo-input mt-1"
           />
         </div>
 
@@ -167,7 +191,7 @@ export function TVIntegrationCard() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm font-medium transition-all text-zinc-200 disabled:opacity-50"
+            className="alfredo-pill flex-1 justify-center border-white/10 bg-white/[0.03] text-[color:var(--text-primary)] disabled:opacity-50"
           >
             {saving ? 'Salvando...' : 'Salvar Configuração'}
           </button>
@@ -175,7 +199,7 @@ export function TVIntegrationCard() {
           {config?.configured && (
             <button
               onClick={handleTestMute}
-              className="px-4 py-2.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-400 font-bold rounded-lg text-sm transition-all shadow-[0_0_15px_rgba(59,130,246,0.1)]"
+              className="alfredo-pill border-blue-500/20 bg-blue-500/10 text-blue-400"
               title="Muta a TV por 3 segundos para testar"
             >
               Testar Mute

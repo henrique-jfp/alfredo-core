@@ -1,21 +1,37 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { Satellite } from '../../types';
-import { Cpu, Power, Volume2, Sun, Mic, Radio, Zap, Volume1, Lightbulb, Activity } from 'lucide-react';
+import {
+  Activity,
+  Cpu,
+  Lightbulb,
+  Loader2,
+  Mic,
+  Radio,
+  Sparkles,
+  Sun,
+  Volume1,
+  Volume2,
+  Zap,
+} from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { EmptyState, SectionHeading, SkeletonBlock, StatusPulse } from '../ui/DashboardPrimitives';
 
-export class SatellitesTabBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: any}> {
-  constructor(props: {children: React.ReactNode}) {
+export class SatellitesTabBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { hasError: false, error: null };
   }
+
   static getDerivedStateFromError(error: any) {
     return { hasError: true, error };
   }
+
   render() {
     if (this.state.hasError) {
-      return <div className="text-red-500 p-10 font-mono"><h1>Component Crash:</h1><pre>{String(this.state.error?.stack || this.state.error)}</pre></div>;
+      return <div className="p-10 font-mono text-red-500"><h1>Component Crash:</h1><pre>{String(this.state.error?.stack || this.state.error)}</pre></div>;
     }
+
     return this.props.children;
   }
 }
@@ -31,95 +47,86 @@ export function SatellitesTab() {
 function SatellitesTabContent() {
   const [satellites, setSatellites] = useState<Satellite[]>([]);
   const [selectedSat, setSelectedSat] = useState<Satellite | null>(null);
-  
-  // WebSocket and Audio states
-  const wsRef = useRef<WebSocket | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const [isListening, setIsListening] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
-
-  // Local state for sliders (optimistic updates)
+  const [isListening, setIsListening] = useState(false);
   const [volume, setVolume] = useState(70);
   const [brightness, setBrightness] = useState(50);
   const [alsaCapture, setAlsaCapture] = useState(100);
   const [alsaMaster, setAlsaMaster] = useState(100);
   const [softwarePreamp, setSoftwarePreamp] = useState(1.0);
 
-  useEffect(() => {
-    api.getSatellites().then(data => {
-      const validData = Array.isArray(data) ? data : [];
-      setSatellites(validData);
-      if (validData.length > 0) {
-        setSelectedSat(validData[0]);
-        setVolume(validData[0].volume ?? 70);
-        setBrightness(validData[0].brightness ?? 50);
-      }
-    }).catch(err => {
-      console.error(err);
-      setSatellites([]);
-    });
+  const wsRef = useRef<WebSocket | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
-    // Initialize WebSocket connection to dashboard
+  useEffect(() => {
+    let mounted = true;
+
+    const loadSatellites = async () => {
+      setIsLoading(true);
+      try {
+        const data = await api.getSatellites();
+        const validData = Array.isArray(data) ? data : [];
+        if (!mounted) return;
+        setSatellites(validData);
+        if (validData.length > 0) {
+          setSelectedSat(validData[0]);
+          setVolume(validData[0].volume ?? 70);
+          setBrightness(validData[0].brightness ?? 50);
+        }
+      } catch (err) {
+        console.error(err);
+        if (mounted) setSatellites([]);
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
+    };
+
+    loadSatellites();
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const hostInfo = window.location.host; // includes port if present (e.g., localhost:10001)
-    const wsUrl = `${protocol}//${hostInfo}/api/ws/dashboard`;
-    
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/dashboard`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
-    ws.onopen = () => {
-      console.log("Connected to dashboard WebSocket");
-      setIsConnected(true);
-    };
-
-    ws.onclose = () => {
-      console.log("Disconnected from dashboard WebSocket");
-      setIsConnected(false);
-    };
-
+    ws.onopen = () => setIsConnected(true);
+    ws.onclose = () => setIsConnected(false);
     ws.onmessage = async (event) => {
-      // Audio chunks arrive as binary data
       if (event.data instanceof Blob && audioCtxRef.current) {
         const arrayBuffer = await event.data.arrayBuffer();
-        
         try {
           const audioCtx = audioCtxRef.current;
           const view = new Int16Array(arrayBuffer);
           const audioBuffer = audioCtx.createBuffer(1, view.length, 16000);
           const channelData = audioBuffer.getChannelData(0);
           for (let i = 0; i < view.length; i++) {
-            channelData[i] = view[i] / 32768.0; // convert int16 to float32
+            channelData[i] = view[i] / 32768.0;
           }
-          
+
           const source = audioCtx.createBufferSource();
           source.buffer = audioBuffer;
           source.connect(audioCtx.destination);
-          
-          // Schedule playback to avoid stuttering (network jitter buffer)
+
           const w = window as any;
           if (!w.nextAudioTime || w.nextAudioTime < audioCtx.currentTime) {
-            w.nextAudioTime = audioCtx.currentTime + 0.15; // 150ms buffer
+            w.nextAudioTime = audioCtx.currentTime + 0.15;
           }
-          
+
           source.start(w.nextAudioTime);
           w.nextAudioTime += audioBuffer.duration;
         } catch (e) {
-          console.error("Audio playback error:", e);
+          console.error('Audio playback error:', e);
         }
       }
     };
 
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
-      if (audioCtxRef.current) {
-        audioCtxRef.current.close();
-      }
+      mounted = false;
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      if (audioCtxRef.current) audioCtxRef.current.close();
     };
   }, []);
 
-  // Update local sliders when selecting a different satellite
   useEffect(() => {
     if (selectedSat) {
       setVolume(selectedSat.volume ?? 70);
@@ -130,62 +137,6 @@ function SatellitesTabContent() {
   const sendCommand = (cmd: string) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && selectedSat) {
       wsRef.current.send(`${cmd}:${selectedSat.device_id}`);
-    }
-  };
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseInt(e.target.value);
-    setVolume(val);
-  };
-  
-  const handleVolumeCommit = () => {
-    if (wsRef.current && selectedSat) {
-      wsRef.current.send(`SET_VOLUME:${selectedSat.device_id}:${volume}`);
-    }
-  };
-
-  const handleBrightnessChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseInt(e.target.value);
-    setBrightness(val);
-  };
-
-  const handleBrightnessCommit = () => {
-    if (wsRef.current && selectedSat) {
-      wsRef.current.send(`SET_BRIGHTNESS:${selectedSat.device_id}:${brightness}`);
-    }
-  };
-
-  const toggleListening = () => {
-    if (isListening) {
-      setIsListening(false);
-      sendCommand("STOP_STREAM");
-    } else {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      }
-      if (audioCtxRef.current.state === 'suspended') {
-        audioCtxRef.current.resume();
-      }
-      setIsListening(true);
-      sendCommand("START_STREAM");
-    }
-  };
-
-  const handleAlsaCaptureCommit = () => {
-    if (wsRef.current && selectedSat) {
-      wsRef.current.send(`SET_ALSA_CAPTURE:${selectedSat.device_id}:${alsaCapture}`);
-    }
-  };
-
-  const handleAlsaMasterCommit = () => {
-    if (wsRef.current && selectedSat) {
-      wsRef.current.send(`SET_ALSA_MASTER:${selectedSat.device_id}:${alsaMaster}`);
-    }
-  };
-
-  const handleSoftwarePreampCommit = () => {
-    if (wsRef.current && selectedSat) {
-      wsRef.current.send(`SET_SOFTWARE_PREAMP:${selectedSat.device_id}:${softwarePreamp}`);
     }
   };
 
@@ -200,275 +151,379 @@ function SatellitesTabContent() {
     }
   };
 
-  const capIcons: Record<string, { icon: any, label: string, color: string }> = {
-    'mic': { icon: Mic, label: 'Microfone I2S', color: 'text-indigo-400 border-indigo-400/20 bg-indigo-400/10' },
-    'speaker': { icon: Volume1, label: 'Alto-Falante', color: 'text-rose-400 border-rose-400/20 bg-rose-400/10' },
-    'led': { icon: Lightbulb, label: 'Matriz LED', color: 'text-yellow-400 border-yellow-400/20 bg-yellow-400/10' },
-    'display': { icon: Activity, label: 'Display OLED', color: 'text-teal-400 border-teal-400/20 bg-teal-400/10' }
+  const handleVolumeCommit = () => {
+    if (wsRef.current && selectedSat) wsRef.current.send(`SET_VOLUME:${selectedSat.device_id}:${volume}`);
   };
 
-  return (
-    <div className="flex flex-col lg:flex-row gap-6 h-full pb-10 overflow-y-auto lg:overflow-hidden">
-      
-      {/* List */}
-      <div className="w-full lg:w-1/3 xl:w-1/4 glass-panel p-6 flex flex-col min-h-0 relative overflow-hidden shrink-0">
-        {/* Status Indicator */}
-        <div className="absolute top-4 right-4 flex items-center gap-2 text-xs font-bold text-zinc-500">
-          WS: {isConnected ? <span className="text-emerald-400">● Conectado</span> : <span className="text-rose-400">○ Desconectado</span>}
-        </div>
+  const handleBrightnessCommit = () => {
+    if (wsRef.current && selectedSat) wsRef.current.send(`SET_BRIGHTNESS:${selectedSat.device_id}:${brightness}`);
+  };
 
-        <div className="flex items-center justify-between mb-6 gap-2">
-          <div>
-            <h2 className="text-[16px] font-semibold text-zinc-100 mb-2">Frota de Satélites</h2>
-            <p className="text-zinc-500 text-[13px] hidden md:block">Selecione um dispositivo para acessar telemetria e áudio.</p>
+  const handleAlsaCaptureCommit = () => {
+    if (wsRef.current && selectedSat) wsRef.current.send(`SET_ALSA_CAPTURE:${selectedSat.device_id}:${alsaCapture}`);
+  };
+
+  const handleAlsaMasterCommit = () => {
+    if (wsRef.current && selectedSat) wsRef.current.send(`SET_ALSA_MASTER:${selectedSat.device_id}:${alsaMaster}`);
+  };
+
+  const handleSoftwarePreampCommit = () => {
+    if (wsRef.current && selectedSat) wsRef.current.send(`SET_SOFTWARE_PREAMP:${selectedSat.device_id}:${softwarePreamp}`);
+  };
+
+  const toggleListening = () => {
+    if (isListening) {
+      setIsListening(false);
+      sendCommand('STOP_STREAM');
+      return;
+    }
+
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
+
+    setIsListening(true);
+    sendCommand('START_STREAM');
+  };
+
+  const capIcons: Record<string, { icon: any; label: string; color: string }> = {
+    mic: { icon: Mic, label: 'Microfone I2S', color: 'text-indigo-400 border-indigo-400/20 bg-indigo-400/10' },
+    speaker: { icon: Volume1, label: 'Alto-Falante', color: 'text-rose-400 border-rose-400/20 bg-rose-400/10' },
+    led: { icon: Lightbulb, label: 'Matriz LED', color: 'text-yellow-400 border-yellow-400/20 bg-yellow-400/10' },
+    display: { icon: Activity, label: 'Display OLED', color: 'text-teal-400 border-teal-400/20 bg-teal-400/10' },
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full flex-col gap-5 overflow-y-auto pb-10 pr-2">
+        <SectionHeading
+          eyebrow="Alfredo"
+          title="Controle de Frota"
+          subtitle="Carregando a telemetria dos satélites e o painel técnico."
+          action={<StatusPulse label="Conectando" tone="warning" />}
+        />
+        <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="alfredo-card flex min-h-[540px] flex-col gap-4 p-6">
+            <SkeletonBlock className="h-4 w-40 rounded-full" />
+            <SkeletonBlock className="h-3 w-56 rounded-full" />
+            <div className="mt-2 space-y-3">
+              <SkeletonBlock className="h-20 rounded-2xl" />
+              <SkeletonBlock className="h-20 rounded-2xl" />
+              <SkeletonBlock className="h-20 rounded-2xl" />
+            </div>
           </div>
-          <button 
-            onClick={() => {
-              if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                satellites.forEach(sat => {
-                  wsRef.current?.send(`SET_VOLUME:${sat.device_id}:0`);
-                });
-                setVolume(0);
-              }
-            }}
-            className="flex items-center justify-center shrink-0 px-3 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 text-xs font-bold rounded-lg transition-colors"
-          >
-            Mutar Todos
-          </button>
+          <div className="alfredo-card flex min-h-[540px] flex-col gap-4 p-6">
+            <SkeletonBlock className="h-4 w-52 rounded-full" />
+            <SkeletonBlock className="h-3 w-72 rounded-full" />
+            <SkeletonBlock className="mt-2 h-24 rounded-2xl" />
+            <SkeletonBlock className="h-24 rounded-2xl" />
+            <SkeletonBlock className="h-24 rounded-2xl" />
+          </div>
         </div>
-        
-        <div className="flex flex-col gap-3 overflow-y-auto custom-scrollbar pr-2 flex-grow">
-          {satellites.map(sat => (
-            <button 
-              key={sat.device_id}
-              onClick={() => setSelectedSat(sat)}
-              className={cn(
-                "flex flex-col p-4 rounded-xl border text-left transition-all relative overflow-hidden group",
-                selectedSat?.device_id === sat.device_id 
-                  ? "bg-white/10 border-brass-500/40 shadow-[0_0_20px_rgba(201,162,75,0.1)]" 
-                  : "bg-white/[0.02] border-white/5 hover:bg-white/5 hover:border-white/10"
-              )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col gap-5 overflow-y-auto pb-10 pr-2">
+      <SectionHeading
+        eyebrow="Alfredo"
+        title="Controle de Frota"
+        subtitle="A interface técnica agora ocupa o espaço com mais intenção e menos ruído."
+        action={<StatusPulse label={isConnected ? 'WS conectado' : 'WS offline'} tone={isConnected ? 'success' : 'danger'} />}
+      />
+
+      <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+        <aside className="alfredo-card flex min-h-0 flex-col gap-5 p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="alfredo-section-label">Satélites</div>
+              <h2 className="mt-2 text-[18px] font-semibold text-[color:var(--text-primary)]">Frota disponível</h2>
+              <p className="mt-1 text-[13px] text-[color:var(--text-secondary)]">Selecione um dispositivo para acessar telemetria, áudio e comandos remotos.</p>
+            </div>
+            <button
+              onClick={() => {
+                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                  satellites.forEach((sat) => wsRef.current?.send(`SET_VOLUME:${sat.device_id}:0`));
+                  setVolume(0);
+                }
+              }}
+              className="alfredo-pill border-rose-500/20 bg-rose-500/10 text-rose-400"
             >
-              <div className="flex justify-between items-start w-full gap-2">
-                <span className="text-[15px] font-semibold text-zinc-100">{sat.hardware}</span>
-                <span className={cn("text-[11px] font-bold tracking-wider px-2 py-1 rounded-full whitespace-nowrap", sat.is_online ? "bg-emerald-500/10 text-emerald-400" : "bg-zinc-500/10 text-zinc-400")}>
-                  {sat.is_online ? '● ONLINE' : '○ OFFLINE'}
-                </span>
-              </div>
-              <div className="flex justify-between w-full text-[12px] text-zinc-500 mt-2">
-                <span className="truncate pr-2">Cômodo: {sat.room_id}</span>
-                <span className="font-mono whitespace-nowrap">ID: {sat.device_id?.split('-')[0] || 'Unk'}</span>
-              </div>
-              {/* Signal strength simulation bar */}
-              {sat.is_online && (
-                <div className="absolute bottom-0 left-0 h-[2px] bg-emerald-500/50 w-full group-hover:bg-emerald-400 transition-colors" style={{ width: `${Math.random() * 40 + 60}%` }} />
-              )}
+              Mutar todos
             </button>
-          ))}
-        </div>
-      </div>
+          </div>
 
-      {/* Details Panel */}
-      <div className={cn("w-full lg:w-2/3 xl:w-3/4 glass-panel p-6 md:p-8 flex flex-col transition-opacity duration-300 overflow-y-visible lg:overflow-y-auto custom-scrollbar min-h-0", !selectedSat ? "opacity-50 pointer-events-none hidden lg:flex" : "flex")}>
-        {selectedSat && (
-          <>
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-brass-300 mb-2">{selectedSat.hardware}</h2>
-                <div className="flex gap-2">
-                  <span className={cn("text-[11px] px-3 py-1 rounded-full font-bold tracking-wide border", selectedSat.is_online ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-zinc-500/10 text-zinc-400 border-zinc-500/20")}>
-                    {selectedSat.is_online ? '● Online (WebSockets)' : '○ Offline (HTTP)'}
-                  </span>
-                  {selectedSat.is_online && (
-                    <span className="text-[11px] px-3 py-1 rounded-full font-bold tracking-wide border bg-blue-500/10 text-blue-400 border-blue-500/20 flex items-center gap-1">
-                      <Radio className="w-3 h-3" /> -62 dBm
-                    </span>
-                  )}
-                </div>
-              </div>
-              
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => sendCommand("OTA_UPDATE")}
-                  title="Atualização OTA"
-                  className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 hover:border-brass-500/50 hover:text-brass-400 flex items-center justify-center text-zinc-400 transition-colors"
-                >
-                  <Zap className="w-5 h-5" />
-                </button>
-                <button 
-                  onClick={() => sendCommand("IDENTIFY")}
-                  title="Localizar Satélite (Ping)"
-                  className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 hover:border-brass-500/50 hover:text-brass-400 flex items-center justify-center text-zinc-400 transition-colors"
-                >
-                  <Radio className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Capabilities Tags */}
-            <div className="flex flex-wrap gap-2 mb-6">
-              {parseCapabilities(selectedSat.capabilities).map(cap => {
-                const spec = capIcons[cap];
-                if (!spec) return null;
-                const Icon = spec.icon;
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
+            {satellites.length === 0 ? (
+              <EmptyState
+                icon={Cpu}
+                tone="info"
+                title="Nenhum satélite encontrado"
+                description="Quando a frota aparecer, ela ocupa esse painel com cards técnicos de leitura rápida."
+                className="flex-1"
+              />
+            ) : (
+              satellites.map((sat) => {
+                const isActive = selectedSat?.device_id === sat.device_id;
                 return (
-                  <div key={cap} className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-bold uppercase tracking-wider", spec.color)}>
-                    <Icon className="w-3.5 h-3.5" />
-                    {spec.label}
-                  </div>
+                  <button
+                    key={sat.device_id}
+                    onClick={() => setSelectedSat(sat)}
+                    className={cn(
+                      'relative flex flex-col gap-3 overflow-hidden rounded-2xl border p-4 text-left transition-all duration-200',
+                      isActive
+                        ? 'border-brass-500/25 bg-brass-500/10 shadow-[0_0_24px_rgba(212,162,78,0.12)]'
+                        : 'border-white/5 bg-white/[0.02] hover:border-white/10 hover:bg-white/[0.04]'
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[15px] font-semibold text-[color:var(--text-primary)]">{sat.hardware}</div>
+                        <div className="mt-1 flex items-center gap-2 text-[12px] text-[color:var(--text-secondary)]">
+                          <span className="font-mono">{sat.device_id?.split('-')[0] || 'Unk'}</span>
+                          <span>·</span>
+                          <span>{sat.room_id}</span>
+                        </div>
+                      </div>
+                      <StatusPulse label={sat.is_online ? 'ONLINE' : 'OFFLINE'} tone={sat.is_online ? 'success' : 'danger'} />
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-black/30">
+                        <div className={cn('h-full rounded-full', sat.is_online ? 'bg-emerald-400' : 'bg-rose-400')} style={{ width: `${sat.is_online ? 85 : 35}%` }} />
+                      </div>
+                      <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-[color:var(--text-tertiary)]">
+                        {sat.is_online ? 'vivo' : 'sem sinal'}
+                      </span>
+                    </div>
+                  </button>
                 );
-              })}
-              {parseCapabilities(selectedSat.capabilities).length === 0 && (
-                <div className="text-[11px] text-zinc-500 font-bold border border-white/10 px-3 py-1.5 rounded-lg">HARDWARE BÁSICO</div>
-              )}
-            </div>
+              })
+            )}
+          </div>
+        </aside>
 
-            <div className="bg-black/20 rounded-xl p-5 mb-8 grid grid-cols-2 gap-y-4 gap-x-6 text-[13px] border border-white/[0.03]">
-              <div className="flex flex-col gap-1">
-                <span className="text-zinc-500 font-semibold uppercase tracking-wider text-[10px]">Hardware</span>
-                <span className="text-zinc-200">{selectedSat.hardware}</span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-zinc-500 font-semibold uppercase tracking-wider text-[10px]">Firmware</span>
-                <span className="text-zinc-200">{selectedSat.firmware_version}</span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-zinc-500 font-semibold uppercase tracking-wider text-[10px]">ID</span>
-                <span className="text-zinc-200 font-mono">{selectedSat.device_id}</span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-zinc-500 font-semibold uppercase tracking-wider text-[10px]">Cômodo</span>
-                <span className="text-zinc-200">{selectedSat.room_id}</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-6 mb-8">
-              <h3 className="text-[13px] font-semibold text-zinc-100 border-b border-white/5 pb-2 uppercase tracking-widest">Ajustes Remotos (Básicos)</h3>
-              
-              <div className="flex flex-col gap-3">
-                <div className="flex justify-between text-[13px] text-zinc-300">
-                  <span className="flex items-center gap-2"><Volume2 className="w-4 h-4 text-brass-400"/> Volume</span>
-                  <span className="font-mono text-brass-400 font-bold">{volume}%</span>
-                </div>
-                <input 
-                  type="range" min="0" max="100" 
-                  value={volume} 
-                  onChange={handleVolumeChange}
-                  onMouseUp={handleVolumeCommit}
-                  onTouchEnd={handleVolumeCommit}
-                  className="w-full accent-brass-500 h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer" 
-                />
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <div className="flex justify-between text-[13px] text-zinc-300">
-                  <span className="flex items-center gap-2"><Sun className="w-4 h-4 text-brass-400"/> Brilho do LED</span>
-                  <span className="font-mono text-brass-400 font-bold">{brightness}%</span>
-                </div>
-                <input 
-                  type="range" min="0" max="100" 
-                  value={brightness} 
-                  onChange={handleBrightnessChange}
-                  onMouseUp={handleBrightnessCommit}
-                  onTouchEnd={handleBrightnessCommit}
-                  className="w-full accent-brass-500 h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer" 
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-6 mb-8 bg-zinc-900/50 p-5 rounded-2xl border border-rose-500/10">
-              <h3 className="text-[13px] font-semibold text-rose-400 border-b border-rose-500/10 pb-2 uppercase tracking-widest flex items-center gap-2">
-                <Activity className="w-4 h-4" /> Mixer de Áudio Avançado (Depuração)
-              </h3>
-              
-              <div className="flex flex-col gap-3">
-                <div className="flex justify-between text-[13px] text-zinc-300">
-                  <span className="flex items-center gap-2">ALSA Microfone (Capture)</span>
-                  <span className="font-mono text-rose-400 font-bold">{alsaCapture}%</span>
-                </div>
-                <input 
-                  type="range" min="0" max="100" 
-                  value={alsaCapture} 
-                  onChange={(e) => setAlsaCapture(parseInt(e.target.value))}
-                  onMouseUp={handleAlsaCaptureCommit}
-                  onTouchEnd={handleAlsaCaptureCommit}
-                  className="w-full accent-rose-500 h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer" 
-                />
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <div className="flex justify-between text-[13px] text-zinc-300">
-                  <span className="flex items-center gap-2">ALSA Alto-Falante (Master)</span>
-                  <span className="font-mono text-rose-400 font-bold">{alsaMaster}%</span>
-                </div>
-                <input 
-                  type="range" min="0" max="100" 
-                  value={alsaMaster} 
-                  onChange={(e) => setAlsaMaster(parseInt(e.target.value))}
-                  onMouseUp={handleAlsaMasterCommit}
-                  onTouchEnd={handleAlsaMasterCommit}
-                  className="w-full accent-rose-500 h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer" 
-                />
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <div className="flex justify-between text-[13px] text-zinc-300">
-                  <span className="flex items-center gap-2">Pré-Amp Digital (Software Multiplier)</span>
-                  <span className="font-mono text-rose-400 font-bold">{softwarePreamp.toFixed(1)}x</span>
-                </div>
-                <input 
-                  type="range" min="10" max="150" 
-                  value={softwarePreamp * 10} 
-                  onChange={(e) => setSoftwarePreamp(parseInt(e.target.value) / 10)}
-                  onMouseUp={handleSoftwarePreampCommit}
-                  onTouchEnd={handleSoftwarePreampCommit}
-                  className="w-full accent-rose-500 h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer" 
-                />
-              </div>
-            </div>
-
-            <div className="mt-auto bg-black/20 rounded-2xl p-6 flex flex-col items-center justify-center relative overflow-hidden border border-white/5">
-              <div className={cn("absolute inset-0 bg-gradient-to-t pointer-events-none transition-colors duration-500", isListening ? "from-emerald-500/10 to-transparent" : "from-brass-500/5 to-transparent")} />
-              
-              <div className={cn("w-20 h-20 rounded-full border-2 flex items-center justify-center mb-5 relative transition-colors duration-500", isListening ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10" : "border-brass-500/20 text-brass-400")}>
-                {!isListening ? (
-                  <Mic className="w-8 h-8" />
-                ) : (
-                  <div className="flex items-center justify-center gap-1.5 h-8">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <div 
-                        key={i} 
-                        className="w-1.5 bg-emerald-400 rounded-full animate-pulse" 
-                        style={{ 
-                          height: `${Math.max(20, Math.random() * 100)}%`, 
-                          animationDelay: `${i * 0.15}s`,
-                          animationDuration: '0.6s'
-                        }} 
-                      />
-                    ))}
+        <section className={cn('alfredo-card flex min-h-0 flex-col p-6 md:p-8', !selectedSat && 'justify-center')}>
+          {!selectedSat ? (
+            <EmptyState
+              icon={Cpu}
+              tone="brass"
+              title="Selecione um satélite"
+              description="Escolha um dispositivo na coluna da esquerda para abrir a telemetria e os controles remotos."
+              className="min-h-[520px]"
+            />
+          ) : (
+            <>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="alfredo-section-label">Detalhes</div>
+                  <h2 className="mt-2 text-[24px] font-semibold tracking-tight text-[color:var(--text-primary)] md:text-[28px]">
+                    {selectedSat.hardware}
+                  </h2>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <StatusPulse label={selectedSat.is_online ? 'Online (WebSockets)' : 'Offline (HTTP)'} tone={selectedSat.is_online ? 'success' : 'danger'} />
+                    {selectedSat.is_online && <StatusPulse label="Latência estável" tone="info" />}
+                    <StatusPulse label={`Room ${selectedSat.room_id}`} tone="brass" />
                   </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => sendCommand('OTA_UPDATE')}
+                    title="Atualização OTA"
+                    className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]"
+                  >
+                    <Zap className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => sendCommand('IDENTIFY')}
+                    title="Localizar satélite"
+                    className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]"
+                  >
+                    <Radio className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <div className="alfredo-surface p-4">
+                  <div className="alfredo-section-label">Hardware</div>
+                  <div className="mt-2 text-[14px] text-[color:var(--text-primary)]">{selectedSat.hardware}</div>
+                </div>
+                <div className="alfredo-surface p-4">
+                  <div className="alfredo-section-label">Firmware</div>
+                  <div className="mt-2 font-mono text-[14px] text-[color:var(--text-primary)]">{selectedSat.firmware_version}</div>
+                </div>
+                <div className="alfredo-surface p-4">
+                  <div className="alfredo-section-label">ID</div>
+                  <div className="mt-2 font-mono text-[14px] text-[color:var(--text-primary)]">{selectedSat.device_id}</div>
+                </div>
+                <div className="alfredo-surface p-4">
+                  <div className="alfredo-section-label">Cômodo</div>
+                  <div className="mt-2 text-[14px] text-[color:var(--text-primary)]">{selectedSat.room_id}</div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-wrap gap-2">
+                {parseCapabilities((selectedSat as any).capabilities).map((cap: string) => {
+                  const spec = capIcons[cap];
+                  if (!spec) return null;
+                  const Icon = spec.icon;
+                  return (
+                    <div key={cap} className={cn('alfredo-pill', spec.color)}>
+                      <Icon className="h-3.5 w-3.5" />
+                      {spec.label}
+                    </div>
+                  );
+                })}
+                {parseCapabilities((selectedSat as any).capabilities).length === 0 && (
+                  <div className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-tertiary)]">Hardware básico</div>
                 )}
               </div>
-              
-              <button 
-                onClick={toggleListening}
-                className={cn(
-                  "w-full py-3.5 font-bold rounded-xl transition-all transform select-none",
-                  isListening 
-                    ? "bg-emerald-500 text-black shadow-[0_0_20px_rgba(16,185,129,0.4)] scale-[0.98]" 
-                    : "bg-gradient-to-r from-brass-400 to-brass-600 hover:from-brass-300 hover:to-brass-500 text-obsidian-900 shadow-[0_0_20px_rgba(201,162,75,0.3)] hover:scale-[1.02]"
-                )}
-              >
-                {isListening ? "Parar Transmissão" : "Iniciar Áudio Ao Vivo (Toggle)"}
-              </button>
-              <p className="text-[10px] text-zinc-500 mt-3 text-center uppercase tracking-wider font-semibold">
-                Via WebSocket PCM 16kHz
-              </p>
-            </div>
-          </>
-        )}
-      </div>
 
+              <div className="mt-6 grid gap-4 xl:grid-cols-[1fr_1fr]">
+                <div className="alfredo-card p-5">
+                  <div className="flex items-center gap-2">
+                    <Volume2 className="h-4 w-4 text-brass-400" />
+                    <span className="alfredo-section-label">Volume</span>
+                    <span className="ml-auto font-mono text-[14px] font-semibold text-brass-300">{volume}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={volume}
+                    onChange={(e) => setVolume(parseInt(e.target.value))}
+                    onMouseUp={handleVolumeCommit}
+                    onTouchEnd={handleVolumeCommit}
+                    className="mt-4 w-full cursor-pointer appearance-none rounded-lg bg-white/10 accent-brass-500 h-1.5"
+                  />
+
+                  <div className="mt-5 flex items-center gap-2">
+                    <Sun className="h-4 w-4 text-brass-400" />
+                    <span className="alfredo-section-label">Brilho do LED</span>
+                    <span className="ml-auto font-mono text-[14px] font-semibold text-brass-300">{brightness}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={brightness}
+                    onChange={(e) => setBrightness(parseInt(e.target.value))}
+                    onMouseUp={handleBrightnessCommit}
+                    onTouchEnd={handleBrightnessCommit}
+                    className="mt-4 w-full cursor-pointer appearance-none rounded-lg bg-white/10 accent-brass-500 h-1.5"
+                  />
+                </div>
+
+                <div className="alfredo-card border-rose-500/10 bg-rose-500/[0.04] p-5">
+                  <div className="flex items-center gap-2 border-b border-rose-500/10 pb-3">
+                    <Activity className="h-4 w-4 text-rose-400" />
+                    <span className="alfredo-section-label text-rose-300">Mixer de áudio avançado</span>
+                  </div>
+
+                  <div className="mt-4 space-y-4">
+                    <div>
+                      <div className="mb-2 flex items-center justify-between text-[13px] text-[color:var(--text-secondary)]">
+                        <span className="flex items-center gap-2">ALSA Microfone</span>
+                        <span className="font-mono text-rose-400">{alsaCapture}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={alsaCapture}
+                        onChange={(e) => setAlsaCapture(parseInt(e.target.value))}
+                        onMouseUp={handleAlsaCaptureCommit}
+                        onTouchEnd={handleAlsaCaptureCommit}
+                        className="w-full cursor-pointer appearance-none rounded-lg bg-white/10 accent-rose-500 h-1.5"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="mb-2 flex items-center justify-between text-[13px] text-[color:var(--text-secondary)]">
+                        <span className="flex items-center gap-2">ALSA Alto-falante</span>
+                        <span className="font-mono text-rose-400">{alsaMaster}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={alsaMaster}
+                        onChange={(e) => setAlsaMaster(parseInt(e.target.value))}
+                        onMouseUp={handleAlsaMasterCommit}
+                        onTouchEnd={handleAlsaMasterCommit}
+                        className="w-full cursor-pointer appearance-none rounded-lg bg-white/10 accent-rose-500 h-1.5"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="mb-2 flex items-center justify-between text-[13px] text-[color:var(--text-secondary)]">
+                        <span className="flex items-center gap-2">Pré-amp digital</span>
+                        <span className="font-mono text-rose-400">{softwarePreamp.toFixed(1)}x</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="10"
+                        max="150"
+                        value={softwarePreamp * 10}
+                        onChange={(e) => setSoftwarePreamp(parseInt(e.target.value) / 10)}
+                        onMouseUp={handleSoftwarePreampCommit}
+                        onTouchEnd={handleSoftwarePreampCommit}
+                        className="w-full cursor-pointer appearance-none rounded-lg bg-white/10 accent-rose-500 h-1.5"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="relative mt-6 rounded-2xl border border-white/5 bg-black/20 p-6">
+                <div className={cn('absolute inset-0 pointer-events-none rounded-2xl bg-gradient-to-t', isListening ? 'from-emerald-500/10 to-transparent' : 'from-brass-500/5 to-transparent')} />
+                <div className="relative flex flex-col items-center">
+                  <div className={cn('mb-5 flex h-20 w-20 items-center justify-center rounded-full border-2', isListening ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-brass-500/20 text-brass-400')}>
+                    {!isListening ? (
+                      <Mic className="h-8 w-8" />
+                    ) : (
+                      <div className="flex h-8 items-end justify-center gap-1.5">
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <div
+                            key={i}
+                            className="w-1.5 rounded-full bg-emerald-400 animate-pulse"
+                            style={{
+                              height: `${Math.max(20, Math.random() * 100)}%`,
+                              animationDelay: `${i * 0.15}s`,
+                              animationDuration: '0.6s',
+                            }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={toggleListening}
+                    className={cn(
+                      'w-full rounded-2xl px-4 py-3.5 font-semibold transition-all',
+                      isListening
+                        ? 'bg-emerald-500 text-black shadow-[0_0_20px_rgba(16,185,129,0.35)] scale-[0.98]'
+                        : 'bg-gradient-to-r from-brass-400 to-brass-600 text-[color:var(--bg-base)] shadow-[0_0_20px_rgba(212,162,78,0.22)] hover:scale-[1.02]'
+                    )}
+                  >
+                    {isListening ? 'Parar transmissão' : 'Iniciar áudio ao vivo'}
+                  </button>
+                  <p className="mt-3 text-center text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--text-tertiary)]">
+                    Via WebSocket PCM 16kHz
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

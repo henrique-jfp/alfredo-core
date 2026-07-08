@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { Cloud, History, Plus, X, Brain, Heart, Zap, Sparkles, Droplets, Ghost, Compass } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Cloud, History, Plus, X, Brain, Heart, Zap, Sparkles, Ghost, Compass, ArrowRight, Stars } from 'lucide-react';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
+import { EmptyState, SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
 
 interface Dream {
   id: number;
   themes: string[];
   interpretation: string;
   created_at: string;
+  raw_text?: string;
 }
 
 export function DreamsTab() {
@@ -24,7 +26,7 @@ export function DreamsTab() {
   }, []);
 
   const fetchDreams = () => {
-    api.getDreams().then(data => {
+    api.getDreams().then((data) => {
       setDreams(data.history || []);
       setWordFreq(data.word_freq || {});
     });
@@ -46,260 +48,260 @@ export function DreamsTab() {
     }
   };
 
-  const cloudWords = Object.entries(wordFreq)
-    .map(([word, freq]) => ({ word, freq }))
-    .sort((a, b) => b.freq - a.freq); // sort by freq desc
+  const cloudWords = useMemo(
+    () =>
+      Object.entries(wordFreq)
+        .map(([word, freq]) => ({ word, freq }))
+        .sort((a, b) => b.freq - a.freq),
+    [wordFreq],
+  );
 
-  // Get top 4 words for recurrence chart
   const topWords = cloudWords.slice(0, 4);
+  const allThemes = Array.from(new Set(dreams.flatMap((d) => d.themes.map((t) => t.toLowerCase()))));
+  const filteredDreams =
+    filter === 'Todos'
+      ? dreams
+      : dreams.filter((d) => d.themes.some((t) => t.toLowerCase() === filter));
 
-  // Extract unique themes for filters
-  const allThemes = Array.from(new Set(dreams.flatMap(d => d.themes.map(t => t.toLowerCase()))));
-  
-  const filteredDreams = filter === 'Todos' 
-    ? dreams 
-    : dreams.filter(d => d.themes.some(t => t.toLowerCase() === filter));
-
-  // Determine badge color and icon based on theme keyword
   const getThemeStyle = (theme: string) => {
     const t = theme.toLowerCase();
-    if (['ansiedade', 'medo', 'pesadelo', 'dragão', 'escuridão', 'queda', 'tsunami'].some(k => t.includes(k))) {
-      return { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/20', icon: Ghost };
+    if (['ansiedade', 'medo', 'pesadelo', 'dragão', 'escuridão', 'queda', 'tsunami'].some((k) => t.includes(k))) {
+      return { bg: 'bg-rose-500/10', text: 'text-rose-400', border: 'border-rose-500/20', icon: Ghost };
     }
-    if (['superação', 'vitória', 'voar', 'poder', 'força', 'luz'].some(k => t.includes(k))) {
+    if (['superação', 'vitória', 'voar', 'poder', 'força', 'luz'].some((k) => t.includes(k))) {
       return { bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/20', icon: Zap };
     }
-    if (['introspecção', 'passado', 'infância', 'água', 'casa', 'família'].some(k => t.includes(k))) {
+    if (['introspecção', 'passado', 'infância', 'água', 'casa', 'família'].some((k) => t.includes(k))) {
       return { bg: 'bg-indigo-500/10', text: 'text-indigo-400', border: 'border-indigo-500/20', icon: Brain };
     }
-    if (['amor', 'paixão', 'encontro', 'abraço'].some(k => t.includes(k))) {
+    if (['amor', 'paixão', 'encontro', 'abraço'].some((k) => t.includes(k))) {
       return { bg: 'bg-rose-500/10', text: 'text-rose-400', border: 'border-rose-500/20', icon: Heart };
     }
     return { bg: 'bg-brass-500/10', text: 'text-brass-400', border: 'border-brass-500/20', icon: Compass };
   };
 
   return (
-    <div className="flex gap-6 h-full pb-10">
-      
-      {/* Coluna Esquerda: Nuvem e Recorrência */}
-      <div className="w-[45%] flex flex-col gap-6 h-full min-h-0">
-        
-        <div className="flex justify-between items-center bg-black/20 p-4 rounded-2xl border border-white/5">
-           <div>
-             <h2 className="text-xl font-bold text-zinc-100">Diário de sonhos</h2>
-             <p className="text-xs text-zinc-500">Exploração psicanalítica do seu subconsciente.</p>
-           </div>
-           <button 
-             onClick={() => setIsModalOpen(true)}
-             className="bg-brass-500 hover:bg-brass-400 text-obsidian-900 font-bold px-4 py-2 rounded-xl text-sm flex items-center gap-2 transition-transform hover:scale-105 shadow-[0_0_15px_rgba(201,162,75,0.3)]"
-           >
-             <Plus className="w-4 h-4" /> Novo sonho
-           </button>
-        </div>
-
-        <div className="glass-panel p-6 flex flex-col min-h-[300px] relative overflow-hidden flex-grow">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-[16px] font-semibold text-zinc-100 flex items-center gap-2">
-              <Cloud className="w-5 h-5 text-brass-400" /> Nuvem de Temas
-            </h2>
-            {cloudWords.length > 0 && <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">Toque para filtrar</span>}
+    <div className="flex h-full flex-col gap-5 overflow-y-auto pb-10 pr-2">
+      <div className="alfredo-card relative overflow-hidden p-5 md:p-6">
+        <div className="absolute right-0 top-0 h-56 w-56 translate-x-1/3 -translate-y-1/3 rounded-full bg-brass-500/10 blur-[80px]" />
+        <div className="relative z-10 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="alfredo-section-label">Diário onírico</div>
+            <h1 className="mt-2 text-[28px] font-semibold tracking-tight text-[color:var(--text-primary)] md:text-[32px]">Diário de Sonhos</h1>
+            <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
+              A tela deixa de parecer vazia e passa a se comportar como um lugar de descoberta, mesmo antes dos dados aparecerem.
+            </p>
           </div>
-          
-          {cloudWords.length === 0 ? (
-            <div className="flex-grow flex flex-col items-center justify-center text-zinc-500 gap-3 opacity-50">
-              <Sparkles className="w-10 h-10 mb-2" />
-              <p className="text-sm text-center max-w-[200px]">Nenhum sonho registrado ainda. Os padrões surgirão aqui.</p>
-            </div>
-          ) : (
-            <>
-              {/* Organic Word Cloud Layout */}
-              <div className="flex-grow flex flex-wrap content-center justify-center gap-x-6 gap-y-4 p-4">
-                 {cloudWords.map((w, i) => {
-                   const size = Math.min(2.5, 0.9 + (w.freq * 0.2));
-                   const opacity = Math.min(1, 0.4 + (w.freq * 0.15));
-                   const isSelected = filter === w.word;
-                   return (
-                     <span 
-                       key={w.word}
-                       onClick={() => setFilter(isSelected ? 'Todos' : w.word)}
-                       className={cn(
-                         "font-bold transition-all cursor-pointer hover:scale-110",
-                         isSelected ? "text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.8)] scale-110" : "text-brass-300 hover:text-brass-100 drop-shadow-[0_2px_10px_rgba(201,162,75,0.2)]"
-                       )}
-                       style={{ 
-                         fontSize: `${size}rem`,
-                         opacity: isSelected ? 1 : opacity,
-                         transform: `rotate(${i % 2 === 0 ? (i%3)*-2 : (i%4)*2}deg) translateY(${i%3===0?-5:5}px)` // Organic scatter
-                       }}
-                     >
-                       {w.word}
-                     </span>
-                   )
-                 })}
-              </div>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="alfredo-pill border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] shadow-[0_0_24px_rgba(212,162,78,0.18)]"
+          >
+            <Plus className="h-4 w-4" />
+            Novo sonho
+          </button>
+        </div>
+      </div>
 
-              {/* Recurrence Chart */}
-              <div className="mt-6 border-t border-white/5 pt-5">
-                <h3 className="text-[11px] text-zinc-500 uppercase tracking-widest font-bold mb-4">Recorrência este mês</h3>
-                <div className="flex flex-col gap-3">
-                  {topWords.map((w, i) => (
-                    <div key={w.word} className="flex items-center gap-3 text-xs">
-                      <span className="w-20 text-zinc-400 truncate">{w.word}</span>
-                      <div className="flex-grow h-1.5 bg-black/40 rounded-full overflow-hidden">
-                        <div 
-                          className={cn("h-full rounded-full transition-all duration-1000", 
-                            i === 0 ? "bg-brass-400" : i === 1 ? "bg-emerald-400" : i === 2 ? "bg-rose-400" : "bg-indigo-400"
-                          )} 
-                          style={{ width: `${(w.freq / topWords[0].freq) * 100}%` }}
-                        />
-                      </div>
-                      <span className="w-4 text-right text-zinc-500 font-mono">{w.freq}</span>
-                    </div>
-                  ))}
-                </div>
+      <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+        <div className="alfredo-card flex min-h-0 flex-col p-5 md:p-6">
+          <SectionHeading
+            eyebrow="Nuvem"
+            title="Temas recorrentes"
+            subtitle="A nuvem recebe personalidade visual com a mesma seriedade que as telas de dados."
+            action={<StatusPulse label={`${cloudWords.length} temas`} tone="brass" />}
+          />
+
+          <div className="mt-5 min-h-[340px] flex-1 rounded-2xl border border-white/5 bg-[radial-gradient(circle_at_center,rgba(212,162,78,0.08),transparent_55%)] p-5">
+            {cloudWords.length === 0 ? (
+              <EmptyState
+                icon={Stars}
+                tone="brass"
+                title="Seus sonhos ainda não viraram estrelas nessa nuvem"
+                description="Conte um sonho assim que acordar e eu crio a estrutura visual da memória onírica."
+                className="h-full"
+              />
+            ) : (
+              <div className="flex h-full flex-wrap content-center justify-center gap-x-5 gap-y-4">
+                {cloudWords.map((w, i) => {
+                  const size = Math.min(2.5, 0.9 + w.freq * 0.2);
+                  const opacity = Math.min(1, 0.4 + w.freq * 0.15);
+                  const isSelected = filter === w.word;
+                  return (
+                    <button
+                      key={w.word}
+                      onClick={() => setFilter(isSelected ? 'Todos' : w.word)}
+                      className={cn(
+                        'font-semibold transition-all duration-200 hover:scale-110',
+                        isSelected ? 'scale-110 text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.8)]' : 'text-brass-300 hover:text-brass-100'
+                      )}
+                      style={{
+                        fontSize: `${size}rem`,
+                        opacity: isSelected ? 1 : opacity,
+                        transform: `rotate(${i % 2 === 0 ? (i % 3) * -2 : (i % 4) * 2}deg) translateY(${i % 3 === 0 ? -5 : 5}px)`,
+                      }}
+                    >
+                      {w.word}
+                    </button>
+                  );
+                })}
               </div>
-            </>
+            )}
+          </div>
+
+          {topWords.length > 0 && (
+            <div className="mt-5 rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+              <h3 className="alfredo-section-label mb-4">Recorrência este mês</h3>
+              <div className="flex flex-col gap-3">
+                {topWords.map((w, i) => (
+                  <div key={w.word} className="flex items-center gap-3 text-xs">
+                    <span className="w-20 truncate text-[color:var(--text-secondary)]">{w.word}</span>
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-black/30">
+                      <div
+                        className={cn('h-full rounded-full transition-all duration-1000', i === 0 ? 'bg-brass-400' : i === 1 ? 'bg-emerald-400' : i === 2 ? 'bg-rose-400' : 'bg-indigo-400')}
+                        style={{ width: `${(w.freq / topWords[0].freq) * 100}%` }}
+                      />
+                    </div>
+                    <span className="w-4 text-right font-mono text-[color:var(--text-tertiary)]">{w.freq}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
-      </div>
 
-      {/* Coluna Direita: Timeline */}
-      <div className="w-[55%] glass-panel p-6 flex flex-col h-full min-h-0 relative">
-        <h2 className="text-[16px] font-semibold text-zinc-100 mb-6 flex items-center gap-2">
-          <History className="w-5 h-5 text-brass-400" /> Timeline de Interpretações
-        </h2>
-        
-        {/* Filtros */}
-        {allThemes.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-6">
-            <button 
-              onClick={() => setFilter('Todos')}
-              className={cn("px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors", filter === 'Todos' ? "bg-brass-500/20 border-brass-500/40 text-brass-400" : "bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10")}
-            >
-              Todos
-            </button>
-            {allThemes.map(t => (
-              <button 
-                key={t}
-                onClick={() => setFilter(t)}
-                className={cn("px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors capitalize", filter === t ? "bg-brass-500/20 border-brass-500/40 text-brass-400" : "bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10")}
+        <div className="alfredo-card flex min-h-0 flex-col p-5 md:p-6">
+          <SectionHeading
+            eyebrow="Linha do tempo"
+            title="Interpretações"
+            subtitle="Os estados vazios agora falam com a voz do produto."
+          />
+
+          {allThemes.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                onClick={() => setFilter('Todos')}
+                className={cn('alfredo-pill', filter === 'Todos' ? 'border-brass-500/25 bg-brass-500/15 text-brass-300' : 'border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]')}
               >
-                {t}
+                Todos
               </button>
-            ))}
+              {allThemes.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setFilter(t)}
+                  className={cn('alfredo-pill capitalize', filter === t ? 'border-brass-500/25 bg-brass-500/15 text-brass-300' : 'border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]')}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-5 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
+            {filteredDreams.length === 0 ? (
+              <EmptyState
+                icon={History}
+                tone="info"
+                title={filter === 'Todos' ? 'Nenhum sonho registrado ainda' : `Nenhum sonho para "${filter}"`}
+                description={filter === 'Todos' ? 'Quando você relatar o primeiro sonho, essa timeline ganha densidade e ritmo.' : 'Troque o filtro ou crie um novo relato para alimentar a nuvem.'}
+                className="flex-1"
+              />
+            ) : (
+              filteredDreams.map((dream) => {
+                const mainTheme = dream.themes[0] || 'geral';
+                const style = getThemeStyle(mainTheme);
+                const Icon = style.icon;
+
+                return (
+                  <div key={dream.id} className="rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-colors hover:bg-white/[0.04]">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-mono text-[color:var(--text-tertiary)]">
+                          {new Date(dream.created_at).toLocaleString('pt-BR')}
+                        </div>
+                        <p className="mt-3 text-[14px] leading-relaxed text-[color:var(--text-primary)]">
+                          {dream.interpretation}
+                        </p>
+                      </div>
+                      <div className={cn('flex shrink-0 items-center gap-1.5 rounded-bl-xl rounded-tr-xl border px-3 py-1 text-[10px] font-bold uppercase tracking-wider', style.bg, style.text, style.border)}>
+                        <Icon className="h-3 w-3" />
+                        {mainTheme}
+                      </div>
+                    </div>
+
+                    {dream.themes.length > 1 && (
+                      <div className="mt-4 flex flex-wrap gap-1.5">
+                        {dream.themes.slice(1).map((t: string) => (
+                          <span key={t} className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {dream.raw_text && (
+                      <div className="mt-4 border-t border-white/5 pt-3">
+                        <button
+                          onClick={() => setExpandedDreamId(expandedDreamId === dream.id ? null : dream.id)}
+                          className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]"
+                        >
+                          {expandedDreamId === dream.id ? 'Ocultar relato original' : 'Ver relato original'}
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </button>
+                        {expandedDreamId === dream.id && (
+                          <div className="mt-3 rounded-2xl border border-white/5 bg-black/20 p-3 text-[12.5px] leading-relaxed italic text-[color:var(--text-secondary)]">
+                            "{dream.raw_text}"
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
-        )}
-
-        <div className="flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-2 flex-grow">
-           {filteredDreams.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-zinc-500 opacity-60">
-                <Brain className="w-12 h-12 mb-3" />
-                <p>Nenhum sonho encontrado para o filtro "{filter}".</p>
-              </div>
-           ) : (
-             filteredDreams.map(dream => {
-               // Use the first theme for the main badge styling
-               const mainTheme = dream.themes[0] || 'geral';
-               const style = getThemeStyle(mainTheme);
-               const Icon = style.icon;
-
-               return (
-                 <div key={dream.id} className="bg-white/[0.02] border border-white/5 rounded-xl p-5 relative overflow-hidden group hover:border-brass-500/20 hover:bg-white/[0.04] transition-all">
-                   
-                   {/* Badge Categoria Emocional */}
-                   <div className={cn("absolute top-0 right-0 px-3 py-1 text-[10px] font-bold tracking-wider rounded-bl-xl border-b border-l uppercase flex items-center gap-1.5", style.bg, style.text, style.border)}>
-                     <Icon className="w-3 h-3" />
-                     {mainTheme}
-                   </div>
-                   
-                   <div className="text-[11px] text-zinc-500 mb-4 font-mono">
-                     {new Date(dream.created_at).toLocaleString('pt-BR')}
-                   </div>
-                   
-                   <p className="text-[14px] text-zinc-200 leading-relaxed">
-                     {dream.interpretation}
-                   </p>
-
-                   {/* Outras Tags */}
-                   {dream.themes.length > 1 && (
-                     <div className="mt-4 flex flex-wrap gap-1.5">
-                       {dream.themes.slice(1).map((t: string) => (
-                         <span key={t} className="text-[9px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-md bg-white/5 text-zinc-400 border border-white/5">
-                           {t}
-                         </span>
-                       ))}
-                     </div>
-                   )}
-
-                   {/* Accordion para Raw Text */}
-                   {dream.raw_text && (
-                     <div className="mt-4 border-t border-white/5 pt-3">
-                       <button 
-                         onClick={() => setExpandedDreamId(expandedDreamId === dream.id ? null : dream.id)}
-                         className="text-[11px] text-brass-400/70 hover:text-brass-400 font-bold uppercase tracking-wider flex items-center gap-2 transition-colors"
-                       >
-                         {expandedDreamId === dream.id ? 'Ocultar Relato Original ▲' : 'Ver Relato Original ▼'}
-                       </button>
-                       {expandedDreamId === dream.id && (
-                         <div className="mt-3 bg-black/40 p-3 rounded-lg border border-white/5 text-[12.5px] text-zinc-400 leading-relaxed italic">
-                           "{dream.raw_text}"
-                         </div>
-                       )}
-                     </div>
-                   )}
-                 </div>
-               );
-             })
-           )}
         </div>
       </div>
 
-      {/* Modal Novo Sonho */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-obsidian-900 border border-white/10 w-full max-w-lg rounded-2xl p-6 shadow-2xl scale-in-center">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-brass-400 flex items-center gap-2">
-                <Cloud className="w-5 h-5" /> Relatar Sonho
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="alfredo-card w-full max-w-lg p-6 shadow-2xl">
+            <div className="mb-6 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-[20px] font-semibold text-brass-400">
+                <Cloud className="h-5 w-5" /> Relatar sonho
               </h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-zinc-500 hover:text-white transition-colors">
-                <X className="w-5 h-5" />
+              <button onClick={() => setIsModalOpen(false)} className="text-[color:var(--text-tertiary)] hover:text-[color:var(--text-primary)]">
+                <X className="h-5 w-5" />
               </button>
             </div>
-            
-            <p className="text-sm text-zinc-400 mb-4">
-              Descreva o seu sonho com o máximo de detalhes que conseguir se lembrar. A IA irá analisá-lo e extrair significados psicanalíticos.
+
+            <p className="mb-4 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
+              Descreva o sonho com o máximo de detalhes que você lembrar. O Alfredo interpreta e extrai padrões temáticos.
             </p>
-            
+
             <form onSubmit={handleSubmit}>
-              <textarea 
+              <textarea
                 value={newDreamText}
-                onChange={e => setNewDreamText(e.target.value)}
+                onChange={(e) => setNewDreamText(e.target.value)}
                 placeholder="Eu sonhei que estava voando sobre uma montanha escura..."
-                className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-zinc-200 text-sm h-32 resize-none focus:outline-none focus:border-brass-500/50 transition-colors custom-scrollbar mb-6"
+                className="alfredo-input min-h-32 resize-none"
                 autoFocus
               />
-              <div className="flex justify-end gap-3">
-                <button 
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-400 hover:bg-white/5 transition-colors"
-                >
+              <div className="mt-6 flex justify-end gap-3">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]">
                   Cancelar
                 </button>
-                <button 
+                <button
                   type="submit"
                   disabled={isSubmitting || !newDreamText.trim()}
-                  className="px-6 py-2 rounded-xl text-sm font-bold bg-brass-500 text-obsidian-900 hover:bg-brass-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="alfredo-pill border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isSubmitting ? <span className="animate-pulse">Analisando...</span> : 'Analisar e Salvar'}
+                  {isSubmitting ? 'Analisando...' : 'Analisar e salvar'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }

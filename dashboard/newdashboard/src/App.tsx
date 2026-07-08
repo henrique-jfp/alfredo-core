@@ -52,7 +52,7 @@ export default function App() {
   const currentHeaders = getTabTitle(activeTab);
 
   return (
-    <div className="flex flex-col md:flex-row h-[100dvh] w-full bg-obsidian-900 text-zinc-100 overflow-hidden selection:bg-brass-500/30">
+    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-[color:var(--bg-base)] text-[color:var(--text-primary)] selection:bg-[rgba(212,162,78,0.28)]">
       {isServerMode && (
         <VirtualKeyboard onHeightChange={setKeyboardHeight} />
       )}
@@ -60,7 +60,7 @@ export default function App() {
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
       
       <main 
-        className="flex-grow flex flex-col pt-6 px-4 md:px-8 min-w-0 relative z-10 transition-all duration-300 ease-out"
+        className="relative z-10 flex min-w-0 flex-grow flex-col px-4 pt-4 transition-all duration-300 ease-out md:px-8 md:pt-6"
         style={{
           paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined,
           height: '100dvh'
@@ -68,8 +68,8 @@ export default function App() {
       >
         <Topbar title={currentHeaders.title} subtitle={currentHeaders.sub} />
         
-        <div className="flex-grow min-h-0 relative">
-          <div className="absolute inset-0 animate-in fade-in duration-500 overflow-y-auto overflow-x-hidden md:pb-6 pb-24">
+        <div className="relative min-h-0 flex-grow">
+          <div className="absolute inset-0 overflow-x-hidden overflow-y-auto pb-28 md:pb-6 fade-up">
             {activeTab === 'visao-geral' && <OverviewTab />}
             {activeTab === 'dispositivos' && <DevicesTab />}
             {activeTab === 'integracoes' && <IntegrationsTab />}
