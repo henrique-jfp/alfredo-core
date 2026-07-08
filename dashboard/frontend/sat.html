@@ -65,7 +65,8 @@
                 processor.connect(context.destination);
                 
                 // Conecta usando o ID mágico que diz pro servidor mandar o áudio inteiro e não quebrado
-                ws = new WebSocket("ws://" + window.location.host + "/api/ws/satellite/dashboard-virtual-mic");
+                const wsProtocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+                ws = new WebSocket(wsProtocol + window.location.host + "/api/ws/satellite/dashboard-virtual-mic");
                 ws.binaryType = "arraybuffer";
                 
                 ws.onopen = () => {
