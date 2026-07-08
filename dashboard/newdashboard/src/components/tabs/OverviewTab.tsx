@@ -412,11 +412,11 @@ export function OverviewTab() {
                       <span className="truncate">{item.room_id} • {item.device_id}</span>
                       <div className="flex flex-col items-end gap-1 text-right">
                         <span>{rioTime}</span>
-                        {isLatest && lastCommandLatencyMs !== null && (
+                        {(item.latency_ms || (isLatest ? lastCommandLatencyMs : null)) ? (
                           <span className="rounded-full border border-white/5 bg-black/30 px-2 py-0.5 text-[9px] tracking-[0.16em] text-[color:var(--text-secondary)]">
-                            Latência {lastCommandLatencyMs} ms
+                            Latência {item.latency_ms || lastCommandLatencyMs} ms
                           </span>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                     <div className="mt-3 flex gap-3">

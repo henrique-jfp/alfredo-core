@@ -1,15 +1,14 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html>
 <head>
     <meta charset="utf-8">
-    <title>Satélite M21s (Appliance)</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
-    <meta name="theme-color" content="#000000">
+    <title>Satélite M21s</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { 
             background-color: #000; 
             color: #fff; 
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            font-family: Arial, sans-serif; 
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -18,150 +17,139 @@
             margin: 0;
             overflow: hidden;
         }
-        #btn { 
-            padding: 20px 40px; 
-            font-size: 20px; 
+        button { 
+            padding: 25px 40px; 
+            font-size: 24px; 
             font-weight: bold;
-            background: #222; 
-            color: #aaa; 
-            border: 2px solid #333; 
+            background: #ff5e00; 
+            color: white; 
+            border: none; 
             border-radius: 50px; 
             cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255, 94, 0, 0.4);
             transition: 0.3s;
             z-index: 10;
         }
-        #btn:active { transform: scale(0.95); }
-        
-        #visualizer {
+        button:active { transform: scale(0.95); }
+        #status { 
+            margin-top: 30px; 
+            font-size: 18px; 
+            color: #888; 
+            text-align: center;
+            padding: 0 20px;
+            z-index: 10;
+        }
+        #error-log {
+            color: #ff5555;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 14px;
+            z-index: 10;
+        }
+        /* Animação de pulso para mostrar que está vivo */
+        .orb {
             position: absolute;
             width: 150px;
             height: 150px;
             border-radius: 50%;
-            background: transparent;
-            border: 4px solid transparent;
-            transition: all 0.5s ease-in-out;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            background: radial-gradient(circle, rgba(0,255,136,0.8) 0%, rgba(0,255,136,0) 70%);
+            opacity: 0;
+            transition: opacity 0.5s;
+            pointer-events: none;
+            animation: pulse 2s infinite alternate;
         }
-        
-        /* Estado Escutando / Animação Wake Word */
-        .listening {
-            border-color: rgba(0, 255, 136, 0.8) !important;
-            box-shadow: 0 0 40px rgba(0, 255, 136, 0.4), inset 0 0 20px rgba(0, 255, 136, 0.2);
-            animation: pulse 1.5s infinite alternate;
-        }
-        
-        /* Estado Falando */
-        .speaking {
-            border-color: rgba(0, 153, 255, 0.8) !important;
-            box-shadow: 0 0 50px rgba(0, 153, 255, 0.5), inset 0 0 30px rgba(0, 153, 255, 0.3);
-            animation: pulseFast 0.5s infinite alternate;
-        }
-        
         @keyframes pulse {
-            0% { transform: scale(1); opacity: 0.8; }
-            100% { transform: scale(1.1); opacity: 1; }
+            0% { transform: scale(0.9); opacity: 0.2; }
+            100% { transform: scale(1.2); opacity: 0.6; }
         }
-        @keyframes pulseFast {
-            0% { transform: scale(1); opacity: 0.7; }
-            100% { transform: scale(1.15); opacity: 1; }
+        .speaking {
+            background: radial-gradient(circle, rgba(255,94,0,0.8) 0%, rgba(255,94,0,0) 70%) !important;
+            animation: pulse-fast 0.5s infinite alternate !important;
         }
-
-        #status { 
-            position: absolute;
-            bottom: 30px; 
-            font-size: 14px; 
-            color: #444; 
-            text-align: center;
+        @keyframes pulse-fast {
+            0% { transform: scale(1); opacity: 0.5; }
+            100% { transform: scale(1.5); opacity: 1; }
         }
     </style>
 </head>
 <body>
-    <div id="visualizer"></div>
-    <button id="btn" onclick="startSatellite()">TOCAR PARA INICIAR</button>
-    <div id="status">Desconectado</div>
+    <div class="orb" id="orb"></div>
+    <button id="btn" onclick="startSatellite()">🚀 Ativar Satélite</button>
+    <div id="status">Aguardando ativação...</div>
+    <div id="error-log"></div>
 
     <script>
         let ws;
         let context;
-        let isPlaying = false;
-        let reconnectTimeout;
-        let isStarted = false;
+        // Variáveis GLOBAIS obrigatórias para o Chrome não matar o microfone (Garbage Collection bug)
+        let globalStream;
+        let globalSource;
+        let globalProcessor;
         
-        const btn = document.getElementById('btn');
-        const statusLabel = document.getElementById('status');
-        const visualizer = document.getElementById('visualizer');
-        
-        function setUIState(state) {
-            visualizer.className = '';
-            if (state === 'listening') {
-                visualizer.classList.add('listening');
-            } else if (state === 'speaking') {
-                visualizer.classList.add('speaking');
-            }
+        function logError(msg, err) {
+            console.error(msg, err);
+            document.getElementById('error-log').innerText += msg + (err ? ": " + err : "") + "\n";
+            document.getElementById('btn').style.display = 'block';
         }
 
         async function startSatellite() {
-            if (isStarted && ws && ws.readyState === WebSocket.OPEN) return;
-            isStarted = true;
+            const btn = document.getElementById('btn');
+            const statusLabel = document.getElementById('status');
+            const orb = document.getElementById('orb');
             
             btn.style.display = 'none';
-            statusLabel.innerText = "Iniciando hardware de áudio...";
-            clearTimeout(reconnectTimeout);
+            document.getElementById('error-log').innerText = ""; 
+            statusLabel.innerText = "Pedindo permissão do Microfone...";
             
-            try {
-                await fetch('/api/devices/register', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        device_id: 'dashboard-virtual-mic',
-                        room_id: 'ROOM_BEDROOM',
-                        hardware: 'web-browser',
-                        firmware_version: '1.0.0',
-                        capabilities: ['microphone', 'speaker']
-                    })
-                });
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                logError("Seu navegador não suporta microfone.");
+                return;
+            }
 
-                const stream = await navigator.mediaDevices.getUserMedia({
+            try {
+                globalStream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         echoCancellation: true,
                         noiseSuppression: true,
                         autoGainControl: true
                     }
                 });
-                statusLabel.innerText = "Conectando ao servidor...";
                 
-                context = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
-                const source = context.createMediaStreamSource(stream);
-                const processor = context.createScriptProcessor(4096, 1, 1);
+                statusLabel.innerText = "Microfone OK. Conectando ao cérebro...";
                 
-                source.connect(processor);
-                processor.connect(context.destination);
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                context = new AudioCtx({sampleRate: 16000});
+                
+                globalSource = context.createMediaStreamSource(globalStream);
+                globalProcessor = context.createScriptProcessor(4096, 1, 1);
+                
+                globalSource.connect(globalProcessor);
+                globalProcessor.connect(context.destination);
                 
                 const wsProtocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-                ws = new WebSocket(wsProtocol + window.location.host + "/api/ws/satellite/dashboard-virtual-mic");
+                const wsUrl = wsProtocol + window.location.host + "/api/ws/satellite/dashboard-virtual-mic";
+                
+                ws = new WebSocket(wsUrl);
                 ws.binaryType = "arraybuffer";
                 
                 ws.onopen = () => {
-                    statusLabel.innerText = "Satélite Online (AMOLED Black)";
-                    statusLabel.style.color = "#222"; // Muito escuro para não atrapalhar à noite
+                    statusLabel.innerHTML = "<h2 style='color:#00ff00'>Ouvindo...</h2><p>Pode falar a Wake Word.</p>";
+                    orb.style.opacity = "1"; // Liga a luz verde
                 };
                 
                 ws.onclose = () => {
-                    statusLabel.innerText = "Conexão perdida. Reconectando em 5s...";
-                    statusLabel.style.color = "red";
-                    setUIState('idle');
-                    ws = null;
-                    reconnectTimeout = setTimeout(startSatellite, 5000);
+                    statusLabel.innerHTML = "<h2 style='color:red'>🔴 Caiu a conexão.</h2><p>Recarregue a página.</p>";
+                    btn.style.display = 'block';
+                    btn.innerText = "Reconectar";
+                    orb.style.opacity = "0";
                 };
                 
                 ws.onerror = (err) => {
-                    console.error("Erro no WebSocket", err);
+                    logError("Erro na conexão WebSocket.", "");
                 };
                 
-                processor.onaudioprocess = (e) => {
-                    if (ws && ws.readyState === WebSocket.OPEN && !isPlaying) {
+                globalProcessor.onaudioprocess = (e) => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
                         const float32Array = e.inputBuffer.getChannelData(0);
                         const int16Array = new Int16Array(float32Array.length);
                         for (let i = 0; i < float32Array.length; i++) {
@@ -174,57 +162,32 @@
                 
                 ws.onmessage = async (e) => {
                     if (e.data instanceof ArrayBuffer) {
-                        // Recebendo áudio para tocar
                         try {
-                            isPlaying = true;
-                            setUIState('speaking');
+                            orb.classList.add("speaking"); // Muda a luz para laranja/rápido
+                            statusLabel.innerHTML = "<h2 style='color:#ff5e00'>Falando...</h2>";
+                            
                             const audioBuffer = await context.decodeAudioData(e.data);
                             const playSource = context.createBufferSource();
                             playSource.buffer = audioBuffer;
                             playSource.connect(context.destination);
+                            
                             playSource.onended = () => {
-                                setTimeout(() => { 
-                                    isPlaying = false; 
-                                    setUIState('idle');
-                                }, 500); // Cooldown após falar
+                                orb.classList.remove("speaking"); // Volta pra verde
+                                statusLabel.innerHTML = "<h2 style='color:#00ff00'>Ouvindo...</h2><p>Pode falar a Wake Word.</p>";
                             };
+                            
                             playSource.start();
                         } catch (err) {
-                            console.error("Erro ao tocar resposta", err);
-                            isPlaying = false;
-                            setUIState('idle');
+                            logError("Erro ao tocar áudio", err);
                         }
-                    } else if (typeof e.data === "string") {
-                        // Recebendo JSON/Eventos do Servidor
-                        try {
-                            const msg = JSON.parse(e.data);
-                            if (msg.type === "WAKE_WORD_DETECTED") {
-                                setUIState('listening');
-                                // Se não tocar áudio logo em seguida, volta pro idle após alguns segundos
-                                setTimeout(() => {
-                                    if (!isPlaying) setUIState('idle');
-                                }, 4000);
-                            }
-                        } catch (err) { }
                     }
                 };
                 
             } catch (err) {
-                statusLabel.innerText = "Erro: " + err.message;
-                statusLabel.style.color = "red";
-                btn.style.display = 'block';
-                isStarted = false;
-                // Em modo kiosk, tenta de novo mesmo se der erro (pode ser delay do SO)
-                reconnectTimeout = setTimeout(startSatellite, 10000);
+                logError("Erro Crítico", err.message);
+                statusLabel.innerText = "Falha ao iniciar. Permita o microfone!";
             }
         }
-
-        // Tenta auto-iniciar. Browsers em modo Kiosk ou se já teve permissão antes podem permitir.
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                if (!isStarted) startSatellite();
-            }, 1000);
-        });
     </script>
 </body>
 </html>

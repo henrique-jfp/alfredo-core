@@ -13,6 +13,7 @@ export interface HistoryItem {
   timestamp: string;
   input_text: string;
   output_text: string;
+  latency_ms?: number;
 }
 
 export interface ListItem {

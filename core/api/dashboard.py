@@ -19,8 +19,22 @@ class CommandPayload(BaseModel):
 def send_command(payload: CommandPayload, db: Session = Depends(get_db)):
     from core.brain.router import AgentRouter
     agent = AgentRouter()
+    
+    start_time = time.time()
     context = {"db": db, "room_id": "dashboard", "device_id": "dashboard", "ws_tasks": []}
     response = agent.process(payload.command, context)
+    latency = int((time.time() - start_time) * 1000)
+    
+    interaction = models.Interaction(
+        device_id="dashboard",
+        room_id="dashboard",
+        input_text=payload.command,
+        output_text=response,
+        latency_ms=latency
+    )
+    db.add(interaction)
+    db.commit()
+    
     return {"status": "success", "response": response}
 
 @router.get("/stats")
@@ -107,6 +121,7 @@ def get_history(limit: int = 15, db: Session = Depends(get_db)):
             "device_id": item.device_id,
             "input_text": item.input_text,
             "output_text": item.output_text,
+            "latency_ms": item.latency_ms,
             "timestamp": item.timestamp.isoformat() if item.timestamp else None
         } for item in history
     ]

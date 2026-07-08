@@ -33,8 +33,8 @@ class Interaction(Base):
     room_id = Column(String, nullable=False)
     # input_text ficará vazio inicialmente até o Vosk processar
     input_text = Column(String, nullable=True) 
-    # output_text preenchido pelo router/IA
     output_text = Column(String, nullable=True) 
+    latency_ms = Column(Integer, nullable=True, default=0)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
 class AIUsage(Base):

@@ -105,10 +105,12 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
                 
             # Salvar no DB usando uma NOVA sessão para evitar detached instance / lock errors
             try:
+                latency = int((_time.time() - t_pipeline_start) * 1000)
                 with SessionLocal() as new_db:
                     inter = new_db.query(models.Interaction).filter(models.Interaction.id == interaction_id).first()
                     if inter:
                         inter.output_text = full_text.strip()
+                        inter.latency_ms = latency
                         new_db.commit()
             except Exception as e:
                 logger.error(f"Erro ao salvar interação final: {e}")
