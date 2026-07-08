@@ -51,19 +51,28 @@ class TVSkill:
         
         # Verifica o status atual antes de agir
         tv_info = tv.get_status()
-        is_on = tv_info.get("status") != "offline"
+        power_state = tv_info.get("device", {}).get("PowerState", "unknown")
+        
+        # Se a TV estiver respondendo via rede mas em standby, power_state será "standby"
+        # Se ela não responder a nada, tv_info["status"] será "offline"
+        is_on = power_state == "on"
+        is_offline = tv_info.get("status") == "offline"
         
         if action == "power_on":
             if is_on:
                 return "A TV já está ligada."
                 
-            if not tv.power_on():
-                # Se não tem SmartThings nem MAC configurado, tenta mandar a tecla pelo WebSocket (pode falhar se a TV estiver totalmente desligada)
+            # Se a TV estiver offline, o SmartThings/WOL deve acordar a TV via rede
+            tv.power_on()
+            
+            # Se ela estiver em standby mas respondendo à rede (is_offline == False), o KEY_POWER liga a tela
+            if not is_offline:
                 tv.send_key("KEY_POWER")
+                
             return "Ligando a TV."
             
         elif action == "power_off":
-            if not is_on:
+            if is_offline or power_state == "standby":
                 return "A TV já está desligada."
                 
             tv.send_key("KEY_POWER")

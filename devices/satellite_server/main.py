@@ -103,7 +103,7 @@ stream_queue: queue.Queue = queue.Queue(maxsize=5)
 ws_instance = None
 
 # Pre-amp de software controlável
-SOFTWARE_MULTIPLIER = 1.0
+SOFTWARE_MULTIPLIER = 4.0
 
 # Variáveis de calibração do Noise Gate
 is_calibrated = False
@@ -478,8 +478,8 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
         recording_buffer = bytearray(recording_buffer[offset:])
 
         total_frames = len(full_audio_buffer) // 320
-        # 150 frames de 10ms = 1.5s de silêncio após a fala
-        max_silence = int(1.5 * RATE / 160)
+        # 80 frames de 10ms = 0.8s de silêncio após a fala (para responder mais rápido)
+        max_silence = int(0.8 * RATE / 160)
         timeout_frames = int(20 * RATE / 160) if _session_mode else int(5 * RATE / 160)
         max_total = int(15 * RATE / 160)
 

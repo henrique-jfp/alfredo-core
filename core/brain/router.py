@@ -893,27 +893,21 @@ class AgentRouter:
         
         response = await chat.send_message_async(text, stream=True)
         
-        buffer = ""
-        first_chunk = False
-        is_tool = False
-        
-        tool_name = None
-        tool_args = None
+        tool_calls_to_execute = []
         
         try:
             async for chunk in response:
-                has_func = False
                 try:
-                    if chunk.parts and chunk.parts[0].function_call:
-                        has_func = True
+                    if chunk.parts:
+                        for part in chunk.parts:
+                            if part.function_call:
+                                is_tool = True
+                                tool_calls_to_execute.append({
+                                    "name": part.function_call.name,
+                                    "args": type(part.function_call).to_dict(part.function_call).get("args", {})
+                                })
                 except Exception:
                     pass
-
-                if has_func:
-                    is_tool = True
-                    tool_name = chunk.parts[0].function_call.name
-                    tool_args = type(chunk.parts[0].function_call).to_dict(chunk.parts[0].function_call).get("args", {})
-                    break
 
                 chunk_text = ""
                 try:
@@ -937,81 +931,99 @@ class AgentRouter:
             if not first_chunk:
                 yield "Tive uma pequena falha nos meus circuitos, mas já estou de volta."
 
-        if is_tool and tool_name:
-            logger.info(f"Tool Call detectado no stream: {tool_name} ({time.time() - t_start:.2f}s). Executando...")
-            skill = self.skills.get(tool_name)
-            if skill:
-                if hasattr(skill, "execute_tool"):
-                    tool_result_obj = await asyncio.to_thread(skill.execute_tool, tool_args, context)
-                else:
-                    tool_result_obj = await asyncio.to_thread(skill.execute, text, context)
+        if is_tool and tool_calls_to_execute:
+            tool_responses_list = []
+            direct_response_accumulated = ""
+            
+            for t_call in tool_calls_to_execute:
+                t_name = t_call["name"]
+                t_args = t_call["args"]
+                logger.info(f"Tool Call detectado no stream: {t_name} ({time.time() - t_start:.2f}s). Executando...")
+                
+                skill = self.skills.get(t_name)
+                tool_result_obj = None
+                if skill:
+                    if hasattr(skill, "execute_tool"):
+                        tool_result_obj = await asyncio.to_thread(skill.execute_tool, t_args, context)
+                    else:
+                        tool_result_obj = await asyncio.to_thread(skill.execute, text, context)
 
-                # Persist session state if skill returned session data
-                if isinstance(tool_result_obj, dict):
-                    session_data = tool_result_obj.get("session")
-                    if session_data is not None and db and room_id:
-                        from datetime import datetime, timezone
-                        existing = db.query(models.SessionState).filter(
-                            models.SessionState.room_id == room_id
-                        ).first()
-                        if session_data.get("end"):
-                            if existing:
-                                db.delete(existing)
-                                db.commit()
-                                logger.info(f"Sessão encerrada para sala {room_id}")
-                        else:
-                            if existing:
-                                existing.skill_name = tool_name
-                                existing.state_data = json.dumps(session_data.get("params", {}))
-                                existing.updated_at = datetime.now(timezone.utc)
+                    # Persist session state if skill returned session data
+                    if isinstance(tool_result_obj, dict):
+                        session_data = tool_result_obj.get("session")
+                        if session_data is not None and db and room_id:
+                            from datetime import datetime, timezone
+                            existing = db.query(models.SessionState).filter(
+                                models.SessionState.room_id == room_id
+                            ).first()
+                            if session_data.get("end"):
+                                if existing:
+                                    db.delete(existing)
+                                    db.commit()
+                                    logger.info(f"Sessão encerrada para sala {room_id}")
                             else:
-                                new_session = models.SessionState(
-                                    room_id=room_id,
-                                    skill_name=tool_name,
-                                    state_data=json.dumps(session_data.get("params", {}))
-                                )
-                                db.add(new_session)
-                            db.commit()
-                            logger.info(f"Sessão salva para sala {room_id}: {tool_name}")
+                                if existing:
+                                    existing.skill_name = t_name
+                                    existing.state_data = json.dumps(session_data.get("params", {}))
+                                    existing.updated_at = datetime.now(timezone.utc)
+                                else:
+                                    new_session = models.SessionState(
+                                        room_id=room_id,
+                                        skill_name=t_name,
+                                        state_data=json.dumps(session_data.get("params", {}))
+                                    )
+                                    db.add(new_session)
+                                db.commit()
+                                logger.info(f"Sessão salva para sala {room_id}: {t_name}")
 
                 if isinstance(tool_result_obj, str):
-                    logger.info(f"Tool retornou string direta — pulando segunda chamada Gemini")
-                    direct = f"{buffer} {tool_result_obj}" if buffer.strip() else tool_result_obj
-                    yield direct.strip()
-                    buffer = ""  # Já fez yield
+                    direct_response_accumulated += tool_result_obj + " "
+                    tool_responses_list.append(genai.protos.Part(
+                        function_response=genai.protos.FunctionResponse(
+                            name=t_name,
+                            response={"result": tool_result_obj}
+                        )
+                    ))
                 elif isinstance(tool_result_obj, dict) and tool_result_obj.get("direct_response"):
-                    logger.info(f"Tool tem direct_response — pulando segunda chamada Gemini")
-                    direct = f"{buffer} {tool_result_obj['direct_response']}" if buffer.strip() else tool_result_obj["direct_response"]
-                    yield direct.strip()
-                    buffer = ""  # Já fez yield
+                    direct_response_accumulated += tool_result_obj["direct_response"] + " "
+                    tool_responses_list.append(genai.protos.Part(
+                        function_response=genai.protos.FunctionResponse(
+                            name=t_name,
+                            response={"result": tool_result_obj}
+                        )
+                    ))
                 else:
-                    # Segunda chamada ao Gemini para formatar a resposta da tool — TAMBÉM em streaming real
-                    logger.info("Enviando resultado da tool ao Gemini (stream)...")
-                    tool_response = await chat.send_message_async(
-                        genai.protos.Part(
-                            function_response=genai.protos.FunctionResponse(
-                                name=tool_name,
-                                response={"result": tool_result_obj}
-                            )
-                        ),
-                        stream=True
-                    )
+                    tool_responses_list.append(genai.protos.Part(
+                        function_response=genai.protos.FunctionResponse(
+                            name=t_name,
+                            response={"result": tool_result_obj if tool_result_obj else "Desculpe, a ferramenta solicitada não existe."}
+                        )
+                    ))
 
-                    async for chunk in tool_response:
-                        chunk_text = ""
-                        try:
-                            chunk_text = chunk.text
-                        except Exception:
-                            pass
-                            
-                        if chunk_text:
-                            buffer += chunk_text
-                            # Streaming real também na segunda chamada
-                            for sentence in self._extract_sentences(buffer):
-                                yield sentence
-                            buffer = self._get_remainder(buffer)
+            if direct_response_accumulated.strip():
+                logger.info(f"Tool(s) retornaram string direta — pulando segunda chamada Gemini")
+                direct = f"{buffer} {direct_response_accumulated.strip()}" if buffer.strip() else direct_response_accumulated.strip()
+                yield direct.strip()
+                buffer = ""  # Já fez yield
             else:
-                yield "Desculpe, a ferramenta solicitada não existe."
+                # Segunda chamada ao Gemini para formatar a resposta da tool — TAMBÉM em streaming real
+                logger.info("Enviando resultado(s) da tool ao Gemini (stream)...")
+                # Mandar todas as partes de uma vez
+                tool_response_stream = await chat.send_message_async(tool_responses_list, stream=True)
+
+                async for chunk in tool_response_stream:
+                    chunk_text = ""
+                    try:
+                        chunk_text = chunk.text
+                    except Exception:
+                        pass
+                        
+                    if chunk_text:
+                        buffer += chunk_text
+                        # Streaming real também na segunda chamada
+                        for sentence in self._extract_sentences(buffer):
+                            yield sentence
+                        buffer = self._get_remainder(buffer)
 
         # Yield qualquer sobra restante no buffer
         if buffer.strip():
