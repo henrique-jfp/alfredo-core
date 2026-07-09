@@ -32,16 +32,16 @@ function formatRio(date: Date, options: Intl.DateTimeFormatOptions) {
 
 const ClockDisplay = React.memo(function ClockDisplay({ time }: { time: Date }) {
   return (
-    <div className="flex flex-col xl:min-w-[340px]">
-      <div className="text-[13px] font-medium uppercase tracking-[0.22em] text-[color:var(--text-tertiary)]">
+    <div className="flex flex-col shrink-0">
+      <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-[color:var(--text-tertiary)]">
         {formatRio(time, { weekday: 'long', day: '2-digit', month: 'long' })}
       </div>
       <div className="mt-1 flex items-baseline gap-2">
-        <h1 className="text-7xl font-semibold leading-none tracking-tight text-[color:var(--text-primary)] md:text-[92px]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        <h1 className="text-5xl font-semibold leading-none tracking-tight text-[color:var(--text-primary)] md:text-6xl" style={{ fontVariantNumeric: 'tabular-nums' }}>
           {formatRio(time, { hour: '2-digit', minute: '2-digit' })}
         </h1>
-        <span className="font-mono text-4xl font-medium text-[color:var(--text-tertiary)] md:text-5xl opacity-50">
-          :{time.getSeconds().toString().padStart(2, '0')}
+        <span className="font-mono text-2xl font-medium text-[color:var(--text-tertiary)] md:text-3xl opacity-50">
+          {time.getSeconds().toString().padStart(2, '0')}
         </span>
       </div>
     </div>
@@ -201,15 +201,69 @@ export function OverviewTab() {
   const alarms = timers.filter((t) => t.timer_type === 'alarm' || (t.message && t.message.toLowerCase().includes('despertar')));
   const nextAlarm = alarms.length > 0 ? [...alarms].sort((a, b) => new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime())[0] : null;
 
-  const getWeatherIcon = (code: number) => {
-    if (code === undefined) return <Sun className="h-12 w-12 animate-[spin_20s_linear_infinite] text-brass-400" />;
-    if (code <= 1) return <Sun className="h-12 w-12 animate-[spin_20s_linear_infinite] text-brass-400" />;
-    if (code <= 3) return <Cloud className="h-12 w-12 animate-[pulse_4s_ease-in-out_infinite] text-zinc-300" />;
-    if (code <= 69 || (code >= 80 && code <= 82)) return <CloudRain className="h-12 w-12 animate-[bounce_2s_infinite] text-blue-400" />;
-    if (code >= 71 && code <= 77) return <CloudSnow className="h-12 w-12 animate-pulse text-white" />;
-    if (code >= 95) return <CloudLightning className="h-12 w-12 animate-[pulse_1s_ease-in-out_infinite] text-yellow-400" />;
-    return <Cloud className="h-12 w-12 text-zinc-300" />;
-  };
+  const WeatherIcon = React.memo(function WeatherIcon({ kind, temp }: { kind: string; temp?: number }) {
+    const sunRays = Array.from({ length: 8 }, (_, i) => (
+      <div key={i} className="absolute inset-0 flex items-center justify-center" style={{ transform: `rotate(${i * 45}deg)` }}>
+        <div className="w-[2px] h-5 rounded-full bg-gradient-to-t from-transparent via-brass-400/70 to-brass-300/40 origin-bottom" style={{ animation: `rayRotate 4s ${i * 0.3}s ease-in-out infinite` }} />
+      </div>
+    ));
+
+    const raindrops = Array.from({ length: 12 }, (_, i) => (
+      <div key={i} className="absolute w-[1.5px] h-3 rounded-full bg-gradient-to-b from-transparent via-blue-400/50 to-blue-300/30" style={{ left: `${10 + Math.random() * 80}%`, animation: `rainDrop ${0.6 + Math.random() * 0.4}s ${Math.random() * 0.8}s ease-in infinite`, opacity: 0 }} />
+    ));
+
+    const snowflakes = Array.from({ length: 15 }, (_, i) => (
+      <div key={i} className="absolute w-1.5 h-1.5 rounded-full bg-white/60" style={{ left: `${10 + Math.random() * 80}%`, animation: `snowFall ${2 + Math.random() * 2}s ${Math.random() * 2}s ease-in infinite`, opacity: 0 }} />
+    ));
+
+    const lightningBolt = (
+      <div className="absolute inset-0 flex items-center justify-center">
+      <div className="w-[3px] h-16 skew-y-[12deg] rounded-full bg-gradient-to-b from-yellow-300 via-yellow-400 to-transparent shadow-[0_0_20px_rgba(250,204,21,0.6)]" style={{ animation: 'lightningFlash 3s ease-in-out infinite', marginTop: -20 }} />
+      <div className="w-[2px] h-10 skew-y-[-15deg] rounded-full bg-gradient-to-b from-yellow-400 to-transparent" style={{ marginTop: 12, marginLeft: 8 }} />
+      </div>
+    );
+
+    if (kind === 'sun') {
+      return (
+        <div className="relative w-14 h-14 flex items-center justify-center" style={{ animation: 'sunPulse 3s ease-in-out infinite' }}>
+          {sunRays}
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brass-300 to-brass-500 shadow-[0_0_30px_rgba(212,162,78,0.6)]" />
+        </div>
+      );
+    }
+    if (kind === 'rain') {
+      return (
+        <div className="relative w-14 h-14 flex items-center justify-center">
+          <Cloud className="absolute w-10 h-10 text-zinc-300/80 z-10" style={{ filter: 'drop-shadow(0 0 10px rgba(255,255,255,0.15))' }} />
+          {raindrops}
+        </div>
+      );
+    }
+    if (kind === 'snow') {
+      return (
+        <div className="relative w-14 h-14 flex items-center justify-center">
+          <Cloud className="absolute w-10 h-10 text-zinc-300/60 z-10" style={{ animation: 'cloudDrift 4s ease-in-out infinite' }} />
+          {snowflakes}
+        </div>
+      );
+    }
+    if (kind === 'storm') {
+      return (
+        <div className="relative w-14 h-14 flex items-center justify-center">
+          <div className="absolute w-12 h-12 rounded-full bg-zinc-700/60 blur-md" style={{ animation: 'cloudPulse 2s ease-in-out infinite' }} />
+          <Cloud className="absolute w-11 h-11 text-zinc-400 z-10" />
+          {lightningBolt}
+          {raindrops}
+        </div>
+      );
+    }
+    return (
+      <div className="relative w-14 h-14 flex items-center justify-center">
+        <Cloud className="w-11 h-11 text-zinc-300/70" style={{ animation: 'cloudDrift 5s ease-in-out infinite' }} />
+        <Cloud className="absolute w-9 h-9 text-zinc-400/40 -ml-6 -mt-4" style={{ animation: 'cloudDrift2 6s ease-in-out infinite' }} />
+      </div>
+    );
+  });
 
   const recentActivities = useMemo(() => history.slice(0, 6), [history]);
   const weatherCode = weather?.weather_code ?? -1;
@@ -249,109 +303,25 @@ export function OverviewTab() {
 
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto pr-2 pb-10">
-      {/* NOVO CABEÇALHO (Relógio + Timers + Clima) */}
-      <div className="flex flex-col xl:flex-row w-full items-start xl:items-center justify-between gap-5 xl:gap-8 mb-4">
-        
-        {/* Esquerda: Relógio */}
+      {/* Cabeçalho compacto: relógio + timers + clima */}
+      <div className="flex items-center justify-between gap-4 py-2 flex-wrap">
         <ClockDisplay time={time} />
-
-        {/* Centro: Timers (se existirem) */}
-        {hasPinnedTimers && (
-          <div className="flex-1 w-full flex items-center justify-center">
-            <div className="grid gap-3 w-full max-w-lg md:grid-cols-2">
-              {pinnedTimers.map((timer) => (
-                <div key={timer.id} className="min-w-0">
-                  <TimerCard timer={timer} onDelete={deleteTimer} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Direita: Clima */}
-        <div className="flex-shrink-0 w-full xl:w-[400px]">
-          <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-[linear-gradient(180deg,rgba(19,20,23,0.95),rgba(27,29,33,0.95))] p-5 md:p-6">
-          <div className={cn(
-            'absolute inset-0 pointer-events-none opacity-100',
-            weatherKind === 'sun' && 'bg-[radial-gradient(circle_at_70%_20%,rgba(212,162,78,0.22),transparent_34%),radial-gradient(circle_at_40%_80%,rgba(212,162,78,0.08),transparent_32%)]',
-            weatherKind === 'cloud' && 'bg-[radial-gradient(circle_at_60%_22%,rgba(255,255,255,0.09),transparent_30%)]',
-            weatherKind === 'rain' && 'bg-[radial-gradient(circle_at_50%_10%,rgba(96,165,250,0.14),transparent_36%)]',
-            weatherKind === 'snow' && 'bg-[radial-gradient(circle_at_50%_10%,rgba(255,255,255,0.14),transparent_36%)]',
-            weatherKind === 'storm' && 'bg-[radial-gradient(circle_at_50%_15%,rgba(245,158,11,0.16),transparent_32%)]'
-          )} />
-          <div className="relative flex flex-col gap-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="text-[11px] font-bold tracking-[0.2em] text-zinc-500 uppercase">Meteorologia</div>
-                <div className="mt-1 text-2xl font-bold text-white tracking-wide">RIO DE JANEIRO</div>
-                <div className="mt-0.5 text-sm text-zinc-400 capitalize">{weather ? weather.description : 'Buscando...'}</div>
+        <div className="flex items-center gap-4 flex-wrap">
+          {hasPinnedTimers && pinnedTimers.slice(0, 2).map((timer) => (
+            <TimerCard key={timer.id} timer={timer} onDelete={deleteTimer} />
+          ))}
+          <div className="flex items-center gap-3 alfredo-card p-3 md:p-3 shrink-0">
+            <WeatherIcon kind={weatherKind} temp={weather?.temperature} />
+            <div className="flex flex-col">
+              <div className="flex items-baseline gap-1">
+                <span className="text-xl font-bold leading-none text-white tabular-nums">{weather ? `${weather.temperature}°` : '--°'}</span>
+                <span className="text-[11px] text-zinc-500">/{weather?.max_temp ?? '--'}°</span>
               </div>
-
-              <div className="shrink-0 drop-shadow-[0_0_18px_rgba(255,255,255,0.12)]">
-                <div className={cn(
-                  'flex items-center justify-center text-[48px]',
-                  weatherKind === 'sun' && 'text-brass-300 drop-shadow-[0_0_20px_rgba(212,162,78,0.5)]',
-                  weatherKind === 'cloud' && 'text-zinc-300 drop-shadow-[0_0_20px_rgba(255,255,255,0.2)]',
-                  weatherKind === 'rain' && 'text-blue-400 drop-shadow-[0_0_20px_rgba(96,165,250,0.4)]',
-                  weatherKind === 'snow' && 'text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.5)]',
-                  weatherKind === 'storm' && 'text-yellow-400 drop-shadow-[0_0_20px_rgba(245,158,11,0.4)]'
-                )}>
-                  <div className={cn(
-                    weatherKind === 'sun' && 'animate-[spin_20s_linear_infinite]',
-                    weatherKind === 'cloud' && 'animate-[pulse_4s_ease-in-out_infinite]',
-                    weatherKind === 'rain' && 'animate-[bounce_2s_infinite]',
-                    weatherKind === 'snow' && 'animate-pulse',
-                    weatherKind === 'storm' && 'animate-[pulse_1s_ease-in-out_infinite]'
-                  )}>
-                    {getWeatherIcon(weatherCode)}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-white/5 bg-black/20 p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div className="text-[54px] font-bold tracking-tighter text-white leading-none">
-                  {weather ? `${weather.temperature}°` : '--°'}
-                </div>
-                <div className="flex flex-col gap-1.5 text-xs text-zinc-400">
-                  <div className="flex items-center gap-2">
-                    <div className="h-1 w-6 rounded-full bg-red-500"></div>
-                    <div>Máx. <span className="font-bold text-white">{weather?.max_temp ?? '--'}°</span></div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="h-1 w-6 rounded-full bg-blue-500"></div>
-                    <div>Mín. <span className="font-bold text-white">{weather?.min_temp ?? '--'}°</span></div>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-2 text-[11px] text-zinc-400 leading-tight sm:grid-cols-4">
-                <div className="col-span-1 rounded-xl bg-white/5 p-2.5">
-                  <div className="mb-0.5 opacity-70">Umidade</div>
-                  <div className="font-medium text-white">{weather?.humidity ?? '--'}%</div>
-                </div>
-                <div className="col-span-1 rounded-xl bg-white/5 p-2.5">
-                  <div className="mb-0.5 opacity-70">Vento</div>
-                  <div className="font-medium text-white">--</div>
-                </div>
-                <div className="col-span-1 rounded-xl bg-white/5 p-2.5">
-                  <div className="mb-0.5 opacity-70">Chuva</div>
-                  <div className="font-medium text-white">--</div>
-                </div>
-                <div className="col-span-1 rounded-xl bg-white/5 p-2.5">
-                  <div className="mb-0.5 opacity-70">Pressão</div>
-                  <div className="font-medium text-white">--</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="text-center text-[11px] text-zinc-600">
-              {weather ? 'Atualizado agora' : 'Aguardando leitura'}
+              <span className="text-[10px] text-zinc-500 leading-tight mt-0.5">{weather?.description || 'Buscando...'}</span>
+              {weather?.humidity && <span className="text-[9px] text-zinc-600 leading-tight mt-0.5">{weather.humidity}% umidade</span>}
             </div>
           </div>
         </div>
-      </div>
       </div>
 
       <SpotifyCard />

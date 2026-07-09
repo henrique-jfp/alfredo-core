@@ -155,3 +155,89 @@ body {
     background-position: 0 0;
   }
 }
+
+/* Weather animations */
+@keyframes rayRotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes twinkle {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+}
+@keyframes rainDrop {
+  0% {
+    transform: translateY(-10px) scaleX(1);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(60px) scaleX(0.6);
+    opacity: 0;
+  }
+}
+@keyframes cloudDrift {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(4px);
+  }
+}
+@keyframes cloudDrift2 {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-3px);
+  }
+}
+@keyframes lightningFlash {
+  0%, 90%, 96%, 100% {
+    opacity: 0;
+  }
+  92%, 94% {
+    opacity: 1;
+  }
+}
+@keyframes cloudPulse {
+  0%, 100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes snowFall {
+  0% {
+    transform: translateY(-5px) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(70px) rotate(360deg);
+    opacity: 0;
+  }
+}
+@keyframes sunPulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 20px rgba(212, 162, 78, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 40px rgba(212, 162, 78, 0.8));
+  }
+}
