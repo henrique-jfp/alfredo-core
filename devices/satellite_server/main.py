@@ -558,11 +558,19 @@ def _start_recording():
 
 def _finish_recording():
     global is_recording, full_audio_buffer, accumulated_vosk_text
-    global live_recording_bytes
+    global live_recording_bytes, _playback_cooldown_until, oww_model
     is_recording = False
     buf = bytes(full_audio_buffer)
     recording_buffer.clear()
     full_audio_buffer.clear()
+    
+    # Previne que o fim da gravação ou resquícios de áudio causem
+    # um falso positivo imediato (duplicando a detecção e causando eco).
+    _playback_cooldown_until = time.time() + 3.0
+    if oww_model:
+        try:
+            oww_model.reset()
+        except: pass
 
     # Diagnóstico: com o fix, isso deve ficar perto da duração real da
     # sua fala (ex: 1-3s), não mais perto de 8s em todo comando.
