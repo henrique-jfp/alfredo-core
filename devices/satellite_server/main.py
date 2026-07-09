@@ -459,21 +459,8 @@ def audio_callback(indata, frames, time_info, status):
                 return True
             return any(w in EMERGENCY_SINGLE_WORDS for w in words)
 
-        if vosk_rec:
-            if vosk_rec.AcceptWaveform(bytes_data):
-                res = json.loads(vosk_rec.Result())
-                text = res.get('text', '').lower()
-                if _is_emergency_stop(text):
-                    print(f"🛑 [EMERGÊNCIA] Comando detectado ('{text}'). Cortando áudio!", flush=True)
-                    has_spoken = True
-                    silence_frames = float('inf')
-            else:
-                partial = json.loads(vosk_rec.PartialResult())
-                text = partial.get('partial', '').lower()
-                if _is_emergency_stop(text):
-                    print(f"🛑 [EMERGÊNCIA] Comando detectado rápido ('{text}'). Cortando áudio!", flush=True)
-                    has_spoken = True
-                    silence_frames = float('inf')
+        # Vosk removido: Emergency Stop local desativado. 
+        # (O controle de parada 'cala a boca' passa a depender de botão físico ou lógica de interrupção de TTS no servidor)
         # --------------------------------
         offset = 0
         while offset + 320 <= len(recording_buffer):
@@ -544,7 +531,7 @@ def audio_callback(indata, frames, time_info, status):
 
 
 def _start_recording():
-    global is_recording, recording_buffer, has_spoken, silence_frames, vosk_rec
+    global is_recording, recording_buffer, has_spoken, silence_frames
     global full_audio_buffer, dashcam_buffer, _session_mode, accumulated_vosk_text
     global live_recording_bytes
     is_recording = True
@@ -560,7 +547,7 @@ def _start_recording():
     # No modo wake word, o Vosk já detectou "alfredo" — marcamos como fala ativa
     has_spoken = not _session_mode
     silence_frames = 0
-    vosk_rec = KaldiRecognizer(vosk_model, RATE)
+    # vosk_rec initialization removido
     stop_alarm()
     
     if _session_mode:
@@ -570,7 +557,7 @@ def _start_recording():
 
 
 def _finish_recording():
-    global is_recording, full_audio_buffer, vosk_rec, accumulated_vosk_text
+    global is_recording, full_audio_buffer, accumulated_vosk_text
     global live_recording_bytes
     is_recording = False
     buf = bytes(full_audio_buffer)
@@ -587,17 +574,6 @@ def _finish_recording():
         return
         
     vosk_text = accumulated_vosk_text.strip()
-    if vosk_rec:
-        try:
-            final_res = json.loads(vosk_rec.FinalResult())
-            final_piece = final_res.get('text', '').lower().strip()
-            if final_piece:
-                vosk_text += " " + final_piece
-                vosk_text = vosk_text.strip()
-            print(f"  VOSK transcrição final acumulada: '{vosk_text}'", flush=True)
-        except Exception as e:
-            print(f"Erro ao pegar resultado do Vosk: {e}")
-
     print(f"⏹️ [VAD] Tamanho do áudio: {len(buf)} bytes. Enviando...", flush=True)
     threading.Thread(target=_send_and_play, args=(buf, vosk_text), daemon=True).start()
 

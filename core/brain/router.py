@@ -553,23 +553,6 @@ class AgentRouter:
     @staticmethod
     def _extract_sentences(buffer: str):
         """Extrai frases completas do início do buffer (para streaming)."""
-        while True:
-            found = False
-            for sep in [". ", "? ", "! "]:
-                idx = buffer.find(sep)
-                if idx != -1:
-                    sentence = buffer[:idx + len(sep)].strip()
-                    if sentence:
-                        yield sentence
-                    buffer = buffer[idx + len(sep):]
-                    found = True
-                    break
-            if not found:
-                break
-
-    @staticmethod
-    def _extract_sentences(buffer: str):
-        """Extrai frases completas do início do buffer (para streaming)."""
         import re
         while True:
             # Encontra pontuações (. ? !) seguidas de espaço, quebra de linha, ou final do buffer atual
@@ -582,7 +565,6 @@ class AgentRouter:
                 buffer = buffer[match.end():].strip()
             else:
                 break
-        return remainder.strip()
 
     def process(self, text: str, context: Dict[str, Any]) -> str:
         global _global_key_idx
