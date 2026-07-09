@@ -23,13 +23,14 @@ import sounddevice as sd
 import numpy as np
 import requests
 from websockets.sync.client import connect
-from vosk import Model, KaldiRecognizer
+import openwakeword
+from openwakeword.model import Model as OWWModel
 import webrtcvad
 
 RATE = 16000
 CHANNELS = 1
 DTYPE = 'int16'
-BLOCKSIZE = 1600  # 100ms a 16kHz – mais estável, menos callbacks por segundo
+BLOCKSIZE = 1280  # OpenWakeWord usa chunks de 1280 samples (80ms) a 16kHz
 WAVE_OUTPUT = "request.wav"
 
 # Nome (ou parte dele) do dispositivo de microfone preferido. Se encontrado,
@@ -69,8 +70,7 @@ wake_variants = [
 
 alarm_process = None
 audio_stream: Optional[sd.InputStream] = None
-vosk_model: Optional[Model] = None
-vosk_rec: Optional[KaldiRecognizer] = None
+oww_model = None
 vad: Optional[webrtcvad.Vad] = None
 
 # Supressão de áudio durante playback para evitar loop (eco)
@@ -264,8 +264,9 @@ def register_device():
                 if settings_res.status_code == 200:
                     settings_data = settings_res.json()
                     if "assistant_name" in settings_data:
-                        global wake_word
+                        global wake_word, wake_variants
                         wake_word = settings_data["assistant_name"].lower()
+                        wake_variants = [wake_word]
                         print(f"📡 Wake Word sincronizado com o servidor: {wake_word.upper()}")
             except Exception as e:
                 print(f"Aviso: Não foi possível sincronizar o Wake Word: {e}")
@@ -345,8 +346,8 @@ def send_audio_and_play(filename):
         print(f"Falha na comunicação com o servidor: {e}")
 
 
-def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.CallbackFlags):
-    global vosk_rec, is_recording, has_spoken, silence_frames, recording_buffer
+def audio_callback(indata, frames, time_info, status):
+    global oww_model, is_recording, has_spoken, silence_frames, recording_buffer
     global is_calibrated, calibration_frames, calibration_sum, noise_threshold
     global full_audio_buffer, dashcam_buffer, SOFTWARE_MULTIPLIER, noise_gate_hold, _session_mode
     global live_recording_bytes
@@ -393,42 +394,23 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
         return  # Não processa áudio durante os 2s de calibração
 
     # -----------------------------------------------------------------
-    # Processamento do Vosk para Transcrição Local (Sempre ativo)
+    # Processamento do OpenWakeWord
     # -----------------------------------------------------------------
-    if vosk_rec:
+    if oww_model:
         if _is_playing or time.time() < _playback_cooldown_until:
             pass # Ignora áudio durante playback
         else:
-            if vosk_rec.AcceptWaveform(bytes_data):
-                result = json.loads(vosk_rec.Result())
-                text = result.get('text', '').lower().strip()
-                if text:
-                    print(f"  VOSK resultado: '{text}'", flush=True)
-                    # Se não estamos gravando, verificamos a wake word
-                    if not is_recording and any(v in text for v in wake_variants):
-                        print(f"🔔 Palavra de ativação '{wake_word.upper()}' detectada pelo Vosk!", flush=True)
-                        try:
-                            threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=2), daemon=True).start()
-                        except:
-                            pass
-                        _start_recording()
-                    
-                    # Acumula se estiver gravando
-                    if is_recording:
-                        global accumulated_vosk_text
-                        accumulated_vosk_text += text + " "
-            else:
-                partial = json.loads(vosk_rec.PartialResult())
-                partial_text = partial.get('partial', '').strip()
-                if partial_text and not is_recording:
-                    print(f"  VOSK ouvindo: '{partial_text}'", flush=True)
-                    if any(v in partial_text for v in wake_variants):
-                        print(f"🔔 Palavra de ativação '{wake_word.upper()}' detectada pelo Vosk (PARCIAL)!", flush=True)
-                        try:
-                            threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=2), daemon=True).start()
-                        except:
-                            pass
-                        _start_recording()
+            prediction = oww_model.predict(cleaned)
+            # Verifica se algum modelo passou do limiar de 0.5
+            for mdl_name, score in prediction.items():
+                if score >= 0.5 and not is_recording:
+                    print(f"🔔 Palavra de ativação detectada pelo OpenWakeWord: {mdl_name} (Score: {score:.2f})", flush=True)
+                    try:
+                        threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=2), daemon=True).start()
+                    except:
+                        pass
+                    _start_recording()
+                    break
 
     if not is_recording:
         # Dashcam: manter sempre os últimos 3 segundos na memória (pré-gravação)
@@ -745,7 +727,9 @@ def websocket_loop():
                     elif data.get("type") == "weather_update":
                         print(f"\n☁️ [DISPLAY] Clima atualizado: {data.get('data')}")
                     elif data.get("type") == "update_wake_word":
+                        global wake_variants
                         wake_word = data.get("wake_word", wake_word).lower()
+                        wake_variants = [wake_word]
                         print(f"\n\n🔥 [ATUALIZAÇÃO EM TEMPO REAL] Novo Wake Word: {wake_word.upper()} 🔥")
                         print(f"👉 Diga '{wake_word.upper()}' para me chamar!\n")
                     elif data.get("type") == "play_audio":
@@ -804,19 +788,27 @@ def websocket_loop():
 
 
 def main():
-    global vosk_model, vosk_rec, vad, audio_stream
+    global oww_model, vad, audio_stream
 
-    model_path = os.path.join(os.path.dirname(__file__), "..", "..", "core", "voice", "stt", "models", "vosk-model-small-pt-0.3")
+    print("🧠 Carregando inteligência acústica de Wake Word (OpenWakeWord)...")
+    import warnings
+    warnings.filterwarnings("ignore")
 
-    if not os.path.exists(model_path):
-        print(f"❌ Modelo Vosk não encontrado em {model_path}.")
+    try:
+        # Pega os modelos padrão e tenta encontrar o arquivo 'alexa'
+        paths = openwakeword.get_pretrained_model_paths()
+        alexa_path = next((p for p in paths if 'alexa' in p), None)
+        
+        if alexa_path:
+            oww_model = OWWModel(wakeword_model_paths=[alexa_path])
+            print("🟢 Modelo OpenWakeWord 'Alexa' carregado com sucesso (100% Gratuito)!")
+        else:
+            print("❌ Modelo alexa não encontrado no pacote openwakeword.")
+            sys.exit(1)
+    except Exception as e:
+        print(f"❌ Falha ao carregar OpenWakeWord: {e}")
         sys.exit(1)
 
-    print("🧠 Carregando inteligência de Wake Word (Vosk Local Leve)...")
-    logging.getLogger("vosk").setLevel(logging.ERROR)
-
-    vosk_model = Model(model_path)
-    vosk_rec = KaldiRecognizer(vosk_model, RATE)
     # Aumentando a agressividade do VAD para 3 (muito restrito) devido ao novo microfone super sensível
     vad = webrtcvad.Vad(3)
 
@@ -826,8 +818,8 @@ def main():
     threading.Thread(target=websocket_loop, daemon=True).start()
     threading.Thread(target=stream_worker, daemon=True).start()
 
-    print(f"\n🎧 [Satélite da Sala] MODO VOSK (Contínuo Offline) ONLINE e ouvindo silenciosamente...")
-    print(f"👉 Diga '{wake_word.upper()}' para me chamar!\n")
+    print(f"\n🎧 [Satélite da Sala] MODO PORCUPINE ONLINE e ouvindo silenciosamente...")
+    print(f"👉 Diga 'ALEXA' ou o seu modelo customizado para me chamar!\n")
 
     device_index, device_channels = _find_input_device(PREFERRED_MIC_NAME)
 
