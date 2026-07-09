@@ -75,7 +75,7 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
     SAMPLE_RATE = 16000
     BYTES_PER_FRAME = int(SAMPLE_RATE * (FRAME_DURATION_MS / 1000) * 2) 
     
-    async def handle_phrase(phrase_bytes: bytes):
+    async def handle_phrase(phrase_bytes: bytes, vosk_text: str = ""):
         db = SessionLocal()
         try:
             device = db.query(models.Device).filter(models.Device.device_id == device_id).first()
@@ -85,60 +85,53 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
             
             if device_id == "dashboard-virtual-mic":
                 # Para o dashboard, não faz streaming de chunks, mas sim gera 1 único arquivo WAV com todo o texto
-                async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False, stream_tts=False):
+                async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False, stream_tts=False, vosk_text=vosk_text):
                     if tts_chunk:
                         await websocket.send_bytes(tts_chunk)
             else:
-                async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False):
+                async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False, vosk_text=vosk_text):
                     if tts_chunk:
                         await websocket.send_bytes(tts_chunk)
+                        
+            import json
+            await websocket.send_text(json.dumps({"type": "tts_end"}))
         except Exception as e:
             satellite_logger.error(f"Erro ao processar frase do {device_id}: {e}")
         finally:
             db.close()
 
     try:
+        vosk_text_cache = ""
         while True:
-            data = await websocket.receive_bytes()
-            await manager.broadcast_to_dashboards(data)
+            # Pega a mensagem como dict para saber se é texto ou binário
+            message = await websocket.receive()
             
-            audio_buffer.extend(data)
-            
-            while len(audio_buffer) >= BYTES_PER_FRAME:
-                frame = bytes(audio_buffer[:BYTES_PER_FRAME])
-                del audio_buffer[:BYTES_PER_FRAME]
-                
+            if "text" in message:
+                import json
                 try:
-                    is_speech = vad.is_speech(frame, SAMPLE_RATE)
-                except:
-                    is_speech = False
-                    
-                if is_speech:
-                    is_speaking = True
-                    silence_frames = 0
-                    speech_buffer.extend(frame)
-                else:
-                    if is_speaking:
-                        silence_frames += 1
-                        speech_buffer.extend(frame)
-                        
-                        if silence_frames >= SILENCE_THRESHOLD:
-                            is_speaking = False
-                            silence_frames = 0
-                            phrase_bytes = bytes(speech_buffer)
-                            speech_buffer = bytearray()
-                            
-                            # Ignora ruídos rápidos (menos de 0.25s de áudio efetivo)
-                            if len(phrase_bytes) > 8000:
-                                asyncio.create_task(handle_phrase(phrase_bytes))
+                    payload = json.loads(message["text"])
+                    if "vosk_text" in payload:
+                        vosk_text_cache = payload["vosk_text"]
+                except: pass
+                continue
+
+            if "bytes" in message:
+                data = message["bytes"]
+                
+                # Repassa tudo para os dashboards (modo monitoramento)
+                await manager.broadcast_to_dashboards(data)
+                
+                # O satélite já faz o VAD localmente. Quando termina de gravar a frase,
+                # ele envia o áudio completo de uma vez (arquivos grandes).
+                # Quando está apenas fazendo stream (Live Mic), envia chunks de 320 bytes.
+                if len(data) > 8000:
+                    asyncio.create_task(handle_phrase(data, vosk_text_cache))
+                    vosk_text_cache = ""  # Limpa o cache para o próximo comando
+                
     except WebSocketDisconnect:
-        if len(speech_buffer) > 8000:
-            asyncio.create_task(handle_phrase(bytes(speech_buffer)))
         manager.disconnect_satellite(device_id)
     except Exception as e:
         satellite_logger.error(f"Erro no websocket do satélite: {e}")
-        if len(speech_buffer) > 8000:
-            asyncio.create_task(handle_phrase(bytes(speech_buffer)))
         manager.disconnect_satellite(device_id)
 
 @router.websocket("/dashboard")

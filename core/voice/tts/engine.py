@@ -8,7 +8,13 @@ import subprocess
 import edge_tts
 
 
+import hashlib
+
 logger = logging.getLogger("alfredo.tts")
+
+# Diretório para cache de áudio TTS pré-gerado
+TTS_CACHE_DIR = os.path.join(os.path.dirname(__file__), "cache")
+os.makedirs(TTS_CACHE_DIR, exist_ok=True)
 
 
 # ──────────────────────────────────────────────
@@ -19,6 +25,7 @@ class TTSEngine:
     def __init__(self, voice_name: str = "pt-BR-FranciscaNeural"):
         self.current_voice_name = voice_name
         self._media_type = "audio/mpeg"
+        self._cache: dict[str, bytes] = {}  # In-memory cache {hash: mp3_bytes}
         logger.info(f"Modelo Edge-TTS inicializado com a voz: {voice_name}")
 
     @property
@@ -28,7 +35,65 @@ class TTSEngine:
     def reload_voice(self, voice_name: str):
         if self.current_voice_name != voice_name:
             self.current_voice_name = voice_name
+            self._cache.clear()  # Limpa cache ao trocar de voz
             logger.info(f"Voz Edge-TTS alterada para: {voice_name}")
+
+    def _get_cache_key(self, text: str) -> str:
+        """Gera hash estável para texto + voz (chave de cache)."""
+        key_str = f"{self.current_voice_name}:{text.strip().lower()}"
+        return hashlib.md5(key_str.encode()).hexdigest()
+
+    async def get_cached_audio(self, text: str) -> bytes | None:
+        """Retorna MP3 do cache (memória ou disco). None se não existir."""
+        cache_key = self._get_cache_key(text)
+        
+        # 1. Tenta memória
+        if cache_key in self._cache:
+            logger.info(f"TTS cache hit (memória): '{text}'")
+            return self._cache[cache_key]
+        
+        # 2. Tenta disco
+        cache_file = os.path.join(TTS_CACHE_DIR, f"{cache_key}.mp3")
+        if os.path.exists(cache_file):
+            with open(cache_file, "rb") as f:
+                data = f.read()
+            self._cache[cache_key] = data
+            logger.info(f"TTS cache hit (disco): '{text}'")
+            return data
+        
+        return None
+
+    async def generate_and_cache(self, text: str) -> bytes:
+        """Gera áudio via Edge-TTS, salva em cache e retorna os bytes MP3."""
+        cache_key = self._get_cache_key(text)
+        clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+        
+        # Gera via Edge-TTS
+        mp3_chunks = []
+        communicate = edge_tts.Communicate(clean_text, self.current_voice_name, rate='+25%')
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                mp3_chunks.append(chunk["data"])
+        
+        mp3_data = b"".join(mp3_chunks)
+        
+        # Salva em disco e memória
+        cache_file = os.path.join(TTS_CACHE_DIR, f"{cache_key}.mp3")
+        with open(cache_file, "wb") as f:
+            f.write(mp3_data)
+        self._cache[cache_key] = mp3_data
+        logger.info(f"TTS cached: '{text}' ({len(mp3_data)} bytes)")
+        return mp3_data
+
+    async def warm_cache(self, phrases: list[str]):
+        """Pré-gera áudio para uma lista de frases (roda no boot)."""
+        for phrase in phrases:
+            if not await self.get_cached_audio(phrase):
+                try:
+                    await self.generate_and_cache(phrase)
+                except Exception as e:
+                    logger.warning(f"Falha ao pré-gerar cache TTS para '{phrase}': {e}")
+        logger.info(f"TTS cache aquecido: {len(phrases)} frases")
 
     async def synthesize_wav(self, text: str, output_filepath: str):
         import uuid, shutil
@@ -174,10 +239,14 @@ class TTSEngine:
             if not parsed_segments:
                 parsed_segments = [(self.current_voice_name, clean_text)]
             for voice, segment_text in parsed_segments:
-                communicate = edge_tts.Communicate(segment_text, voice, rate='+25%')
-                async for chunk in communicate.stream():
-                    if chunk["type"] == "audio":
-                        yield chunk["data"]
+                cached = await self.get_cached_audio(segment_text)
+                if cached:
+                    yield cached
+                else:
+                    communicate = edge_tts.Communicate(segment_text, voice, rate='+25%')
+                    async for chunk in communicate.stream():
+                        if chunk["type"] == "audio":
+                            yield chunk["data"]
 
 
 # ──────────────────────────────────────────────

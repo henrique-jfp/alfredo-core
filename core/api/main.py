@@ -75,7 +75,14 @@ scheduler = SchedulerManager(get_active_connections)
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(scheduler.start())
-
+    # Warm up TTS cache for fast routing responses
+    from core.voice.pipeline import get_tts_engine
+    from core.brain.semantic_router import ROUTES
+    fixed_responses = [resp for _, _, _, resp in ROUTES if resp]
+    if fixed_responses:
+        logger.info("Aquecendo cache TTS para respostas rápidas...")
+        tts_engine = get_tts_engine()
+        asyncio.create_task(tts_engine.warm_cache(fixed_responses))
 @app.on_event("shutdown")
 def shutdown_event():
     scheduler.stop()

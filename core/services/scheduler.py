@@ -248,7 +248,8 @@ class SchedulerManager:
                         "ws_tasks": []
                     }
                     
-                    response_text = router.process(routine.action_value, context)
+                    import asyncio
+                    response_text = await asyncio.to_thread(router.process, routine.action_value, context)
                     
                     filename = f"routine_{routine.id}_{int(time.time())}.wav"
                     temp_dir = os.path.join(os.getcwd(), "tmp")

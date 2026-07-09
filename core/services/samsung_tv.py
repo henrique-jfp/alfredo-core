@@ -24,14 +24,14 @@ class SamsungTVManager:
         # Timeout de 15s para dar tempo de o usuário apertar "Permitir" na TV no primeiro acesso
         self.tv = SamsungTVWS(host=ip, port=8002, token_file=self.token_file, timeout=15)
         
-    def power_on(self):
+    async def power_on(self):
         """Tenta ligar a TV via SmartThings (Nível 1) ou Wake-on-LAN (Nível 2)."""
         if self.smartthings_pat and self.smartthings_device_id:
             try:
                 url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
                 headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
                 payload = {"commands": [{"component": "main", "capability": "switch", "command": "on"}]}
-                response = requests.post(url, headers=headers, json=payload, timeout=5)
+                response = await asyncio.to_thread(requests.post, url, headers=headers, json=payload, timeout=5)
                 if response.status_code == 200:
                     logger.info("Sinal Power On enviado via SmartThings.")
                     return True
@@ -46,10 +46,28 @@ class SamsungTVManager:
             
         return False
         
-    def _run_local_command(self, func, *args, **kwargs):
+    async def power_off(self):
+        """Desliga a TV via SmartThings (Nível 1) ou controle remoto (Nível 2)."""
+        if self.smartthings_pat and self.smartthings_device_id:
+            try:
+                url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
+                headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
+                payload = {"commands": [{"component": "main", "capability": "switch", "command": "off"}]}
+                response = await asyncio.to_thread(requests.post, url, headers=headers, json=payload, timeout=5)
+                if response.status_code == 200:
+                    logger.info("Sinal Power Off enviado via SmartThings.")
+                    return True
+            except Exception as e:
+                logger.error(f"Erro no Power Off via SmartThings: {e}")
+                
+        # Fallback to local network key
+        logger.info("Enviando KEY_POWER para desligar a TV via rede local.")
+        return await self._run_local_command(self.tv.send_key, "KEY_POWER")
+
+    async def _run_local_command(self, func, *args, **kwargs):
         """Executa um comando local tratando exceções de conexão."""
         try:
-            return func(*args, **kwargs)
+            return await asyncio.to_thread(func, *args, **kwargs)
         except ConnectionFailure:
             logger.warning(f"Falha de conexão com a TV no IP {self.ip}. TV pode estar desligada ou rede inacessível.")
             return None
@@ -57,42 +75,41 @@ class SamsungTVManager:
             logger.error(f"Erro inesperado ao conectar com a TV: {e}")
             return None
 
-    def set_mute(self, mute: bool):
+    async def set_mute(self, mute: bool):
         """Ativa ou desativa o mudo da TV."""
         logger.info(f"Enviando mute={mute} para a TV {self.ip}")
-        if mute:
-            return self._run_local_command(self.tv.shortcuts().mute)
-        else:
-            return self._run_local_command(self.tv.shortcuts().unmute)
+        # KEY_MUTE funciona como toggle (mute/unmute) — o mesmo botão do controle remoto.
+        # A lib samsungtvws não possui método unmute() separado.
+        return await self._run_local_command(self.tv.send_key, "KEY_MUTE")
 
-    def set_volume(self, volume: int):
+    async def set_volume(self, volume: int):
         """Ajusta o volume da TV."""
         if self.smartthings_pat and self.smartthings_device_id:
             try:
                 url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
                 headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
                 payload = {"commands": [{"component": "main", "capability": "audioVolume", "command": "setVolume", "arguments": [volume]}]}
-                requests.post(url, headers=headers, json=payload, timeout=5)
+                await asyncio.to_thread(requests.post, url, headers=headers, json=payload, timeout=5)
                 return True
             except Exception as e:
                 logger.error(f"Erro ao setar volume via SmartThings: {e}")
         return False
 
-    def send_key(self, key: str):
+    async def send_key(self, key: str):
         """Envia um botão do controle remoto."""
         logger.info(f"Enviando tecla {key} para a TV {self.ip}")
-        return self._run_local_command(self.tv.send_key, key)
+        return await self._run_local_command(self.tv.send_key, key)
         
-    def open_app(self, app_id: str):
+    async def open_app(self, app_id: str):
         """Abre um aplicativo na TV pelo ID (ex: Netflix = 11101200001, YouTube = 111299001912)."""
         logger.info(f"Abrindo app {app_id} na TV {self.ip}")
-        return self._run_local_command(self.tv.run_app, app_id)
+        return await self._run_local_command(self.tv.run_app, app_id)
 
-    def get_status(self):
+    async def get_status(self):
         """Verifica o status atual da TV e informações de rede."""
-        info = self._run_local_command(self.tv.rest_device_info)
+        info = await self._run_local_command(self.tv.rest_device_info)
         return info if info else {"status": "offline"}
 
-    def get_app_list(self):
+    async def get_app_list(self):
         """Obtém a lista de aplicativos instalados na TV (com seus IDs)."""
-        return self._run_local_command(self.tv.app_list)
+        return await self._run_local_command(self.tv.app_list)

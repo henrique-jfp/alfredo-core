@@ -1,5 +1,18 @@
 from typing import Dict, Any
 from core.services.samsung_tv import SamsungTVManager
+import asyncio
+import concurrent.futures
+
+def _run_async(coro):
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            return pool.submit(asyncio.run, coro).result()
+    else:
+        return asyncio.run(coro)
 
 class TVSkill:
     def execute_tool(self, arguments: Dict[str, Any], context: Dict[str, Any]) -> str:
@@ -50,7 +63,7 @@ class TVSkill:
         )
         
         # Verifica o status atual antes de agir
-        tv_info = tv.get_status()
+        tv_info = _run_async(tv.get_status())
         power_state = tv_info.get("device", {}).get("PowerState", "unknown")
         
         # Se a TV estiver respondendo via rede mas em standby, power_state será "standby"
@@ -63,11 +76,11 @@ class TVSkill:
                 return "A TV já está ligada."
                 
             # Se a TV estiver offline, o SmartThings/WOL deve acordar a TV via rede
-            tv.power_on()
+            _run_async(tv.power_on())
             
             # Se ela estiver em standby mas respondendo à rede (is_offline == False), o KEY_POWER liga a tela
             if not is_offline:
-                tv.send_key("KEY_POWER")
+                _run_async(tv.send_key("KEY_POWER"))
                 
             return "Ligando a TV."
             
@@ -75,29 +88,29 @@ class TVSkill:
             if is_offline or power_state == "standby":
                 return "A TV já está desligada."
                 
-            tv.send_key("KEY_POWER")
+            _run_async(tv.power_off())
             return "Desligando a TV."
             
         elif action == "mute":
-            tv.set_mute(True)
+            _run_async(tv.set_mute(True))
             return "A TV foi colocada no mudo."
             
         elif action == "unmute":
-            tv.set_mute(False)
+            _run_async(tv.set_mute(False))
             return "O som da TV foi ativado."
             
         elif action == "volume_up":
             for _ in range(3):
-                tv.send_key("KEY_VOLUP")
+                _run_async(tv.send_key("KEY_VOLUP"))
             return "Aumentando o volume da TV."
             
         elif action == "volume_down":
             for _ in range(3):
-                tv.send_key("KEY_VOLDOWN")
+                _run_async(tv.send_key("KEY_VOLDOWN"))
             return "Abaixando o volume da TV."
             
         elif action == "set_volume":
-            if volume and tv.set_volume(volume):
+            if volume and _run_async(tv.set_volume(volume)):
                 return f"Volume da TV ajustado para {volume}."
             return "Não consegui definir o volume numérico. Isso requer a configuração do SmartThings no painel."
             
@@ -119,7 +132,7 @@ class TVSkill:
             }
             app_id = apps.get(app_name.lower())
             if app_id:
-                tv.open_app(app_id)
+                _run_async(tv.open_app(app_id))
                 return f"Abrindo {app_name} na TV."
             else:
                 return f"Não encontrei o ID do aplicativo {app_name}."

@@ -84,6 +84,11 @@ class GroqSTT:
             logger.error(f"Erro na transcrição via Groq Whisper (bytes): {e}")
             return ""
 
+    async def transcribe_bytes_async(self, audio_bytes: bytes, filename: str = "audio.wav") -> str:
+        """Transcreve áudio a partir de bytes em memória, sem bloquear o event loop."""
+        import asyncio
+        return await asyncio.to_thread(self.transcribe_bytes, audio_bytes, filename)
+
 
 class VoskLocalSTT:
     def __init__(self):

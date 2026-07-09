@@ -56,27 +56,27 @@ def _get_tv_manager(room_id: str, db: Session):
     )
 
 @router.post("/control/{room_id}/mute")
-def tv_mute(room_id: str, state: bool, db: Session = Depends(get_db)):
+async def tv_mute(room_id: str, state: bool, db: Session = Depends(get_db)):
     # Quick endpoint used by local_satellite to auto-mute
     tv = _get_tv_manager(room_id, db)
-    tv.set_mute(state)
+    await tv.set_mute(state)
     return {"status": "success"}
 
 @router.post("/control/{room_id}/power")
-def tv_power(room_id: str, db: Session = Depends(get_db)):
+async def tv_power(room_id: str, db: Session = Depends(get_db)):
     tv = _get_tv_manager(room_id, db)
     # sending POWER key usually toggles power on modern samsungs, or use WOL
-    tv.send_key("KEY_POWER")
-    tv.power_on()
+    await tv.send_key("KEY_POWER")
+    await tv.power_on()
     return {"status": "success"}
 
 @router.post("/control/{room_id}/app")
-def tv_open_app(room_id: str, app_id: str, db: Session = Depends(get_db)):
+async def tv_open_app(room_id: str, app_id: str, db: Session = Depends(get_db)):
     tv = _get_tv_manager(room_id, db)
-    tv.open_app(app_id)
+    await tv.open_app(app_id)
     return {"status": "success"}
 
 @router.get("/status/{room_id}")
-def tv_status(room_id: str, db: Session = Depends(get_db)):
+async def tv_status(room_id: str, db: Session = Depends(get_db)):
     tv = _get_tv_manager(room_id, db)
-    return tv.get_status()
+    return await tv.get_status()

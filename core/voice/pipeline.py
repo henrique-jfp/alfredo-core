@@ -13,7 +13,7 @@ from core.api.satellite import manager
 
 logger = logging.getLogger("alfredo.voice_pipeline")
 
-async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: str, db: Session, is_webm: bool = False, stream_tts: bool = True) -> AsyncGenerator[bytes, None]:
+async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: str, db: Session, is_webm: bool = False, stream_tts: bool = True, vosk_text: str = "") -> AsyncGenerator[bytes, None]:
     """
     Processa o áudio recebido (STT -> LLM -> TTS) e retorna um gerador assíncrono de áudio (TTS chunks).
     """
@@ -30,50 +30,72 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
     db.commit()
     interaction_id = interaction.id
     
-    # 2. STT em memória
-    t_stt_start = _time.time()
+    # 2. FAST INTERCEPT: Tenta Semantic Router com o texto pré-transcrito do Vosk (satélite)
     transcribed_text = ""
-    try:
-        stt_engine = get_stt_engine()
-        if hasattr(stt_engine, 'transcribe_bytes'):
-            # FIX DE LATÊNCIA: antes, áudio webm era escrito em disco e passava
-            # por uma conversão via ffmpeg (subprocess bloqueante) antes de ir
-            # pro Groq. A API do Groq aceita webm/ogg/mp3 diretamente — então
-            # agora mandamos os bytes originais direto em memória, sem
-            # subprocess e sem I/O de disco, tanto pra wav quanto pra webm.
-            if is_webm:
-                transcribed_text = stt_engine.transcribe_bytes(audio_bytes, filename="audio.webm")
-            else:
-                import io, wave
-                with io.BytesIO() as wav_io:
-                    with wave.open(wav_io, 'wb') as wav_file:
-                        wav_file.setnchannels(1)
-                        wav_file.setsampwidth(2)
-                        wav_file.setframerate(16000)
-                        wav_file.writeframes(audio_bytes)
-                    wav_bytes = wav_io.getvalue()
-                transcribed_text = stt_engine.transcribe_bytes(wav_bytes)
-        else:
-            temp_dir = os.path.join(os.getcwd(), "tmp")
-            os.makedirs(temp_dir, exist_ok=True)
-            ext = ".webm" if is_webm else ".wav"
-            input_filepath = os.path.join(temp_dir, f"in_{int(_time.time())}{ext}")
-            with open(input_filepath, "wb") as buffer:
-                buffer.write(audio_bytes)
-            transcribed_text = stt_engine.transcribe_wav(input_filepath)
-        
-        # Filtro de alucinação do Whisper
-        hallucinations = ["obrigado", "obrigado.", "obrigada", "obrigada.", "thank you", "thank you."]
-        if transcribed_text.strip().lower() in hallucinations:
-            logger.warning(f"Ignorando possível alucinação do Whisper: '{transcribed_text}'")
-            return
+    skip_stt = False
+    
+    if vosk_text:
+        router = get_router()
+        match = router.semantic_router.match(vosk_text)
+        if match:
+            logger.info(f"⚡ FAST INTERCEPT: Match no Vosk Text ('{vosk_text}'). Pulando STT Groq!")
+            transcribed_text = vosk_text
+            skip_stt = True
 
-        interaction.input_text = transcribed_text
-        db.commit()
-        logger.info(f"STT concluído em {_time.time() - t_stt_start:.3f}s — Usuário disse: '{transcribed_text}'")
-    except Exception as e:
-        logger.error(f"Erro no STT: {e}")
-        transcribed_text = ""
+    # 3. STT em memória (se não foi interceptado)
+    t_stt_start = _time.time()
+    if not skip_stt:
+        try:
+            stt_engine = get_stt_engine()
+            if hasattr(stt_engine, 'transcribe_bytes_async'):
+                if is_webm:
+                    transcribed_text = await stt_engine.transcribe_bytes_async(audio_bytes, filename="audio.webm")
+                else:
+                    import io, wave
+                    with io.BytesIO() as wav_io:
+                        with wave.open(wav_io, 'wb') as wav_file:
+                            wav_file.setnchannels(1)
+                            wav_file.setsampwidth(2)
+                            wav_file.setframerate(16000)
+                            wav_file.writeframes(audio_bytes)
+                        wav_bytes = wav_io.getvalue()
+                    transcribed_text = await stt_engine.transcribe_bytes_async(wav_bytes)
+            elif hasattr(stt_engine, 'transcribe_bytes'):
+                import asyncio
+                if is_webm:
+                    transcribed_text = await asyncio.to_thread(stt_engine.transcribe_bytes, audio_bytes, "audio.webm")
+                else:
+                    import io, wave
+                    with io.BytesIO() as wav_io:
+                        with wave.open(wav_io, 'wb') as wav_file:
+                            wav_file.setnchannels(1)
+                            wav_file.setsampwidth(2)
+                            wav_file.setframerate(16000)
+                            wav_file.writeframes(audio_bytes)
+                        wav_bytes = wav_io.getvalue()
+                    transcribed_text = await asyncio.to_thread(stt_engine.transcribe_bytes, wav_bytes)
+            else:
+                temp_dir = os.path.join(os.getcwd(), "tmp")
+                os.makedirs(temp_dir, exist_ok=True)
+                ext = ".webm" if is_webm else ".wav"
+                input_filepath = os.path.join(temp_dir, f"in_{int(_time.time())}{ext}")
+                with open(input_filepath, "wb") as buffer:
+                    buffer.write(audio_bytes)
+                import asyncio
+                transcribed_text = await asyncio.to_thread(stt_engine.transcribe_wav, input_filepath)
+            
+            # Filtro de alucinação do Whisper
+            hallucinations = ["obrigado", "obrigado.", "obrigada", "obrigada.", "thank you", "thank you."]
+            if transcribed_text.strip().lower() in hallucinations:
+                logger.warning(f"Ignorando possível alucinação do Whisper: '{transcribed_text}'")
+                return
+
+            interaction.input_text = transcribed_text
+            db.commit()
+            logger.info(f"STT concluído em {_time.time() - t_stt_start:.3f}s — Usuário disse: '{transcribed_text}'")
+        except Exception as e:
+            logger.error(f"Erro no STT: {e}")
+            transcribed_text = ""
 
     if not transcribed_text.strip():
         # Silence or unrecognized
@@ -95,25 +117,9 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
         
         async def intercept_and_save_text(generator):
             full_text = ""
-            ttfb_saved = False
-            latency = 0
             try:
                 async for sentence in generator:
                     if sentence:
-                        if not ttfb_saved:
-                            latency = int((_time.time() - t_pipeline_start) * 1000)
-                            ttfb_saved = True
-                            
-                            # Salvar o TTFB imediatamente
-                            try:
-                                with SessionLocal() as new_db:
-                                    inter = new_db.query(models.Interaction).filter(models.Interaction.id == interaction_id).first()
-                                    if inter:
-                                        inter.latency_ms = latency
-                                        new_db.commit()
-                            except Exception as e:
-                                logger.error(f"Erro ao salvar latência: {e}")
-                                
                         full_text += sentence + " "
                         yield sentence
             except Exception as e:
@@ -125,8 +131,6 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
                     inter = new_db.query(models.Interaction).filter(models.Interaction.id == interaction_id).first()
                     if inter:
                         inter.output_text = full_text.strip()
-                        if not ttfb_saved:
-                            inter.latency_ms = int((_time.time() - t_pipeline_start) * 1000)
                         new_db.commit()
             except Exception as e:
                 logger.error(f"Erro ao salvar interação final: {e}")
@@ -171,9 +175,30 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
                 with open(tmp_wav, "rb") as f:
                     wav_data = f.read()
                 os.remove(tmp_wav)
+                
+                try:
+                    with SessionLocal() as new_db:
+                        inter = new_db.query(models.Interaction).filter(models.Interaction.id == interaction_id).first()
+                        if inter:
+                            inter.latency_ms = int((_time.time() - t_pipeline_start) * 1000)
+                            new_db.commit()
+                except Exception as e:
+                    logger.error(f"Erro ao salvar latência do áudio completo: {e}")
+                
                 yield wav_data
         else:
+            first_audio_chunk = True
             async for audio_chunk in tts_engine.stream_audio_from_generator(intercepted_stream):
+                if first_audio_chunk:
+                    try:
+                        with SessionLocal() as new_db:
+                            inter = new_db.query(models.Interaction).filter(models.Interaction.id == interaction_id).first()
+                            if inter:
+                                inter.latency_ms = int((_time.time() - t_pipeline_start) * 1000)
+                                new_db.commit()
+                    except Exception as e:
+                        logger.error(f"Erro ao salvar latência do chunk TTS: {e}")
+                    first_audio_chunk = False
                 yield audio_chunk
             
     except Exception as e:

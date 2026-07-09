@@ -49,9 +49,14 @@ class AgentRouter:
         groq_key = os.getenv("GROQ_API_KEY")
         if groq_key:
             try:
-                self.groq_client = GroqClient(api_key=groq_key)
+                from groq import Groq
+                self.groq_client = Groq(api_key=groq_key)
             except Exception as e:
-                logger.warning(f"Groq fast path unavailable: {e}")
+                logger.warning(f"Não foi possível inicializar o cliente Groq: {e}")
+                
+        # Semantic Router Local (Fast Interceptor)
+        from core.brain.semantic_router import FastSemanticRouter
+        self.semantic_router = FastSemanticRouter()
 
     def _get_tools_schema(self):
         return [
@@ -435,8 +440,90 @@ class AgentRouter:
             logger.info(f"Groq fast path respondeu em {latency}ms")
             return result
         except Exception as e:
-            logger.warning(f"Groq fast path failed or timed out: {e}")
+            logger.error(f"Erro no fast path do Groq: {e}")
             return None
+
+    async def _process_fast_stream(self, text: str, context: Dict[str, Any]):
+        """Fast path via Groq (~300ms) com streaming real de tokens."""
+        if not self.groq_client:
+            return
+        import random
+        system = (
+            "Você é o Alfredo, assistente residencial amigável e natural. "
+            "Responda com 1-2 frases curtas e diretas. NUNCA use emojis. "
+            f"Seja variado e criativo — nunca repita respostas (Semente aleatória: {random.randint(1,10000)})."
+        )
+        db = context.get("db")
+        room_id = context.get("room_id")
+        if db and room_id:
+            try:
+                from core.brain.memory import models
+                memory_facts = db.query(models.MemoryFact).filter(models.MemoryFact.room_id == room_id).all()
+                if memory_facts:
+                    memories = "\n".join([f"- {m.fact}" for m in memory_facts])
+                    system += f"\n\nFatos sobre o usuário:\n{memories}"
+                from datetime import datetime, timedelta, timezone
+                ten_minutes_ago = datetime.now(timezone.utc) - timedelta(minutes=10)
+                last_interactions = db.query(models.Interaction).filter(
+                    models.Interaction.room_id == room_id,
+                    models.Interaction.input_text.isnot(None),
+                    models.Interaction.output_text.isnot(None),
+                    models.Interaction.input_text != "",
+                    models.Interaction.timestamp >= ten_minutes_ago
+                ).order_by(models.Interaction.id.desc()).limit(2).all()
+                if last_interactions:
+                    history = ""
+                    for interaction in reversed(last_interactions):
+                        history += f"Usuário: {interaction.input_text}\nAlfredo: {interaction.output_text}\n"
+                    system += f"\n\nHistórico recente:\n{history}"
+            except Exception:
+                pass
+        
+        from datetime import datetime
+        now = datetime.now()
+        system += f"\n\nHorário atual: {now.strftime('%d/%m/%Y %H:%M')}"
+        
+        try:
+            import time, asyncio
+            t_start = time.time()
+            
+            # Groq client is synchronous, so we run the streaming request in a thread
+            def do_stream():
+                return self.groq_client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": text}
+                    ],
+                    temperature=0.8,
+                    max_tokens=200,
+                    stream=True,
+                    timeout=3.0
+                )
+            
+            stream = await asyncio.to_thread(do_stream)
+            
+            buffer = ""
+            first_chunk = True
+            for chunk in stream:
+                if chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    buffer += content
+                    if first_chunk:
+                        logger.info(f"Groq TTFB (Time to First Byte): {int((time.time() - t_start) * 1000)}ms")
+                        first_chunk = False
+                    
+                    sentences = self._extract_sentences(buffer)
+                    for sentence in sentences:
+                        yield sentence
+                    buffer = self._get_remainder(buffer)
+                    await asyncio.sleep(0)  # Yield ao event loop
+                    
+            if buffer.strip():
+                yield buffer.strip()
+                
+        except Exception as e:
+            logger.error(f"Erro no fast path stream do Groq: {e}")
 
     @staticmethod
     def _split_sentences(text: str):
@@ -774,6 +861,68 @@ class AgentRouter:
         import time
 
         # ──────────────────────────────────────────────────────────────
+        # FAST INTERCEPT: Semantic routing local para comandos diretos (<5ms)
+        # ──────────────────────────────────────────────────────────────
+        
+        db = context.get("db")
+        room_id = context.get("room_id")
+        
+        session_active = False
+        if db and room_id:
+            from core.brain.memory import models
+            session = db.query(models.SessionState).filter(models.SessionState.room_id == room_id).first()
+            if session:
+                session_active = True
+                
+        if not session_active:
+            match = self.semantic_router.match(text)
+            if match:
+                tool_name, tool_args, direct_response = match
+                
+                # Registra TTFB rápido caso a tool demore muito (o generator só envia chunks)
+                # O direct_response pode ser feito no yield, mas se precisar chamar a skill:
+                if direct_response:
+                    for sentence in self._extract_sentences(direct_response):
+                        yield sentence
+                    remainder = self._get_remainder(direct_response)
+                    if remainder.strip():
+                        yield remainder.strip()
+                    
+                    # Chama a tool async pra executar a ação por trás dos panos (TV, música)
+                    skill = self.skills.get(tool_name)
+                    if skill:
+                        if hasattr(skill, "execute_tool"):
+                            # Start in background to avoid blocking
+                            asyncio.create_task(asyncio.to_thread(skill.execute_tool, tool_args, context))
+                        else:
+                            asyncio.create_task(asyncio.to_thread(skill.execute, text, context))
+                    return
+                else:
+                    # Precisamos da skill pra gerar a resposta (ex: pegar horas)
+                    skill = self.skills.get(tool_name)
+                    if skill:
+                        if hasattr(skill, "execute_tool"):
+                            result = await asyncio.to_thread(skill.execute_tool, tool_args, context)
+                        else:
+                            result = await asyncio.to_thread(skill.execute, text, context)
+                            
+                        # Manda o resultado (string direta ou do dict direct_response)
+                        if isinstance(result, str):
+                            for sentence in self._extract_sentences(result):
+                                yield sentence
+                            remainder = self._get_remainder(result)
+                            if remainder.strip():
+                                yield remainder.strip()
+                            return
+                        elif isinstance(result, dict) and result.get("direct_response"):
+                            for sentence in self._extract_sentences(result["direct_response"]):
+                                yield sentence
+                            remainder = self._get_remainder(result["direct_response"])
+                            if remainder.strip():
+                                yield remainder.strip()
+                            return
+
+        # ──────────────────────────────────────────────────────────────
         # FIX DE LATÊNCIA: checar o fast path do Groq ANTES de mexer no
         # cliente do Gemini. Antes, a rotação de chave + limpeza do cache
         # do SDK (_client_manager.clients.clear() + genai.configure())
@@ -785,18 +934,16 @@ class AgentRouter:
         # ──────────────────────────────────────────────────────────────
 
         # Fast path: Groq para queries simples que não precisam de ferramentas
-        if self._is_simple_query(text):
-            fast_result = await asyncio.to_thread(self._process_fast, text, context)
-            if fast_result:
-                logger.info(f"Groq fast path (stream): {fast_result[:60]}...")
-                for sentence in self._extract_sentences(fast_result):
-                    yield sentence
-                remainder = self._get_remainder(fast_result)
-                if remainder.strip():
-                    yield remainder.strip()
+        if self._is_simple_query(text, context):
+            success = False
+            async for chunk in self._process_fast_stream(text, context):
+                yield chunk
+                success = True
+            
+            if success:
                 return
-            logger.info("Groq fast path falhou, caindo para Gemini (stream)")
-
+                
+            logger.info("Groq fast path (stream) falhou, caindo para Gemini (stream)")
         global _global_key_idx
         keys_env = os.getenv("GEMINI_API_KEYS")
         if keys_env:
@@ -893,6 +1040,9 @@ class AgentRouter:
         
         response = await chat.send_message_async(text, stream=True)
         
+        buffer = ""
+        first_chunk = False
+        is_tool = False
         tool_calls_to_execute = []
         
         try:
