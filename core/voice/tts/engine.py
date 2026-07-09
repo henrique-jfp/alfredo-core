@@ -37,6 +37,40 @@ class TTSEngine:
             self.current_voice_name = voice_name
             self._cache.clear()  # Limpa cache ao trocar de voz
             logger.info(f"Voz Edge-TTS alterada para: {voice_name}")
+    
+    # Vozes de tradução por idioma, separadas por gênero para combinar com a
+    # voz principal configurada pelo usuário (Francisca = feminina, Antonio =
+    # masculina). BUG CORRIGIDO: antes havia um único VOICE_MAP fixo com
+    # vozes femininas, então uma tradução no meio de uma resposta com a voz
+    # do Antonio "trocava de personagem" no meio da frase.
+    FEMALE_TRANSLATION_VOICES = {
+        "en-US": "en-US-AriaNeural", "es-ES": "es-ES-ElviraNeural",
+        "de-DE": "de-DE-AmalaNeural", "fr-FR": "fr-FR-DeniseNeural",
+        "it-IT": "it-IT-IsabellaNeural", "ja-JP": "ja-JP-NanamiNeural",
+        "zh-CN": "zh-CN-XiaoxiaoNeural",
+    }
+    MALE_TRANSLATION_VOICES = {
+        "en-US": "en-US-GuyNeural", "es-ES": "es-ES-AlvaroNeural",
+        "de-DE": "de-DE-ConradNeural", "fr-FR": "fr-FR-HenriNeural",
+        "it-IT": "it-IT-DiegoNeural", "ja-JP": "ja-JP-KeitaNeural",
+        "zh-CN": "zh-CN-YunxiNeural",
+    }
+
+    def _is_current_voice_female(self) -> bool:
+        """Heurística simples: hoje só existem 'FranciscaNeural' (feminina) e
+        'AntonioNeural' (masculina) como vozes do assistente. Qualquer voz
+        que não contenha 'francisca' é tratada como masculina."""
+        return "francisca" in self.current_voice_name.lower()
+
+    def _get_translation_voice(self, locale: str) -> str:
+        """Escolhe a voz de tradução (<lang="...">) com o MESMO gênero da
+        voz principal configurada, para manter consistência de personagem."""
+        voice_map = (
+            self.FEMALE_TRANSLATION_VOICES
+            if self._is_current_voice_female()
+            else self.MALE_TRANSLATION_VOICES
+        )
+        return voice_map.get(locale, self.current_voice_name)
 
     def _get_cache_key(self, text: str) -> str:
         """Gera hash estável para texto + voz (chave de cache)."""

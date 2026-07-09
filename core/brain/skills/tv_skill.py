@@ -74,14 +74,18 @@ class TVSkill:
         if action == "power_on":
             if is_on:
                 return "A TV já está ligada."
-                
-            # Se a TV estiver offline, o SmartThings/WOL deve acordar a TV via rede
-            _run_async(tv.power_on())
-            
-            # Se ela estiver em standby mas respondendo à rede (is_offline == False), o KEY_POWER liga a tela
-            if not is_offline:
+
+            # BUG CORRIGIDO: antes, mandávamos o comando absoluto (SmartThings/WOL)
+            # E, em seguida, SEMPRE mandávamos KEY_POWER — que é um botão de
+            # ALTERNÂNCIA no controle remoto. Se o comando absoluto já tivesse
+            # ligado a TV, o KEY_POWER podia desligá-la de novo logo em seguida.
+            # Agora só usamos o KEY_POWER como fallback, quando o comando
+            # absoluto não pôde ser confirmado.
+            powered_on_absolute = _run_async(tv.power_on())
+
+            if not powered_on_absolute and not is_offline:
                 _run_async(tv.send_key("KEY_POWER"))
-                
+
             return "Ligando a TV."
             
         elif action == "power_off":

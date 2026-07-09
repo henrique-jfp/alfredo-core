@@ -162,6 +162,7 @@ Diferente de uma arquitetura clássica de "hub escondido + dispositivos na casa"
 | Hardware | HP Pavilion x360 11-N226BR |
 | CPU | Intel Celeron N2830 Dual-Core 2.16GHz |
 | RAM | 4GB DDR3L + ZRAM |
+| Microfone | Ps3 Eye(array de 4 mics) |
 | SO | Ubuntu Server 26.04 LTS (Resolute) |
 | Papel | Roteador de tráfego de rede, API FastAPI, banco SQLite, **e** captura de voz + exibição do dashboard local. Nenhum processamento pesado de áudio/IA roda localmente — tudo é delegado à nuvem (ver [Filosofia de Arquitetura](#-filosofia-de-arquitetura-agentic-first)). |
 

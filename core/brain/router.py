@@ -91,7 +91,11 @@ class AgentRouter:
                             "type": "OBJECT",
                             "properties": {
                                 "action": {"type": "STRING", "description": "Ação a realizar: 'add', 'read', 'remove', 'clear' ou 'email'"},
-                                "list_type": {"type": "STRING", "description": "Tipo de lista: 'compras' ou 'tarefas'"},
+                                "list_type": {
+                                    "type": "STRING",
+                                    "description": "Tipo de lista suportado pelo Dashboard.",
+                                    "enum": ["compras", "tarefas"]
+                                },
                                 "items": {
                                     "type": "ARRAY", 
                                     "items": {"type": "STRING"},
@@ -265,7 +269,11 @@ class AgentRouter:
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
-                                "action": {"type": "STRING", "description": "Ação a realizar: 'power_on', 'power_off', 'mute', 'unmute', 'volume_up', 'volume_down', 'set_volume', 'open_app'"},
+                                "action": {
+                                    "type": "STRING",
+                                    "description": "Ação a realizar",
+                                    "enum": ["power_on", "power_off", "mute", "unmute", "volume_up", "volume_down", "set_volume", "open_app"]
+                                },
                                 "app_name": {"type": "STRING", "description": "Nome do aplicativo para abrir (apenas para action='open_app')"},
                                 "volume": {"type": "INTEGER", "description": "Nível de volume desejado de 0 a 100 (apenas para action='set_volume')"}
                             },
@@ -656,7 +664,9 @@ class AgentRouter:
             "NUNCA use emojis. "
             "Traduções: use <lang=\"LOCALE\">texto</lang> (ex: <lang=\"en-US\">apple</lang>). "
             "Quiz ativo: valide, corrija e faça nova pergunta. "
-            "Receita ativa: UM passo por vez, sempre cite o prato."
+            "Receita ativa: UM passo por vez, sempre cite o prato. "
+            "REGRA CRÍTICA: se existe uma ferramenta para a ação pedida (lista, timer/despertador, TV, música, agenda, memória), você DEVE chamá-la. "
+            "NUNCA diga que vai fazer algo (ex: 'vou adicionar', 'configurando o alarme') sem de fato invocar a function correspondente — isso engana o usuário, pois nada é executado."
         )
         
         if long_term_memory:
@@ -1014,6 +1024,8 @@ class AgentRouter:
             "Você é o Alfredo, um assistente virtual ultra avançado para automação residencial. "
             "Responda sempre de forma natural, amigável e conversacional. Seja breve, no máximo 2 frases. "
             "NUNCA utilize emojis ou símbolos complexos nas suas respostas. "
+            "REGRA CRÍTICA: se existe uma ferramenta para a ação pedida (lista, timer/despertador, TV, música, agenda, memória), você DEVE chamá-la. "
+            "NUNCA diga que vai fazer algo sem de fato invocar a function correspondente."
         )
         if long_term_memory: system_prompt += f"\n{long_term_memory}"
         if session_context: system_prompt += session_context

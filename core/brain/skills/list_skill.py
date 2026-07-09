@@ -7,9 +7,28 @@ from core.brain.memory import models
 logger = logging.getLogger("alfredo.skills.list")
 
 class ListSkill(Skill):
+    VALID_LIST_TYPES = {"compras", "tarefas"}
+
     @property
     def name(self) -> str:
         return "ListSkill"
+
+    def _normalize_list_type(self, list_type: str) -> str:
+        """Garante que só usamos os dois tipos de lista que o Dashboard conhece.
+
+        BUG CORRIGIDO: o schema da tool manage_list não restringia list_type,
+        então o Gemini podia inventar algo como 'churrasco'. Tecnicamente o
+        item era salvo no banco, mas o Dashboard só sabe agrupar 'compras' e
+        'tarefas' — na prática a lista "sumia" da tela. Agora normalizamos
+        aqui como segunda camada de defesa (a primeira é o enum no schema,
+        ver core/brain/router.py).
+        """
+        normalized = (list_type or "").strip().lower()
+        if normalized in self.VALID_LIST_TYPES:
+            return normalized
+        if any(w in normalized for w in ("compra", "mercado", "feira", "supermercado")):
+            return "compras"
+        return "tarefas"
 
     def can_handle(self, intent: str, text: str) -> bool:
         return intent == "LIST"
@@ -163,7 +182,7 @@ class ListSkill(Skill):
         db = context.get("db")
         room_id = context.get("room_id")
         action = kwargs.get("action")
-        list_type = kwargs.get("list_type", "tarefas")
+        list_type = self._normalize_list_type(kwargs.get("list_type", "tarefas"))
         items = kwargs.get("items", [])
         
         if not db or not room_id:

@@ -25,7 +25,13 @@ class SamsungTVManager:
         self.tv = SamsungTVWS(host=ip, port=8002, token_file=self.token_file, timeout=15)
         
     async def power_on(self):
-        """Tenta ligar a TV via SmartThings (Nível 1) ou Wake-on-LAN (Nível 2)."""
+        """Tenta ligar a TV via SmartThings (Nível 1) ou Wake-on-LAN (Nível 2).
+        
+        Retorna True se um comando ABSOLUTO de ligar foi disparado (SmartThings
+        confirmado ou magic packet WOL enviado). O chamador usa esse retorno
+        para decidir se ainda precisa (ou não) recorrer ao botão de controle
+        remoto local, que é um TOGGLE e pode desligar a TV de volta.
+        """
         if self.smartthings_pat and self.smartthings_device_id:
             try:
                 url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
@@ -37,15 +43,14 @@ class SamsungTVManager:
                     return True
             except Exception as e:
                 logger.error(f"Erro no Power On via SmartThings: {e}")
-                
-        # Fallback to Wake on LAN if MAC is available
+
         if self.mac:
             send_magic_packet(self.mac)
             logger.info("Magic packet (WOL) enviado para ligar a TV.")
             return True
-            
+
         return False
-        
+
     async def power_off(self):
         """Desliga a TV via SmartThings (Nível 1) ou controle remoto (Nível 2)."""
         if self.smartthings_pat and self.smartthings_device_id:
@@ -59,8 +64,7 @@ class SamsungTVManager:
                     return True
             except Exception as e:
                 logger.error(f"Erro no Power Off via SmartThings: {e}")
-                
-        # Fallback to local network key
+
         logger.info("Enviando KEY_POWER para desligar a TV via rede local.")
         return await self._run_local_command(self.tv.send_key, "KEY_POWER")
 
@@ -76,10 +80,38 @@ class SamsungTVManager:
             return None
 
     async def set_mute(self, mute: bool):
-        """Ativa ou desativa o mudo da TV."""
-        logger.info(f"Enviando mute={mute} para a TV {self.ip}")
-        # KEY_MUTE funciona como toggle (mute/unmute) — o mesmo botão do controle remoto.
-        # A lib samsungtvws não possui método unmute() separado.
+        """Define o estado de mudo da TV de forma ABSOLUTA (não alterna).
+
+        BUG CORRIGIDO: a versão anterior sempre enviava KEY_MUTE, que é um
+        botão de ALTERNÂNCIA no controle remoto Samsung — o parâmetro `mute`
+        era, na prática, ignorado. Como o satélite dispara auto-mute/unmute
+        em toda wake word (ver satellite_server/main.py), cada comando de voz
+        gerava 2-3 toggles fora de sincronia, deixando o estado do som
+        praticamente aleatório.
+
+        Agora priorizamos o SmartThings (capability 'audioMute'), que aceita
+        comandos absolutos 'mute' / 'unmute'. Só caímos no botão local
+        (KEY_MUTE, toggle) se o SmartThings não estiver configurado ou falhar
+        — nesse caso não há garantia de que o resultado final seja o pedido.
+        """
+        if self.smartthings_pat and self.smartthings_device_id:
+            try:
+                url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
+                headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
+                command = "mute" if mute else "unmute"
+                payload = {"commands": [{"component": "main", "capability": "audioMute", "command": command}]}
+                response = await asyncio.to_thread(requests.post, url, headers=headers, json=payload, timeout=5)
+                if response.status_code == 200:
+                    logger.info(f"Mute={mute} definido via SmartThings (comando absoluto, sem toggle).")
+                    return True
+                logger.warning(f"SmartThings respondeu {response.status_code} ao tentar mute={mute}.")
+            except Exception as e:
+                logger.error(f"Erro ao definir mute via SmartThings: {e}")
+
+        logger.warning(
+            f"Fallback para KEY_MUTE local (TOGGLE, não absoluto) ao tentar mute={mute}. "
+            "Configure o SmartThings PAT/Device ID para um controle de mudo confiável."
+        )
         return await self._run_local_command(self.tv.send_key, "KEY_MUTE")
 
     async def set_volume(self, volume: int):
