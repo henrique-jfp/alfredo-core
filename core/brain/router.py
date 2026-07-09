@@ -566,6 +566,18 @@ class AgentRouter:
             else:
                 break
 
+    @staticmethod
+    def _get_remainder(buffer: str) -> str:
+        """Retorna o resto do texto que não formou uma frase completa ainda."""
+        import re
+        while True:
+            match = re.search(r'([.?!])(?:\s+|\n|$)', buffer)
+            if match:
+                buffer = buffer[match.end():].strip()
+            else:
+                break
+        return buffer
+
     def process(self, text: str, context: Dict[str, Any]) -> str:
         global _global_key_idx
         
