@@ -9,6 +9,7 @@ import os
 import time
 import asyncio
 from typing import Dict, Any
+import urllib.parse
 
 from core.services.scheduler import SchedulerManager
 
@@ -134,6 +135,7 @@ async def process_voice(
     file: UploadFile = File(...),
     x_device_id: str = Header(None),
     x_room_id: str = Header(None),
+    x_vosk_text: str = Header(None),
     authorization: str = Header(None),
     db: Session = Depends(get_db)
 ):
@@ -164,7 +166,8 @@ async def process_voice(
     if file.filename and file.filename.endswith('.webm'):
         is_webm = True
         
-    generator = process_audio_pipeline(audio_bytes, x_device_id, x_room_id, db, is_webm=is_webm)
+    vosk_text = urllib.parse.unquote(x_vosk_text) if x_vosk_text else ""
+    generator = process_audio_pipeline(audio_bytes, x_device_id, x_room_id, db, is_webm=is_webm, vosk_text=vosk_text)
     
     tts_engine = get_tts_engine()
     return StreamingResponse(

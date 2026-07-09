@@ -18,6 +18,7 @@ import threading
 import logging
 import subprocess
 from typing import Optional
+import urllib.parse
 
 import sounddevice as sd
 import numpy as np
@@ -410,7 +411,7 @@ def vosk_worker():
             recording_buffer = bytearray(recording_buffer[offset:])
 
             total_frames = len(full_audio_buffer) // 320
-            max_silence = int(1.5 * RATE / 160)
+            max_silence = int(0.7 * RATE / 160)
             timeout_frames = int(20 * RATE / 160) if _session_mode else int(5 * RATE / 160)
             max_total = int(15 * RATE / 160)
 
@@ -467,7 +468,8 @@ def _finish_recording():
         return
 
     print(f"⏹️ [VAD] Tamanho do áudio: {len(buf)} bytes. Enviando...", flush=True)
-    threading.Thread(target=_send_and_play, args=(buf,), daemon=True).start()
+    last_text = getattr(vosk_worker, "last_print", "")
+threading.Thread(target=_send_and_play, args=(buf, last_text), daemon=True).start()
 
 
 def _send_and_play(audio_data: bytes):
@@ -482,6 +484,7 @@ def _send_and_play(audio_data: bytes):
     headers = {
         "X-Device-ID": DEVICE_ID,
         "X-Room-ID": ROOM_ID,
+        "X-Vosk-Text": urllib.parse.quote(vosk_text), # Encoding p/ caracteres especiais no header HTTP
         "Authorization": "Bearer mock-token-123"
     }
     try:

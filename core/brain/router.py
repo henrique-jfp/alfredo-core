@@ -568,18 +568,19 @@ class AgentRouter:
                 break
 
     @staticmethod
-    def _get_remainder(buffer: str) -> str:
-        """Retorna o resto do buffer após extrair frases completas."""
-        remainder = buffer
+    def _extract_sentences(buffer: str):
+        """Extrai frases completas do início do buffer (para streaming)."""
+        import re
         while True:
-            found = False
-            for sep in [". ", "? ", "! "]:
-                idx = remainder.find(sep)
-                if idx != -1:
-                    remainder = remainder[idx + len(sep):]
-                    found = True
-                    break
-            if not found:
+            # Encontra pontuações (. ? !) seguidas de espaço, quebra de linha, ou final do buffer atual
+            match = re.search(r'([.?!])(?:\s+|\n|$)', buffer)
+            if match:
+                idx = match.end(1) # Corta exatamente depois da pontuação
+                sentence = buffer[:idx].strip()
+                if sentence:
+                    yield sentence
+                buffer = buffer[match.end():].strip()
+            else:
                 break
         return remainder.strip()
 
