@@ -94,6 +94,13 @@ full_audio_buffer = bytearray()
 dashcam_buffer = bytearray()
 accumulated_vosk_text = ""
 is_streaming = False
+# BUG CORRIGIDO: o teto de segurança (max_total) usava total_frames, que
+# inclui até 6s de áudio pré-gravado (dashcam_buffer). Isso deixava o
+# comportamento imprevisível: dependendo de quanto dashcam já tinha
+# acumulado, o corte por "tempo máximo" ocorria cedo ou quase nos 8s
+# inteiros. live_recording_bytes conta SÓ o áudio capturado desde que a
+# gravação atual começou, para o teto de 8s ter significado consistente.
+live_recording_bytes = 0
 # Queue para comunicação entre o callback de áudio em tempo real e o motor offline (Vosk)
 stream_queue: queue.Queue = queue.Queue(maxsize=20)
 ws_instance = None
@@ -129,6 +136,27 @@ def get_rms(data: bytes) -> float:
     if not samples:
         return 0
     return math.sqrt(sum(s * s for s in samples) / len(samples))
+
+def _is_confirmed_speech(vad_says_speech: bool, rms: float, threshold: float) -> bool:
+    """Confirma fala combinando o veredito espectral do WebRTC VAD com a
+    energia (RMS) do chunk, usando o `noise_threshold` calibrado no boot.
+
+    BUG CORRIGIDO: antes, vad.is_speech() sozinho decidia se um chunk de
+    10ms era "fala". O VAD analisa espectro, não volume — e com o
+    microfone USB amplificado 4x por software (SOFTWARE_MULTIPLIER),
+    ruído de fundo constante tinha espectro parecido com fala e o VAD
+    disparava True quase sem parar. Resultado: silence_frames nunca
+    passava do limiar (0.3-0.5s) e TODO comando esperava o teto rígido de
+    8s (max_total) antes de ser processado — essa espera "morta" no
+    satélite, e não o LLM/TTS no servidor, era a causa real dos ~6s de
+    demora reportados.
+
+    NOTA: se o preamp de software (SET_SOFTWARE_PREAMP) for alterado em
+    tempo real via Dashboard, o `noise_threshold` calibrado no boot pode
+    ficar desatualizado. Melhoria futura: recalibrar ao receber esse
+    comando.
+    """
+    return bool(vad_says_speech) and rms > threshold
 
 
 def clean_audio(samples: np.ndarray) -> np.ndarray:
@@ -321,6 +349,7 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
     global vosk_rec, is_recording, has_spoken, silence_frames, recording_buffer
     global is_calibrated, calibration_frames, calibration_sum, noise_threshold
     global full_audio_buffer, dashcam_buffer, SOFTWARE_MULTIPLIER, noise_gate_hold, _session_mode
+    global live_recording_bytes
 
     # Tratar overflow ao invés de descartar silenciosamente
     if status:
@@ -427,6 +456,7 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
     if is_recording:
         recording_buffer.extend(bytes_data)
         full_audio_buffer.extend(bytes_data)
+        live_recording_bytes += len(bytes_data)
         
         # --- EMERGENCY STOP VIA VOSK ---
         # FIX: antes usava "in" (substring), o que disparava com QUALQUER
@@ -467,22 +497,23 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
         while offset + 320 <= len(recording_buffer):
             chunk = recording_buffer[offset:offset + 320]
             offset += 320
-            is_speech = vad.is_speech(chunk, RATE)
+            vad_raw_result = vad.is_speech(chunk, RATE)
             rms = get_rms(chunk)
-            
-            # Com arrays de microfone (ex: ReSpeaker), o próprio hardware cuida
-            # de AEC (Acoustic Echo Cancellation) e beamforming. 
-            # Confiar primariamente no WebRTC VAD (`is_speech`), sem aplicar gates de volume rígidos
-            # que bloqueiam o usuário se ele estiver longe.
-            
+
+            # BUG CORRIGIDO: exige VAD + energia acima do ruído calibrado
+            # no boot (noise_threshold) para considerar "fala real". Isso
+            # é o que faz o silêncio ser detectado de verdade em vez de
+            # sempre bater no teto de 8s (ver _is_confirmed_speech acima).
+            is_speech = _is_confirmed_speech(vad_raw_result, rms, noise_threshold)
+
             if is_speech:
                 # Mantém o hold timer alto para não cortar palavras
                 noise_gate_hold = NOISE_GATE_HOLD_FRAMES
             else:
                 if noise_gate_hold > 0:
                     noise_gate_hold -= 1
-                    is_speech = True  # Mantém artificialmente aberto
-                    
+                    is_speech = True  # Mantém artificialmente aberto (bridge de consoantes fracas)
+
             if is_speech:
                 if not has_spoken:
                     # Primeira detecção de fala — inicia contagem
@@ -493,19 +524,25 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
                     silence_frames = 0
             elif has_spoken:
                 silence_frames += 1
-                
+
         recording_buffer = bytearray(recording_buffer[offset:])
 
         total_frames = len(full_audio_buffer) // 320
-        total_duration = total_frames * 0.02
-        # 50 frames de 10ms = 0.5s de silêncio após a fala (para responder super rápido)
-        # Se a pessoa falou muito pouco (< 1 segundo), damos 0.5s de tolerância para evitar corte
+        # BUG CORRIGIDO: live_frames conta só o áudio capturado desde o
+        # início desta gravação, SEM o preload do dashcam (até 6s de
+        # áudio antigo). Usar total_frames aqui fazia o teto de "tempo
+        # máximo" disparar de forma inconsistente — às vezes cedo demais,
+        # às vezes quase nos 8s inteiros — dependendo de quanto dashcam
+        # já estava acumulado no momento da wake word.
+        live_frames = live_recording_bytes // 320
+
+        # 30-50 frames de 10ms = 0.3-0.5s de silêncio após a fala
         if total_frames < int(1.0 * RATE / 160):
             max_silence = int(0.3 * RATE / 160)
         else:
             max_silence = int(0.5 * RATE / 160)
         timeout_frames = int(20 * RATE / 160) if _session_mode else int(5 * RATE / 160)
-        max_total = int(8 * RATE / 160)  # 8s máximo (ninguém dá um comando de 15s)
+        max_total = int(8 * RATE / 160)  # 8s máximo de FALA NOVA (ninguém dá um comando de 15s)
 
         if has_spoken and silence_frames > max_silence:
             print("⏹️ Silêncio detectado. Fim da gravação.", flush=True)
@@ -519,18 +556,20 @@ def audio_callback(indata: np.ndarray, frames: int, time_info, status: sd.Callba
                 print("⏳ Ninguém falou nada (5s). Cancelando gravação.", flush=True)
             is_recording = False
             recording_buffer.clear()
-        elif total_frames > max_total:
-            print("⏳ Tempo máximo atingido.", flush=True)
+        elif live_frames > max_total:
+            print("⏳ Tempo máximo atingido (comando muito longo).", flush=True)
             _finish_recording()
 
 
 def _start_recording():
     global is_recording, recording_buffer, has_spoken, silence_frames, vosk_rec
     global full_audio_buffer, dashcam_buffer, _session_mode, accumulated_vosk_text
+    global live_recording_bytes
     is_recording = True
     recording_buffer = bytearray()
     accumulated_vosk_text = ""
-    
+    live_recording_bytes = 0
+
     # Injetando o passado (Dashcam) no buffer final!
     full_audio_buffer = bytearray(dashcam_buffer)
     dashcam_buffer.clear()
@@ -550,10 +589,16 @@ def _start_recording():
 
 def _finish_recording():
     global is_recording, full_audio_buffer, vosk_rec, accumulated_vosk_text
+    global live_recording_bytes
     is_recording = False
     buf = bytes(full_audio_buffer)
     recording_buffer.clear()
     full_audio_buffer.clear()
+
+    # Diagnóstico: com o fix, isso deve ficar perto da duração real da
+    # sua fala (ex: 1-3s), não mais perto de 8s em todo comando.
+    live_seconds = live_recording_bytes / (RATE * 2)
+    print(f"🎙️ [DURAÇÃO] Áudio novo desde o início da gravação: {live_seconds:.2f}s", flush=True)
 
     if len(buf) < 3200:
         print("Áudio muito curto, ignorando.", flush=True)
