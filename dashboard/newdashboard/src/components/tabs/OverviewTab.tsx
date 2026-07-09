@@ -30,6 +30,24 @@ function formatRio(date: Date, options: Intl.DateTimeFormatOptions) {
   return new Intl.DateTimeFormat('pt-BR', { timeZone: RIO_TIME_ZONE, ...options }).format(date);
 }
 
+const ClockDisplay = React.memo(function ClockDisplay({ time }: { time: Date }) {
+  return (
+    <div className="flex flex-col xl:min-w-[340px]">
+      <div className="text-[13px] font-medium uppercase tracking-[0.22em] text-[color:var(--text-tertiary)]">
+        {formatRio(time, { weekday: 'long', day: '2-digit', month: 'long' })}
+      </div>
+      <div className="mt-1 flex items-baseline gap-2">
+        <h1 className="text-7xl font-semibold leading-none tracking-tight text-[color:var(--text-primary)] md:text-[92px]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {formatRio(time, { hour: '2-digit', minute: '2-digit' })}
+        </h1>
+        <span className="font-mono text-4xl font-medium text-[color:var(--text-tertiary)] md:text-5xl opacity-50">
+          :{time.getSeconds().toString().padStart(2, '0')}
+        </span>
+      </div>
+    </div>
+  );
+});
+
 function formatCountdown(expiresAt: string) {
   const now = Date.now();
   const end = new Date(expiresAt).getTime();
@@ -84,7 +102,7 @@ function TimerCard({
         }
       }}
       className={cn(
-        'group flex min-w-0 flex-col justify-between rounded-3xl border p-4 text-left transition-all duration-200 hover:-translate-y-0.5',
+        'group flex min-w-0 flex-col justify-between rounded-2xl border p-4 text-left transition-all duration-200 hover:-translate-y-0.5',
         accent,
         glow
       )}
@@ -92,7 +110,7 @@ function TimerCard({
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="alfredo-section-label mb-2 text-[10px]">{label}</div>
+          <div className="alfredo-section-label mb-2">{label}</div>
           <div className="font-mono text-[24px] font-semibold tracking-tight tabular-nums">{timeLeft}</div>
         </div>
         {icon}
@@ -194,6 +212,18 @@ export function OverviewTab() {
   };
 
   const recentActivities = useMemo(() => history.slice(0, 6), [history]);
+  const weatherCode = weather?.weather_code ?? -1;
+  const weatherKind = useMemo(() => getWeatherKind(weatherCode), [weatherCode]);
+  const weatherTitle = useMemo(() => {
+    switch (weatherKind) {
+      case 'sun': return 'Ensolarado';
+      case 'cloud': return 'Nublado';
+      case 'rain': return 'Chuva';
+      case 'snow': return 'Neve';
+      case 'storm': return 'Tempestade';
+      default: return '—';
+    }
+  }, [weatherKind]);
   const kpis = [
     { label: 'Conversas', value: stats?.interactions || '—', icon: MessageSquare, tone: 'info' as const, detail: 'Atividade consolidada' },
     { label: 'Timers', value: stats?.active_timers ?? '—', icon: Clock, tone: 'warning' as const, detail: 'Alarmes e lembretes' },
@@ -207,8 +237,6 @@ export function OverviewTab() {
     lembretes: timers.length,
   };
 
-  const weatherCode = weather?.weather_code ?? -1;
-  const weatherKind = getWeatherKind(weatherCode);
   const activeTimers = timers.filter((t) => t.timer_type === 'timer' && !(t.message && t.message.toLowerCase().includes('despertar')));
   const activeAlarms = alarms;
   const hasPinnedTimers = activeTimers.length > 0 || activeAlarms.length > 0;
@@ -219,31 +247,13 @@ export function OverviewTab() {
         ? activeTimers.slice(0, 2)
         : activeAlarms.slice(0, 2);
 
-  const weatherTitle =
-    weatherKind === 'sun' ? 'Ensolarado' :
-    weatherKind === 'cloud' ? 'Nublado' :
-    weatherKind === 'rain' ? 'Chuva' :
-    weatherKind === 'snow' ? 'Neve' : 'Tempestade';
-
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto pr-2 pb-10">
       {/* NOVO CABEÇALHO (Relógio + Timers + Clima) */}
       <div className="flex flex-col xl:flex-row w-full items-start xl:items-center justify-between gap-5 xl:gap-8 mb-4">
         
         {/* Esquerda: Relógio */}
-        <div className="flex flex-col xl:min-w-[340px]">
-          <div className="text-[13px] font-medium uppercase tracking-[0.22em] text-[color:var(--text-tertiary)]">
-            {formatRio(time, { weekday: 'long', day: '2-digit', month: 'long' })}
-          </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <h1 className="text-7xl font-semibold leading-none tracking-tight text-[color:var(--text-primary)] md:text-[92px]" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {formatRio(time, { hour: '2-digit', minute: '2-digit' })}
-            </h1>
-            <span className="font-mono text-4xl font-medium text-[color:var(--text-tertiary)] md:text-5xl opacity-50">
-              :{time.getSeconds().toString().padStart(2, '0')}
-            </span>
-          </div>
-        </div>
+        <ClockDisplay time={time} />
 
         {/* Centro: Timers (se existirem) */}
         {hasPinnedTimers && (
@@ -260,7 +270,7 @@ export function OverviewTab() {
 
         {/* Direita: Clima */}
         <div className="flex-shrink-0 w-full xl:w-[400px]">
-          <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-[linear-gradient(180deg,rgba(19,20,23,0.95),rgba(27,29,33,0.95))] p-5 md:p-6">
+          <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-[linear-gradient(180deg,rgba(19,20,23,0.95),rgba(27,29,33,0.95))] p-5 md:p-6">
           <div className={cn(
             'absolute inset-0 pointer-events-none opacity-100',
             weatherKind === 'sun' && 'bg-[radial-gradient(circle_at_70%_20%,rgba(212,162,78,0.22),transparent_34%),radial-gradient(circle_at_40%_80%,rgba(212,162,78,0.08),transparent_32%)]',
@@ -316,7 +326,7 @@ export function OverviewTab() {
                 </div>
               </div>
               
-              <div className="grid grid-cols-4 gap-2 text-[11px] text-zinc-400 leading-tight">
+              <div className="grid grid-cols-2 gap-2 text-[11px] text-zinc-400 leading-tight sm:grid-cols-4">
                 <div className="col-span-1 rounded-xl bg-white/5 p-2.5">
                   <div className="mb-0.5 opacity-70">Umidade</div>
                   <div className="font-medium text-white">{weather?.humidity ?? '--'}%</div>
@@ -393,7 +403,7 @@ export function OverviewTab() {
             </button>
           </form>
 
-          <div className="mt-5 flex min-h-0 flex-col gap-2 overflow-y-auto pr-1">
+          <div className="mt-5 flex min-h-0 flex-col gap-2 overflow-y-auto pr-0.5">
             {recentActivities.length === 0 ? (
               <EmptyState
                 icon={Activity}
@@ -422,7 +432,7 @@ export function OverviewTab() {
                     <div className="mt-3 flex gap-3">
                       <div className="mt-0.5 h-2.5 w-2.5 rounded-full bg-brass-400 shadow-[0_0_12px_rgba(212,162,78,0.25)]" />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-[14px] font-medium text-[color:var(--text-primary)]">{item.input_text}</p>
+                        <p className="line-clamp-2 text-[14px] font-medium text-[color:var(--text-primary)]">{item.input_text}</p>
                         <p className="mt-2 rounded-xl border border-white/5 bg-black/20 px-3 py-2 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
                           {item.output_text || 'Processando resposta...'}
                         </p>
@@ -463,7 +473,7 @@ export function OverviewTab() {
                 >
                   <Icon className="h-4 w-4" />
                   {item.label}
-                  <span className="rounded-full bg-black/25 px-2 py-0.5 text-[10px] font-semibold">{widgetCounts[item.key]}</span>
+                  <span className="rounded-full bg-black/25 px-2 py-0.5 text-[11px] font-semibold">{widgetCounts[item.key]}</span>
                 </button>
               );
             })}

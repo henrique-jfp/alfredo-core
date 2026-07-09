@@ -154,8 +154,8 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
                 isActive ? "text-brass-400" : "text-zinc-500 hover:text-zinc-300"
               )}
             >
-              <Icon className={cn("w-5 h-5 mb-1 transition-transform", isActive && "scale-110")} strokeWidth={isActive ? 2.5 : 2} />
-              <span className="text-[9px] font-medium tracking-wide truncate max-w-full px-1">{item.label}</span>
+              <Icon className={cn("w-5 h-5 mb-0.5 transition-transform", isActive && "scale-110")} strokeWidth={isActive ? 2.5 : 2} />
+              <span className="text-[8px] font-medium tracking-tight truncate max-w-full px-0.5 leading-tight">{item.label}</span>
             </button>
           );
         })}

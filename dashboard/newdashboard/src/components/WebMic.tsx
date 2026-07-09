@@ -7,7 +7,8 @@ export function WebMic() {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [playOnServer, setPlayOnServer] = useState(false); // Default to local browser
+  const [playOnServer, setPlayOnServer] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
@@ -101,7 +102,8 @@ export function WebMic() {
 
     } catch (error) {
       console.error("Error accessing microphone:", error);
-      alert("Não foi possível acessar o microfone. Verifique as permissões do navegador.");
+      setMicError("Microfone não disponível. Verifique as permissões.");
+      setTimeout(() => setMicError(null), 5000);
       isInitializingRef.current = false;
     }
   };
@@ -163,6 +165,12 @@ export function WebMic() {
   return (
     <div className="fixed bottom-24 right-4 z-50 flex items-center gap-3 md:bottom-8 md:right-8">
       
+      {micError && (
+        <div className="absolute bottom-20 right-0 alfredo-card whitespace-nowrap px-4 py-3 text-[13px] text-rose-400 border-rose-500/20 shadow-[0_0_24px_rgba(248,113,113,0.18)]">
+          {micError}
+        </div>
+      )}
+
       {/* Toggle Output Target */}
       <button 
         onClick={() => setPlayOnServer(!playOnServer)}
