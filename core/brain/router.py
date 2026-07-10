@@ -380,7 +380,10 @@ class AgentRouter:
             "que horas", "que hora", "que dia", "que data",
             "filme", "série", "serie",
             "tv", "televisão", "televisao",
-            "youtube", "yt", "live", "podcast"
+            "abre", "abrir", "abri",
+            "netflix", "globoplay", "disney", "prime", "hbo", "max", "apple tv",
+            "youtube", "yt", "live", "podcast",
+            "claro tv", "claro tv+", "claro"
         ]
         
         text_lower = text.lower().strip()
