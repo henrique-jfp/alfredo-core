@@ -696,7 +696,7 @@ class AgentRouter:
         system_prompt += f"\n\nContexto Oculto do Sistema:\n- Horário e data atual exatos: {now.strftime('%d/%m/%Y %H:%M:%S')}"
         tools = self._get_tools_schema()
         model = genai.GenerativeModel(
-            model_name='gemini-2.5-flash',
+            model_name='gemini-3.1-flash-lite',
             tools=tools,
             system_instruction=system_prompt,
             generation_config=genai.GenerationConfig(temperature=0.9)
@@ -856,7 +856,7 @@ class AgentRouter:
             
             logger.warning(f"Gemini retornou parts vazias. Finish reason: {response.candidates[0].finish_reason if response.candidates else 'Unknown'}. Fallback sem tools...")
             model_fallback = genai.GenerativeModel(
-                model_name='gemini-2.5-flash',
+                model_name='gemini-3.1-flash-lite',
                 system_instruction=system_prompt,
                 generation_config=genai.GenerationConfig(temperature=0.9)
             )
@@ -1051,7 +1051,7 @@ class AgentRouter:
         tools = self._get_tools_schema()
         
         model = genai.GenerativeModel(
-            model_name='gemini-2.5-flash',
+            model_name='gemini-3.1-flash-lite',
             system_instruction=system_prompt,
             tools=tools,
             generation_config=genai.GenerationConfig(temperature=0.8)
