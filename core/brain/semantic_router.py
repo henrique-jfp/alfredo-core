@@ -14,7 +14,7 @@ import re
 import logging
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Optional, Tuple, Dict, Any, List, Pattern
+from typing import Optional, Tuple, Dict, Any, List, Pattern, Callable
 
 logger = logging.getLogger("alfredo.semantic_router")
 
@@ -39,11 +39,16 @@ def normalize(text: str) -> str:
 # --------------------------------------------------------------------------- #
 @dataclass
 class Route:
-    pattern: Pattern
+    pattern: Any  # Pode ser string ou Pattern
     tool: str
     args: Dict[str, Any]
     response: Optional[str] = None
     batchable: bool = False
+    custom_parser: Optional[Callable[[str], Optional[List[Dict[str, Any]]]]] = None
+
+    def __post_init__(self):
+        if isinstance(self.pattern, str):
+            self.pattern = re.compile(self.pattern)
 
 
 def _and(*groups: str) -> str:
@@ -79,7 +84,7 @@ _TV_MESSAGES = {
 
 
 def _tv_response(action: Dict[str, Any]) -> str:
-    act = action["action"]
+    act = action.get("action", "")
 
     if act == "open_app":
         return f"Abrindo {action.get('app_name', 'app').title()}."
@@ -105,175 +110,47 @@ def _tv_response(action: Dict[str, Any]) -> str:
     return _TV_MESSAGES.get(act, "Ok!")
 
 
-# Cada item: (pattern_ascii, tool, args, response, batchable)
-# IMPORTANTE: patterns já assumem texto normalizado (sem acento, lowercase).
-# Usamos _and(...) (lookaheads) em vez de ".*" sequencial para que a ordem
-# das palavras na frase não importe: "liga a tv" e "a tv, liga" casam igual.
-_TV = "tv|televisao"
-
-# Lista de canais abertos conhecidos (fácil de estender). Usada tanto para
-# "muda pro globo" (canal nativo da tv) quanto para "muda o canal do claro
-# tv+ pro globo" (canal dentro do app).
-_CHANNEL_NAMES = "globo|sbt|record|band|redetv|cultura|sportv|globonews|gnt|multishow|premiere|combate"
-
-# Apps reconhecidos (Home Assistant costuma expor isso via media_player
-# select_source ou play_media, dependendo da integração da sua TV).
-_APPS = "netflix|youtube|spotify|prime|globoplay|disney|hbo|apple tv|claro tv\\+|claro tv|claro"
-
-_ROUTE_DEFS: List[Tuple[str, str, Dict[str, Any], Optional[str], bool]] = [
-    # ---- ENERGIA ----
-    (_and("liga|ligar", _TV),
-     "manage_tv", {"action": "power_on"}, None, True),
-
-    (_and("desliga|desligar|apaga|apagar", _TV),
-     "manage_tv", {"action": "power_off"}, None, True),
-
-    # ---- MUDO ----
-    # unmute PRECISA vir antes de mute: exige "tira/tirar" + "mudo" + tv,
-    # ou o verbo "desmuta/desmutar" + tv.
-    (rf"(?:{_and(_TV, 'mudo', 'tira|tirar')})|(?:{_and(_TV, 'desmuta|desmutar')})",
-     "manage_tv", {"action": "unmute"}, None, True),
-
-    # mute: "silencia/muta a tv" OU "mudo" associado à tv — mas NUNCA se
-    # "tira/tirar/desmuta/desmutar" também estiver na frase (aí é unmute).
-    (_and(_TV, "silencia|silenciar|muta|mutar|mudo") + _not("tira|tirar|desmuta|desmutar"),
-     "manage_tv", {"action": "mute"}, None, True),
-
-    # ---- VOLUME ----
-    # volume com número específico ("coloca o volume em 20") vem antes das
-    # regras genéricas de aumentar/abaixar, para não bater nas duas ao
-    # mesmo tempo (aqui não há conflito de regex, mas mantém a leitura
-    # lógica: primeiro o caso mais específico).
-    (_and("coloca|colocar|ajusta|ajustar|deixa|deixar|poe|por|muda|mudar", "volume")
-     + r"(?=.*\b(?P<level>\d{1,3})\b)",
-     "manage_tv", {"action": "volume_set"}, None, True),
-
-    (_and("aumenta|aumentar|sobe|subir", "volume|som"),
-     "manage_tv", {"action": "volume_up"}, None, True),
-
-    (_and("abaixa|abaixar|diminui|diminuir", "volume|som"),
-     "manage_tv", {"action": "volume_down"}, None, True),
-
-    # ---- ENTRADA / FONTE (HDMI, AV, antena) ----
-    (r"(?=.*\b(?:muda|mudar|troca|trocar|coloca|colocar|vai|ir)\b)"
-     r"(?=.*\b(?P<source>hdmi\s?[123])\b)",
-     "manage_tv", {"action": "select_source"}, None, True),
-
-    (_and("entrada|fonte", r"(?P<source>av|antena|tv aberta)"),
-     "manage_tv", {"action": "select_source"}, None, True),
-
-    # ---- CANAL (sintonizador nativo da tv — NÃO dentro de um app) ----
-    # excluem "claro" de propósito: canal dentro do Claro tv+ é tratado
-    # como app_channel_change mais abaixo, pois não é o sintonizador da tv.
-    (_and("muda|mudar|troca|trocar|coloca|colocar|vai|ir", "canal")
-     + r"(?=.*\b(?P<channel>\d{1,4})\b)" + _not("claro"),
-     "manage_tv", {"action": "channel_number"}, None, True),
-
-    (_and("muda|mudar|troca|trocar|coloca|colocar|vai|ir", "canal")
-     + rf"(?=.*\b(?P<channel_name>{_CHANNEL_NAMES})\b)" + _not("claro"),
-     "manage_tv", {"action": "channel_name"}, None, True),
-
-    # ---- CANAL DENTRO DE UM APP (ex.: Claro tv+) ----
-    (r"(?=.*\bclaro\b)" + _and("canal") + r"(?=.*\b(?P<channel>\d{1,4})\b)",
-     "manage_tv", {"action": "app_channel_change", "app_name": "claro tv+"}, None, True),
-
-    (r"(?=.*\bclaro\b)" + _and("canal") + rf"(?=.*\b(?P<channel_name>{_CHANNEL_NAMES})\b)",
-     "manage_tv", {"action": "app_channel_change", "app_name": "claro tv+"}, None, True),
-
-    # ---- ABRIR APP ----
-    (r"(?=.*\b(?:abre|abri|abrir|coloca|colocar)\b)"
-     rf"(?=.*\b(?P<app_name>{_APPS})\b)" + _not("canal"),
-     "manage_tv", {"action": "open_app"}, None, True),
-
-    # ---- REPRODUÇÃO DE CONTEÚDO (vídeo/série/filme/app de streaming) ----
-    # Exige uma palavra de conteúdo OU o nome de um app pra não colidir
-    # com manage_music (que exige musica|som|spotify). Se um app for
-    # citado, ele é capturado como app_name.
-    (r"(?=.*\b(?:play|toca|tocar|reproduz|reproduzir)\b)"
-     rf"(?=.*\b(?:video|filme|serie|programa|episodio|conteudo|(?P<app_name>{_APPS}))\b)",
-     "manage_tv", {"action": "media_play"}, None, True),
-
-    # "para/parar" foi excluído de propósito: em português "para" também é
-    # preposição ("canal para 63"), então usá-lo como gatilho de pausa
-    # gerava falso positivo em qualquer frase com "para" + nome de app.
-    (r"(?=.*\b(?:pausa|pausar)\b)"
-     rf"(?=.*\b(?:video|filme|serie|programa|episodio|conteudo|(?P<app_name>{_APPS}))\b)",
-     "manage_tv", {"action": "media_pause"}, None, True),
-
-    (r"(?=.*\b(?:encerra|encerrar|sai|sair)\b)"
-     rf"(?=.*\b(?:video|filme|serie|programa|episodio|conteudo|(?P<app_name>{_APPS}))\b)",
-     "manage_tv", {"action": "media_stop"}, None, True),
-
-    (_and("proximo|proxima|avanca|avancar|pula|pular", "video|filme|serie|programa|episodio"),
-     "manage_tv", {"action": "media_next"}, None, True),
-
-    (_and("anterior|volta|voltar", "video|filme|serie|programa|episodio"),
-     "manage_tv", {"action": "media_previous"}, None, True),
-
-    # ---- MÚSICA E MÍDIA (Spotify, especificamente) ----
-    (_and("para|parar|pausa|pausar", "musica|som|spotify"),
-     "manage_music", {"action": "pause"}, "Pausando a música.", False),
-
-    # "toca/tocar/continua" = retomar. "volta/voltar" fica só na regra de
-    # "previous" abaixo, de propósito, para não colidir com ela.
-    (_and("toca|tocar|continua|continuar", "musica|som|spotify"),
-     "manage_music", {"action": "resume"}, "Voltando a música.", False),
-
-    (_and("proxima|pula|pular", "musica|som|faixa"),
-     "manage_music", {"action": "next"}, "Próxima música.", False),
-
-    (_and("anterior|volta|voltar", "musica|som|faixa"),
-     "manage_music", {"action": "previous"}, "Música anterior.", False),
-
-    # ---- TEMPO E DATA ----
-    # response=None -> deixa a skill/LLM processar a string exata.
-    # Usa (?=.*...) em vez de \b...\b "cru" para continuar funcionando
-    # mesmo com prefixo, ex: "alfredo, que horas são".
-    (r"(?=.*\bque horas sao\b)", "get_time", {"request_type": "time"}, None, False),
-    (r"(?=.*\bque dia e hoje\b)", "get_time", {"request_type": "date"}, None, False),
-
-    # ---- CLIMA ----
-    (_and("como esta o|previsao do", "clima|tempo"),
-     "get_weather", {"location": "current"}, None, False),
-]
-
-
+# --------------------------------------------------------------------------- #
+# Carregamento Dinâmico de Rotas (Módulo Routers)
+# --------------------------------------------------------------------------- #
 class FastSemanticRouter:
-    def __init__(self, route_defs: Optional[List[Tuple]] = None):
-        route_defs = route_defs if route_defs is not None else _ROUTE_DEFS
-        self.routes: List[Route] = [
-            Route(pattern=re.compile(pattern), tool=tool, args=args,
-                  response=resp, batchable=batchable)
-            for pattern, tool, args, resp, batchable in route_defs
-        ]
+    def __init__(self, route_defs: Optional[List[Route]] = None):
+        if route_defs is not None:
+            self.routes = route_defs
+        else:
+            from core.brain.routers import ROUTES
+            self.routes = ROUTES
 
     def match(self, text: str) -> Optional[Tuple[str, Dict[str, Any], Optional[str]]]:
         normalized = normalize(text)
 
-        # agrupa ações batchable por ferramenta (hoje só manage_tv usa isso)
+        # agrupa ações batchable por ferramenta (hoje só manage_tv e manage_timer usam isso)
         batched_actions: Dict[str, List[Dict[str, Any]]] = {}
 
         for route in self.routes:
-            # match() em vez de search(): os patterns usam apenas lookaheads
-            # (zero-width) que já variam ".*" internamente, então precisam
-            # ser avaliados a partir de uma única posição fixa (o início).
-            # Com search(), um (?!.*palavra_proibida) podia falhar na
-            # posição 0 mas "passar" numa posição mais à frente, já com a
-            # palavra proibida para trás do cursor — reintroduzindo bugs
-            # de falso-positivo.
+            if route.custom_parser:
+                # Se tiver parser customizado, delega a ele a busca de múltiplas ações
+                parsed_actions = route.custom_parser(normalized)
+                if parsed_actions:
+                    if route.batchable:
+                        bucket = batched_actions.setdefault(route.tool, [])
+                        for action in parsed_actions:
+                            if action not in bucket:
+                                bucket.append(action)
+                    else:
+                        logger.info("FastSemanticRouter interceptou via parser: '%s' -> %s", text, route.tool)
+                        return route.tool, parsed_actions[0] if len(parsed_actions)==1 else {"actions": parsed_actions}, route.response
+                continue
+
             m = route.pattern.match(normalized)
             if not m:
                 continue
 
             if route.batchable:
                 args = dict(route.args)
-                # extrai qualquer grupo nomeado capturado (app_name, level,
-                # source, channel, channel_name...) direto pros args —
-                # evita ter que listar cada grupo manualmente aqui.
                 for key, value in m.groupdict().items():
                     if value:
                         args[key] = value.strip().lower()
-                # evita duplicar a mesma ação se duas regras baterem no mesmo texto
                 bucket = batched_actions.setdefault(route.tool, [])
                 if args not in bucket:
                     bucket.append(args)
@@ -282,10 +159,14 @@ class FastSemanticRouter:
                 return route.tool, route.args, route.response
 
         if batched_actions:
-            # hoje só há uma ferramenta batchable (manage_tv); se isso mudar
-            # no futuro, cada ferramenta batchable vira um match separado.
+            # Pega o primeiro bucket que tiver ações (já que iteramos por rotas e agrupamos)
             tool, actions = next(iter(batched_actions.items()))
-            response = " ".join(_tv_response(a) for a in actions) if tool == "manage_tv" else None
+            if tool == "manage_tv":
+                response = " ".join(_tv_response(a) for a in actions)
+            elif tool == "manage_timer":
+                response = f"Criando {len(actions)} timer{'s' if len(actions)>1 else ''}."
+            else:
+                response = None
             logger.info("FastSemanticRouter interceptou %s (lote): '%s' -> %s", tool, text, actions)
             return tool, {"actions": actions}, response
 
@@ -324,6 +205,10 @@ if __name__ == "__main__":
         "que horas são",
         "alfredo, que horas são",         # com prefixo antes da frase-chave
         "como está o clima",
+        "me avisa daqui a 5 minutos e daqui a 10 minutos para tirar o bolo", # timers
+        "adiciona pão na lista",
+        "o que tem na lista",
+        "limpar lista",
         "isso não deveria bater em nada",
     ]
 
