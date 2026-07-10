@@ -125,7 +125,7 @@ O agente Gemini tem acesso livre ao catálogo de *skills* abaixo e decide sozinh
 | Skill | Descrição |
 |---|---|
 | 🧠 **MemoryTool** | Memória de longo prazo persistente — Alfredo memoriza fatos vitais do usuário (alergias, hábitos, preferências) e injeta esse contexto *always-on* silenciosamente em respostas futuras. |
-| 📝 **ListTool** | Gerenciamento de listas de compras e tarefas (*"Adicione pão na minha lista de mercado"*). |
+        | 📝 **ListTool** | Gerenciamento de listas de compras e tarefas (*"Adicione pão na minha lista de mercado"*). |
 | 📅 **CalendarTool** | Agenda completa com leitura por voz (`"O que tenho amanhã?"`), adição (`"Marque dentista próxima terça às 14h"`), **reagendamento** (`"Move a reunião para quinta"` / `"Adia em 30 minutos"`), **cancelamento inteligente** (pergunta qual quando há múltiplos), **múltiplos lembretes** (`"Me lembre 1 hora, 15 min e 5 min antes"`), **detecção de conflitos** (`"Você já tem dentista às 14h"`), **datas naturais** (`"depois de amanhã"`, `"daqui a 3 dias"`, `"mês que vem"`, `"próxima terça"`), **sincronia bidirecional com Google Calendar** (OAuth + push/pull automático a cada 5 min), e **dashboard visual** com visão semanal. |
 
 ### 🧭 Utilidades Gerais

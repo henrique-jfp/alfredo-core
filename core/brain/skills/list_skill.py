@@ -1,6 +1,8 @@
+import os
 import re
 import logging
 from typing import Dict, Any
+import requests
 from core.brain.skills.base import Skill
 from core.brain.memory import models
 
@@ -28,51 +30,51 @@ class ListSkill(Skill):
             return normalized
         if any(w in normalized for w in ("compra", "mercado", "feira", "supermercado")):
             return "compras"
-        return "tarefas"
-
-    def can_handle(self, intent: str, text: str) -> bool:
-        return intent == "LIST"
-
-    def execute(self, text: str, context: Dict[str, Any]) -> str:
-        db = context.get("db")
-        room_id = context.get("room_id")
-        
-        if not db or not room_id:
-            logger.error("Contexto sem DB ou room_id na ListSkill")
-            return "Desculpe, não consegui acessar o banco de dados das listas."
-
-        text_lower = text.lower()
-        
-        # Determina o tipo de lista (tarefas é o padrão caso não mencione compras)
-        compras_keywords = ["compra", "compras", "mercado", "supermercado", "feira", "mercearia", "sacolão", "quitanda"]
-        list_type = "compras" if any(w in text_lower for w in compras_keywords) else "tarefas"
-
-        # Verifica se é remoção de item específico
-        remove_match = re.search(r'(?:apague|apagar|remova|remover|exclua|excluir|tire|tirar|risque|riscar)\s+(?:o\s+|a\s+|os\s+|as\s+)?(.+?)\s+(?:da|de|na)\s+lista', text_lower)
-        if remove_match:
-            item_name = remove_match.group(1).strip()
-            if item_name and len(item_name) >= 2 and item_name not in ["tudo", "tudo da", "toda a", "tudo de"]:
-                return self._remove_item(db, room_id, list_type, item_name)
-
-        # Identifica a ação geral
-        if "limpe" in text_lower or "apague a lista" in text_lower or "esvazie" in text_lower or "limpar" in text_lower or "apagar tudo" in text_lower:
-            return self._clear_list(db, room_id, list_type)
-        elif "adicione" in text_lower or "adicionar" in text_lower or "coloque" in text_lower or "anote" in text_lower or "ponha" in text_lower or "inclua" in text_lower or "acrescente" in text_lower or "acrescentar" in text_lower or "comprar" in text_lower:
-            return self._add_item(db, room_id, list_type, text_lower)
-        else:
-            return self._read_list(db, room_id, list_type)
-
-    def _clear_list(self, db, room_id, list_type) -> str:
-        items = db.query(models.ListItem).filter(
-            models.ListItem.room_id == room_id,
-            models.ListItem.list_type == list_type
-        ).all()
-        
-        for item in items:
-            db.delete(item)
-            
-        db.commit()
-        logger.info(f"Lista de {list_type} esvaziada para a sala {room_id}")
+            if action == "email":
+                items_db = db.query(models.ListItem).filter(
+                    models.ListItem.room_id == room_id,
+                    models.ListItem.list_type == list_type
+                ).all()
+                
+                if not items_db:
+                    return {
+                        "error": f"A lista de {list_type} está vazia, não há nada para enviar.",
+                        "direct_response": f"Sua lista de {list_type} está vazia, não tenho nada para enviar."
+                    }
+                    
+                html_items = "".join([f"<li style='margin-bottom: 8px; font-size: 16px;'>{i.content}</li>" for i in items_db])
+                
+                html_body = f"""
+                <html>
+                    <body style="font-family: Arial, sans-serif; color: #333;">
+                        <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+                            <h2 style="color: #4CAF50;">Sua Lista de {list_type.capitalize()} 🛒</h2>
+                            <p>Aqui estão os itens da sua lista solicitada através do Alfredo:</p>
+                            <ul style="list-style-type: square;">
+                                {html_items}
+                            </ul>
+                            <hr style="border: none; border-top: 1px solid #eee; margin-top: 30px;">
+                            <p style="font-size: 12px; color: #999;">Enviado por Alfredo Home OS</p>
+                        </div>
+                    </body>
+                </html>
+                """
+                
+                from core.services.mail_service import send_email
+                success = send_email(f"Sua lista de {list_type.capitalize()}", html_body)
+                
+                if success:
+                    return {
+                        "status": "success",
+                        "message": "Email enviado com sucesso.",
+                        "direct_response": f"Pronto, enviei sua lista de {list_type} por email."
+                    }
+                else:
+                    return {
+                        "error": "Falha ao enviar email. Verifique as credenciais no .env."
+                    }
+                    
+            return {"error": "Ação desconhecida"}
         return f"A sua lista de {list_type} foi esvaziada."
 
     def _remove_item(self, db, room_id, list_type, item_name) -> str:
@@ -278,48 +280,67 @@ class ListSkill(Skill):
                 "direct_response": direct
             }
             
-        elif action == "email":
+        elif action in ("email", "telegram"):
             items_db = db.query(models.ListItem).filter(
                 models.ListItem.room_id == room_id,
                 models.ListItem.list_type == list_type
             ).all()
-            
+
             if not items_db:
                 return {
                     "error": f"A lista de {list_type} está vazia, não há nada para enviar.",
                     "direct_response": f"Sua lista de {list_type} está vazia, não tenho nada para enviar."
                 }
-                
-            html_items = "".join([f"<li style='margin-bottom: 8px; font-size: 16px;'>{i.content}</li>" for i in items_db])
-            
-            html_body = f"""
-            <html>
-                <body style="font-family: Arial, sans-serif; color: #333;">
-                    <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-                        <h2 style="color: #4CAF50;">Sua Lista de {list_type.capitalize()} 🛒</h2>
-                        <p>Aqui estão os itens da sua lista solicitada através do Alfredo:</p>
-                        <ul style="list-style-type: square;">
-                            {html_items}
-                        </ul>
-                        <hr style="border: none; border-top: 1px solid #eee; margin-top: 30px;">
-                        <p style="font-size: 12px; color: #999;">Enviado por Alfredo Home OS</p>
-                    </div>
-                </body>
-            </html>
-            """
-            
-            from core.services.mail_service import send_email
-            success = send_email(f"Sua lista de {list_type.capitalize()}", html_body)
-            
-            if success:
+
+            def _get_env(*names: str) -> str:
+                for name in names:
+                    value = os.getenv(name, "").strip()
+                    if value:
+                        return value
+                return ""
+
+            telegram_token = _get_env("TELEGRAM_BOT_TOKEN", "TELEGRAM_TOKEN", "TELEGRAM_API_TOKEN", "TQDM_TELEGRAM_TOKEN")
+            telegram_chat_id = _get_env("TELEGRAM_CHAT_ID", "TELEGRAM_TARGET_CHAT_ID", "TELEGRAM_BOT_CHAT_ID", "TQDM_TELEGRAM_CHAT_ID")
+
+            if not telegram_token or not telegram_chat_id:
                 return {
-                    "status": "success",
-                    "message": "Email enviado com sucesso.",
-                    "direct_response": f"Pronto, enviei sua lista de {list_type} por email."
+                    "error": "Telegram não configurado. Defina token e chat_id no .env.",
+                    "direct_response": "Não consegui enviar por Telegram porque faltou configuração do token ou chat_id."
                 }
-            else:
+
+            item_lines = "\n".join([f"• {i.content}" for i in items_db])
+            message = f"Lista de {list_type.capitalize()}\n\n{item_lines}"
+
+            try:
+                response = requests.post(
+                    f"https://api.telegram.org/bot{telegram_token}/sendMessage",
+                    json={
+                        "chat_id": telegram_chat_id,
+                        "text": message,
+                        "disable_web_page_preview": True,
+                    },
+                    timeout=20,
+                )
+                response.raise_for_status()
+                payload = response.json()
+            except Exception as exc:
+                logger.error(f"Falha ao enviar lista por Telegram: {exc}")
                 return {
-                    "error": "Falha ao enviar email. Verifique as credenciais no .env."
+                    "error": "Falha ao enviar lista por Telegram.",
+                    "direct_response": "Não consegui enviar sua lista por Telegram agora."
                 }
+
+            if not payload.get("ok"):
+                logger.error(f"Telegram respondeu com erro: {payload}")
+                return {
+                    "error": "Falha ao enviar lista por Telegram.",
+                    "direct_response": "Não consegui enviar sua lista por Telegram agora."
+                }
+
+            return {
+                "status": "success",
+                "message": "Lista enviada por Telegram com sucesso.",
+                "direct_response": f"Pronto, enviei sua lista de {list_type} por Telegram."
+            }
                 
         return {"error": "Ação desconhecida"}

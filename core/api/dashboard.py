@@ -479,22 +479,14 @@ def update_memory(memory_id: int, payload: MemoryUpdate, db: Session = Depends(g
 @router.get("/status")
 def get_api_status():
     import core.brain.router as brain_router
-    keys_env = os.getenv("GEMINI_API_KEYS")
-    if keys_env:
-        keys = [k.strip() for k in keys_env.split(",") if k.strip()]
-    else:
-        single = os.getenv("GEMINI_API_KEY")
-        keys = [single.strip()] if single else []
-        
-    total_keys = len(keys)
-    current_idx = (brain_router._global_key_idx % total_keys) + 1 if total_keys > 0 else 0
+    total_keys, current_idx, global_requests = brain_router.get_gemini_key_status()
     
     return {
         "status": "online",
         "model": "gemini-3.1-flash-lite",
         "keys_total": total_keys,
         "current_key_idx": current_idx,
-        "global_requests": brain_router._global_key_idx
+        "global_requests": global_requests
     }
 
 class DateRangePayload(BaseModel):

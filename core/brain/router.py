@@ -1,6 +1,8 @@
 import os
 import json
 import logging
+import re
+import threading
 import google.generativeai as genai
 from groq import Groq as GroqClient
 from typing import Dict, Any
@@ -24,6 +26,47 @@ from core.brain.skills.youtube_skill import YouTubeSkill
 logger = logging.getLogger("alfredo.agent")
 
 _global_key_idx = 0
+_global_key_lock = threading.Lock()
+
+
+def _load_gemini_keys() -> list[str]:
+    keys_env = os.getenv("GEMINI_API_KEYS", "")
+    if keys_env:
+        raw_keys = re.split(r"[\n,;]+", keys_env)
+        keys = [key.strip().strip('"').strip("'") for key in raw_keys if key.strip()]
+    else:
+        single = os.getenv("GEMINI_API_KEY", "").strip()
+        keys = [single.strip('"').strip("'")] if single else []
+
+    deduped_keys = []
+    seen = set()
+    for key in keys:
+        if key and key not in seen:
+            deduped_keys.append(key)
+            seen.add(key)
+    return deduped_keys
+
+
+def _select_next_gemini_key(keys: list[str]) -> tuple[str | None, int]:
+    if not keys:
+        return None, 0
+
+    global _global_key_idx
+    with _global_key_lock:
+        key_index = _global_key_idx % len(keys)
+        current_key = keys[key_index]
+        current_number = key_index + 1
+        _global_key_idx += 1
+    return current_key, current_number
+
+
+def get_gemini_key_status() -> tuple[int, int, int]:
+    keys = _load_gemini_keys()
+    total_keys = len(keys)
+    with _global_key_lock:
+        current_idx = (_global_key_idx % total_keys) + 1 if total_keys > 0 else 0
+        global_requests = _global_key_idx
+    return total_keys, current_idx, global_requests
 
 class AgentRouter:
     def __init__(self):
@@ -86,7 +129,7 @@ class AgentRouter:
                     },
                     {
                         "name": "manage_list",
-                        "description": "GERENCIAR LISTAS: use esta ferramenta OBRIGATORIAMENTE para adicionar, ler, remover, limpar ou enviar e-mail de itens em listas de 'compras' ou 'tarefas'. NÃO responda como texto — execute a ferramenta.",
+                        "description": "GERENCIAR LISTAS: use esta ferramenta OBRIGATORIAMENTE para adicionar, ler, remover, limpar ou enviar via Telegram itens em listas de 'compras' ou 'tarefas'. NÃO responda como texto — execute a ferramenta.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
@@ -616,24 +659,6 @@ class AgentRouter:
             if direct_response:
                 return direct_response
 
-        global _global_key_idx
-        
-        keys_env = os.getenv("GEMINI_API_KEYS")
-        if keys_env:
-            keys = [k.strip() for k in keys_env.split(",") if k.strip()]
-        else:
-            single = os.getenv("GEMINI_API_KEY")
-            keys = [single.strip()] if single else []
-
-        if not keys:
-            return "Erro: Nenhuma chave do Gemini configurada no .env (utilize GEMINI_API_KEYS)."
-            
-        current_key = keys[_global_key_idx % len(keys)]
-        logger.info(f"Revezamento: Usando chave do Gemini [{(_global_key_idx % len(keys)) + 1} de {len(keys)}] para esta requisição.")
-        _global_key_idx += 1
-            
-        genai.configure(api_key=current_key)
-        
         # Fast path: Groq para queries simples que não precisam de ferramentas
         if self._is_simple_query(text):
             fast_result = self._process_fast(text, context)
@@ -641,6 +666,17 @@ class AgentRouter:
                 logger.info(f"Groq fast path: {fast_result[:60]}...")
                 return fast_result
             logger.info("Groq fast path falhou, caindo para Gemini")
+
+        keys = _load_gemini_keys()
+        if not keys:
+            return "Erro: Nenhuma chave do Gemini configurada no .env (utilize GEMINI_API_KEYS)."
+
+        current_key, selected_key_number = _select_next_gemini_key(keys)
+        if not current_key:
+            return "Erro: Nenhuma chave do Gemini configurada no .env (utilize GEMINI_API_KEYS)."
+
+        logger.info(f"Revezamento: Usando chave do Gemini [{selected_key_number} de {len(keys)}] para esta requisição.")
+        genai.configure(api_key=current_key)
 
         db = context.get("db")
         room_id = context.get("room_id")
@@ -795,9 +831,8 @@ class AgentRouter:
                         logger.info(f"Tool retornou string direta — pulando segunda chamada Gemini")
                         if db and room_id:
                             from core.brain.memory import models
-                            key_number = ((_global_key_idx - 1) % len(keys)) + 1
                             ai_usage = models.AIUsage(
-                                provider=f"Gemini (Key {key_number})",
+                                provider=f"Gemini (Key {selected_key_number})",
                                 tokens_used=tokens,
                                 latency_ms=latency_ms,
                                 room_id=room_id
@@ -809,9 +844,8 @@ class AgentRouter:
                         logger.info(f"Tool tem direct_response — pulando segunda chamada Gemini")
                         if db and room_id:
                             from core.brain.memory import models
-                            key_number = ((_global_key_idx - 1) % len(keys)) + 1
                             ai_usage = models.AIUsage(
-                                provider=f"Gemini (Key {key_number})",
+                                provider=f"Gemini (Key {selected_key_number})",
                                 tokens_used=tokens,
                                 latency_ms=latency_ms,
                                 room_id=room_id
@@ -840,11 +874,8 @@ class AgentRouter:
                     # Salva no banco de dados
                     if db and room_id:
                         from core.brain.memory import models
-                        key_number = (_global_key_idx % len(keys)) if len(keys) > 0 else 1
-                        # Fix index since we incremented it already, the current key was `_global_key_idx - 1`
-                        key_number = ((_global_key_idx - 1) % len(keys)) + 1
                         ai_usage = models.AIUsage(
-                            provider=f"Gemini (Key {key_number})",
+                            provider=f"Gemini (Key {selected_key_number})",
                             tokens_used=tokens,
                             latency_ms=latency_ms,
                             room_id=room_id
@@ -861,9 +892,8 @@ class AgentRouter:
                     # Salva no banco de dados
                     if db and room_id:
                         from core.brain.memory import models
-                        key_number = ((_global_key_idx - 1) % len(keys)) + 1
                         ai_usage = models.AIUsage(
-                            provider=f"Gemini (Key {key_number})",
+                            provider=f"Gemini (Key {selected_key_number})",
                             tokens_used=tokens,
                             latency_ms=latency_ms,
                             room_id=room_id
@@ -993,20 +1023,17 @@ class AgentRouter:
                 return
                 
             logger.info("Groq fast path (stream) falhou, caindo para Gemini (stream)")
-        global _global_key_idx
-        keys_env = os.getenv("GEMINI_API_KEYS")
-        if keys_env:
-            keys = [k.strip() for k in keys_env.split(",") if k.strip()]
-        else:
-            single = os.getenv("GEMINI_API_KEY")
-            keys = [single.strip()] if single else []
-
+        keys = _load_gemini_keys()
         if not keys:
             yield "Erro: Nenhuma chave do Gemini configurada."
             return
 
-        current_key = keys[_global_key_idx % len(keys)]
-        _global_key_idx += 1
+        current_key, selected_key_number = _select_next_gemini_key(keys)
+        if not current_key:
+            yield "Erro: Nenhuma chave do Gemini configurada."
+            return
+
+        logger.info(f"Revezamento: Usando chave do Gemini [{selected_key_number} de {len(keys)}] para este stream.")
 
         # Limpar o cache do SDK para forçar a nova chave de API em clientes assíncronos
         # (só executado agora, quando realmente vamos chamar o Gemini)
