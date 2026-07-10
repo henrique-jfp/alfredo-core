@@ -94,8 +94,8 @@ async def startup_event():
     asyncio.create_task(scheduler.start())
     # Warm up TTS cache for fast routing responses
     from core.voice.pipeline import get_tts_engine
-    from core.brain.semantic_router import _ROUTE_DEFS
-    fixed_responses = [resp for _, _, _, resp, _ in _ROUTE_DEFS if resp]
+    from core.brain.routers import ROUTES
+    fixed_responses = [r.response for r in ROUTES if r.response]
     if fixed_responses:
         logger.info("Aquecendo cache TTS para respostas rápidas...")
         tts_engine = get_tts_engine()
