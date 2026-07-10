@@ -434,7 +434,7 @@ class TVSkill:
                 if not opened:
                     warnings.append(f"Não encontrei o app '{target_app}' na TV.")
                 else:
-                    time.sleep(2)  # tempo pro app carregar antes de aceitar teclas
+                    time.sleep(10)  # tempo pro app carregar antes de aceitar teclas
 
                 channel = op.get("channel")
                 if not channel:

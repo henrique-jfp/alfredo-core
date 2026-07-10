@@ -182,7 +182,7 @@ _ROUTE_DEFS: List[Tuple[str, str, Dict[str, Any], Optional[str], bool]] = [
 
     # ---- ABRIR APP ----
     (r"(?=.*\b(?:abre|abri|abrir|coloca|colocar)\b)"
-     rf"(?=.*\b(?P<app_name>{_APPS})\b)",
+     rf"(?=.*\b(?P<app_name>{_APPS})\b)" + _not("canal"),
      "manage_tv", {"action": "open_app"}, None, True),
 
     # ---- REPRODUÇÃO DE CONTEÚDO (vídeo/série/filme/app de streaming) ----
