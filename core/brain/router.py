@@ -599,6 +599,23 @@ class AgentRouter:
         return buffer
 
     def process(self, text: str, context: Dict[str, Any]) -> str:
+        # Semantic Router Intercept — executa tools determinísticas sem Gemini
+        match = self.semantic_router.match(text)
+        if match:
+            tool_name, tool_args, direct_response = match
+            skill = self.skills.get(tool_name)
+            if skill:
+                if hasattr(skill, "execute_tool"):
+                    result = skill.execute_tool(tool_args, context)
+                else:
+                    result = skill.execute(text, context)
+                if isinstance(result, str):
+                    return result
+                elif isinstance(result, dict) and result.get("direct_response"):
+                    return result["direct_response"]
+            if direct_response:
+                return direct_response
+
         global _global_key_idx
         
         keys_env = os.getenv("GEMINI_API_KEYS")
@@ -916,11 +933,18 @@ class AgentRouter:
                     # Chama a tool async pra executar a ação por trás dos panos (TV, música)
                     skill = self.skills.get(tool_name)
                     if skill:
+                        if not hasattr(self, '_bg_tasks'):
+                            self._bg_tasks = set()
                         if hasattr(skill, "execute_tool"):
-                            # Start in background to avoid blocking
-                            asyncio.create_task(asyncio.to_thread(skill.execute_tool, tool_args, context))
+                            task = asyncio.create_task(
+                                asyncio.to_thread(skill.execute_tool, tool_args, context)
+                            )
                         else:
-                            asyncio.create_task(asyncio.to_thread(skill.execute, text, context))
+                            task = asyncio.create_task(
+                                asyncio.to_thread(skill.execute, text, context)
+                            )
+                        self._bg_tasks.add(task)
+                        task.add_done_callback(self._bg_tasks.discard)
                     return
                 else:
                     # Precisamos da skill pra gerar a resposta (ex: pegar horas)
