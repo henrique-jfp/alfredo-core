@@ -7,7 +7,8 @@ import {
   Routine,
   Memory,
   Weather,
-  AIMetrics
+  AIMetrics,
+  CalendarEvent
 } from '../types';
 
 // Helper to fetch directly from the backend
@@ -56,5 +57,12 @@ export const api = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ settings })
-  })
+  }),
+  getEvents: (start?: string, end?: string) => {
+    const params = new URLSearchParams();
+    if (start) params.set('start', start);
+    if (end) params.set('end', end);
+    const qs = params.toString();
+    return fetchFromAPI<{ events: CalendarEvent[] }>(`/api/dashboard/events${qs ? `?${qs}` : ''}`);
+  }
 };

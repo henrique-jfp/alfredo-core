@@ -91,15 +91,18 @@ class Event(Base):
     room_id = Column(String, nullable=False, index=True)
     reminders = Column(String, default="60") # Minutos, separados por vírgula. Ex: "60,15,5"
     notified = Column(String, default="") # Minutos já notificados. Ex: "60"
+    google_event_id = Column(String, nullable=True, index=True) # ID do evento no Google Calendar
+    google_updated = Column(String, nullable=True) # Timestamp RFC3339 da última atualização no Google
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class AppIntegration(Base):
     __tablename__ = "app_integrations"
 
     id = Column(Integer, primary_key=True, index=True)
-    app_name = Column(String, unique=True, index=True, nullable=False) # ex: 'spotify'
+    app_name = Column(String, unique=True, index=True, nullable=False) # ex: 'spotify', 'google_calendar'
     client_id = Column(String, nullable=True)
     client_secret = Column(String, nullable=True)
+    token_data = Column(String, nullable=True) # JSON com tokens OAuth (ex: google_calendar)
     is_connected = Column(Boolean, default=False)
 
 class Routine(Base):

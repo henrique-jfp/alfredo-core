@@ -504,20 +504,26 @@ class CalendarSkill(Skill):
             event_list = []
             for e in events:
                 local_time = e.start_time.astimezone(TZ)
+                hora_str = local_time.strftime("%H:%M").replace(":00", " horas")
                 event_list.append({
                     "id": e.id,
                     "title": e.title,
-                    "start_time": local_time.isoformat()
+                    "start_time": local_time.isoformat(),
+                    "time": hora_str
                 })
 
             if len(event_list) > 1:
-                names = ", ".join([ev["title"] for ev in event_list[:-1]]) + " e " + event_list[-1]["title"]
+                nomes = []
+                for ev in event_list:
+                    nomes.append(f"{ev['title']} às {ev['time']}")
+                desc = ", ".join(nomes[:-1]) + " e " + nomes[-1]
             else:
-                names = event_list[0]["title"]
+                ev = event_list[0]
+                desc = f"{ev['title']} às {ev['time']}"
 
             return {
                 "events": event_list,
-                "direct_response": f"Para {day_str} você tem: {names}."
+                "direct_response": f"Para {day_str} você tem: {desc}."
             }
 
         elif action == "add":

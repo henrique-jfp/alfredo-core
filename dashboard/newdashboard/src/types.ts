@@ -77,3 +77,13 @@ export interface AIMetrics {
     tokens: number;
   }[];
 }
+
+export interface CalendarEvent {
+  id: number;
+  title: string;
+  start_time: string;
+  time: string;
+  date: string;
+  day_name: string;
+  room_id: string;
+}

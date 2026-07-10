@@ -9,6 +9,7 @@ from core.brain.memory import models
 from core.brain.memory.database import get_db
 from fastapi.responses import FileResponse
 import json
+from datetime import datetime, timedelta, timezone
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
@@ -495,6 +496,51 @@ def get_api_status():
         "current_key_idx": current_idx,
         "global_requests": brain_router._global_key_idx
     }
+
+class DateRangePayload(BaseModel):
+    start: str = ""
+    end: str = ""
+
+@router.get("/events")
+def get_events(start: str = "", end: str = "", db: Session = Depends(get_db)):
+    """Retorna eventos do calendário em um intervalo de datas."""
+    from core.brain.skills.calendar_skill import TZ
+
+    now = datetime.now(TZ)
+    if start:
+        start_dt = datetime.fromisoformat(start).astimezone(TZ)
+    else:
+        start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    if end:
+        end_dt = datetime.fromisoformat(end).astimezone(TZ)
+    else:
+        end_dt = start_dt + timedelta(days=6)
+        end_dt = end_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    start_utc = start_dt.astimezone(timezone.utc)
+    end_utc = end_dt.astimezone(timezone.utc)
+
+    events = db.query(models.Event).filter(
+        models.Event.start_time >= start_utc,
+        models.Event.start_time <= end_utc
+    ).order_by(models.Event.start_time.asc()).all()
+
+    result = []
+    for e in events:
+        local = e.start_time.astimezone(TZ)
+        hora_str = local.strftime("%H:%M").replace(":00", " horas")
+        result.append({
+            "id": e.id,
+            "title": e.title,
+            "start_time": local.isoformat(),
+            "time": hora_str,
+            "date": local.strftime("%Y-%m-%d"),
+            "day_name": local.strftime("%A").capitalize(),
+            "room_id": e.room_id,
+        })
+
+    return {"events": result, "start": start_dt.isoformat(), "end": end_dt.isoformat()}
 
 @router.get("/ai_metrics")
 def get_ai_metrics(db: Session = Depends(get_db)):

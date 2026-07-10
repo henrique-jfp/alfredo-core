@@ -12,7 +12,8 @@ import { type LucideIcon,
   House,
   Sparkles,
   Layers3,
-  RefreshCw
+  RefreshCw,
+  CalendarDays
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { StatusPulse } from './ui/DashboardPrimitives';
@@ -25,7 +26,8 @@ export type TabId =
   | 'integracoes'
   | 'dispositivos'
   | 'sonhos'
-  | 'configuracoes';
+  | 'configuracoes'
+  | 'calendario';
 
 interface SidebarProps {
   activeTab: TabId;
@@ -43,6 +45,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       icon: House,
       items: [
         { id: 'visao-geral', label: 'Visão Geral', icon: LayoutGrid },
+        { id: 'calendario', label: 'Calendário', icon: CalendarDays },
         { id: 'integracoes', label: 'Integrações', icon: Link2 },
         { id: 'dispositivos', label: 'Dispositivos', icon: SlidersHorizontal },
         { id: 'rotinas', label: 'Rotinas', icon: Clock },

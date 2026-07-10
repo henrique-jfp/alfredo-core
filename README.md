@@ -126,7 +126,7 @@ O agente Gemini tem acesso livre ao catálogo de *skills* abaixo e decide sozinh
 |---|---|
 | 🧠 **MemoryTool** | Memória de longo prazo persistente — Alfredo memoriza fatos vitais do usuário (alergias, hábitos, preferências) e injeta esse contexto *always-on* silenciosamente em respostas futuras. |
 | 📝 **ListTool** | Gerenciamento de listas de compras e tarefas (*"Adicione pão na minha lista de mercado"*). |
-| 📅 **CalendarTool** | Agenda completa com leitura por voz (`"O que tenho amanhã?"`), adição (`"Marque dentista próxima terça às 14h"`), **reagendamento** (`"Move a reunião para quinta"` / `"Adia em 30 minutos"`), **cancelamento inteligente** (pergunta qual quando há múltiplos), **múltiplos lembretes** (`"Me lembre 1 hora, 15 min e 5 min antes"`), **detecção de conflitos** (`"Você já tem dentista às 14h"`), e **datas naturais** (`"depois de amanhã"`, `"daqui a 3 dias"`, `"mês que vem"`, `"próxima terça"`). |
+| 📅 **CalendarTool** | Agenda completa com leitura por voz (`"O que tenho amanhã?"`), adição (`"Marque dentista próxima terça às 14h"`), **reagendamento** (`"Move a reunião para quinta"` / `"Adia em 30 minutos"`), **cancelamento inteligente** (pergunta qual quando há múltiplos), **múltiplos lembretes** (`"Me lembre 1 hora, 15 min e 5 min antes"`), **detecção de conflitos** (`"Você já tem dentista às 14h"`), **datas naturais** (`"depois de amanhã"`, `"daqui a 3 dias"`, `"mês que vem"`, `"próxima terça"`), **sincronia bidirecional com Google Calendar** (OAuth + push/pull automático a cada 5 min), e **dashboard visual** com visão semanal. |
 
 ### 🧭 Utilidades Gerais
 | Skill | Descrição |
@@ -239,6 +239,7 @@ alfredo-core/
 - `yt-dlp` — Extração de áudio do YouTube (fallback de música e lives)
 - `httpx` / `requests` — Chamadas HTTP a serviços externos (clima, trânsito, notícias, Home Assistant)
 - `samsungtvws`, `wakeonlan` — Controle de TVs Samsung
+- `google-api-python-client`, `google-auth-oauthlib`, `google-auth-httplib2` — Sincronia bidirecional com Google Calendar
 - Cloudflare Tunnel — Exposição segura da API sem *port forwarding*
 
 **Firmware**
@@ -301,6 +302,7 @@ Toda a configuração sensível vive em `config/.env` (nunca commitado). Princip
 - **Chaves de API:** Gemini (com suporte a múltiplas keys em round-robin), Groq, NewsAPI, Mapbox
 - **Home Assistant:** URL e token de acesso de longa duração
 - **Spotify:** credenciais OAuth (`spotipy`) + configuração do `spotifyd.conf`
+- **Google Calendar:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (credenciais OAuth 2.0) + `PUBLIC_URL` (domínio público com túnel Cloudflare para callback OAuth)
 - **Banco de dados:** caminho do SQLite local
 
 Consulte `docs/INSTALL.md` para o guia completo de provisionamento de um novo servidor, e `docs/CLIENT_ONBOARDING.md` para o fluxo de onboarding de uma nova família/cliente.
@@ -313,14 +315,38 @@ O diretório `dashboard/` contém o painel web **"Obsidian & Brass"**, usado par
 - Visualizar e editar a memória de longo prazo do Alfredo;
 - Gerenciar rotinas, listas e lembretes;
 - Acompanhar status de saúde da API e dos satélites conectados;
-- Explorar a nuvem de sonhos gerada pela `DreamTool`.
+- Explorar a nuvem de sonhos gerada pela `DreamTool`;
+- **Visualizar compromissos da agenda** em visão semanal com navegação por datas.
 
 A pasta possui duas gerações de interface: `frontend/` (legada) e `newdashboard/` (React, em evolução), além de um `backend/` de suporte dedicado.
+
+### 🔐 Google Calendar (OAuth 2.0)
+
+A sincronia com Google Calendar segue o fluxo OAuth padrão:
+
+1. **Adicione a redirect URI** no [Google Cloud Console](https://console.cloud.google.com/apis/credentials):
+   ```
+   https://henriquedejesus.dev/api/auth/google/callback
+   http://localhost:10001/api/auth/google/callback
+   ```
+2. **Autorize** acessando no navegador: `GET /api/auth/google/authorize`
+3. O servidor troca o código por um token **refresh** e inicia sincronia automática a cada 5 minutos.
+
+Endpoints disponíveis:
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/api/auth/google/authorize` | Redireciona para OAuth do Google |
+| GET | `/api/auth/google/callback` | Callback OAuth — recebe e armazena o token |
+| GET | `/api/auth/google/status` | Status da integração (conectado, eventos pendentes) |
+| POST | `/api/auth/google/sync` | Dispara sincronia manual bidirecional |
+| GET | `/api/dashboard/events` | Eventos do calendário em intervalo de datas |
 
 ---
 
 ## 🗺️ Roadmap
 
+✅ **Google Calendar Sync** — implementado. Sincronia bidirecional via OAuth 2.0.  
 Consulte `docs/ALFREDO_CHECKLIST.md` e `docs/ideiasFeatures.md` para o backlog vivo de funcionalidades planejadas e em avaliação.
 
 ---

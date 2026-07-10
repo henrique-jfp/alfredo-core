@@ -9,6 +9,7 @@ import { DreamsTab } from './components/tabs/DreamsTab';
 import { SettingsTab } from './components/tabs/SettingsTab';
 import { IntegrationsTab } from './components/tabs/IntegrationsTab';
 import { DevicesTab } from './components/tabs/DevicesTab';
+import { CalendarTab } from './components/tabs/CalendarTab';
 import { VirtualKeyboard } from './components/VirtualKeyboard';
 import { WebMic } from './components/WebMic';
 
@@ -45,6 +46,7 @@ export default function App() {
       case 'satelites': return { title: 'Controle de Frota', sub: 'Gerencie os satélites espalhados pela casa.' };
       case 'inteligencia': return { title: 'Inteligência', sub: 'Controle o Cérebro, as APIs e a Memória.' };
       case 'sonhos': return { title: 'Diário de Sonhos', sub: 'Exploração psicanalítica do seu subconsciente.' };
+      case 'calendario': return { title: 'Calendário', sub: 'Compromissos, eventos e lembretes da agenda.' };
       case 'configuracoes': return { title: 'Configurações', sub: 'Ajuste parâmetros globais, endereços e chaves.' };
     }
   };
@@ -77,6 +79,7 @@ export default function App() {
             {activeTab === 'satelites' && <SatellitesTab />}
             {activeTab === 'inteligencia' && <IntelligenceTab />}
             {activeTab === 'sonhos' && <DreamsTab />}
+            {activeTab === 'calendario' && <CalendarTab />}
             {activeTab === 'configuracoes' && <SettingsTab />}
           </div>
         </div>

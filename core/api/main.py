@@ -37,11 +37,23 @@ try:
         try:
             conn.execute(text("ALTER TABLE events ADD COLUMN reminders VARCHAR DEFAULT '60'"))
         except Exception:
-            pass # Coluna já existe
+            pass
         try:
             conn.execute(text("ALTER TABLE events ADD COLUMN notified VARCHAR DEFAULT ''"))
         except Exception:
-            pass # Coluna já existe
+            pass
+        try:
+            conn.execute(text("ALTER TABLE events ADD COLUMN google_event_id VARCHAR"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE events ADD COLUMN google_updated VARCHAR"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE app_integrations ADD COLUMN token_data VARCHAR"))
+        except Exception:
+            pass
         conn.commit()
 except Exception as e:
     logging.getLogger("alfredo.startup").error(f"Erro na migração do banco: {e}")
@@ -324,6 +336,9 @@ app.include_router(satellite_rest_router)
 
 from core.api.tv import router as tv_router
 app.include_router(tv_router)
+
+from core.api.google_auth import router as google_auth_router
+app.include_router(google_auth_router)
 
 @app.get("/api/audio/{filename}")
 def get_audio(filename: str):

@@ -68,46 +68,44 @@ class SchedulerManager:
 
     async def start(self):
         self.running = True
+        self._last_google_sync = datetime.now(timezone.utc)
         logger.info("Scheduler Event-Driven iniciado.")
         while self.running:
             self.wakeup_event.clear()
             try:
-                # Executa o trabalho atual
                 await self._check_timers()
                 await self._check_events()
                 await self._check_routines()
-                
-                # Calcula próximo momento de acordar
+                await self._check_google_sync()
+
                 next_timer, next_event, has_routines = await self._sync_next_timestamps()
-                
+
                 now = datetime.now(timezone.utc)
-                sleep_times = [900] # Máximo 15 minutos (900 segundos)
-                
+                sleep_times = [900]
+
                 if next_timer:
                     delta = (next_timer.expires_at - now).total_seconds()
                     sleep_times.append(max(0, delta))
-                    
+
                 if next_event:
-                    # Eventos avisam no máximo 60 min antes (ver _check_events)
                     wake_time = next_event.start_time - timedelta(minutes=60)
                     delta = (wake_time - now).total_seconds()
                     sleep_times.append(max(0, delta))
-                    
+
                 if has_routines:
-                    # Rotinas baseadas no relógio (HH:MM). Precisamos acordar na virada do minuto
                     now_local = datetime.now()
                     sec_to_next_minute = 60 - now_local.second
                     sleep_times.append(max(0, sec_to_next_minute))
-                
+
                 timeout = min(sleep_times)
                 if timeout <= 0:
-                    timeout = 1 # Garante que não trava num loop de 0s
-                    
+                    timeout = 1
+
                 try:
                     await asyncio.wait_for(self.wakeup_event.wait(), timeout=timeout)
                 except asyncio.TimeoutError:
-                    pass # Acordou por tempo
-                    
+                    pass
+
             except Exception as e:
                 logger.error(f"Erro no loop do scheduler: {e}")
                 await asyncio.sleep(5)
@@ -403,5 +401,24 @@ class SchedulerManager:
                 db.commit()
         except Exception as e:
             logger.error(f"Erro no _check_routines: {e}")
+        finally:
+            db.close()
+
+    async def _check_google_sync(self):
+        now = datetime.now(timezone.utc)
+        delta = (now - self._last_google_sync).total_seconds()
+        if delta < 300:
+            return
+        self._last_google_sync = now
+
+        db: Session = SessionLocal()
+        try:
+            from core.services.google_calendar import sync_all, get_sync_status
+            status = get_sync_status(db)
+            if status["is_connected"] and status["pending_events"] > 0:
+                result = sync_all(db)
+                logger.info(f"Google Calendar sync automático: pushed={result['pushed']}, pulled={result['pulled']}")
+        except Exception as e:
+            logger.error(f"Erro no _check_google_sync: {e}")
         finally:
             db.close()
