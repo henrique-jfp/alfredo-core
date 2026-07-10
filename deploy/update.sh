@@ -16,8 +16,9 @@ pip install -r requirements.txt
 # echo "[3/4] Rodando migrações do banco de dados..."
 # alembic upgrade head
 
-echo "[4/4] Reiniciando serviço Systemd..."
-sudo systemctl restart alfredo.service
+echo "[4/4] Reiniciando serviços Systemd..."
+sudo systemctl restart alfredo-api.service
+sudo systemctl restart alfredo-satellite.service
 
-echo "Atualização concluída com sucesso! Verificando status..."
-sudo systemctl status alfredo.service --no-pager | grep Active
+echo "Atualização concluída com sucesso! Verificando status da API..."
+sudo systemctl status alfredo-api.service --no-pager | grep Active

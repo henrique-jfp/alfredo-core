@@ -82,7 +82,9 @@ _session_lock = threading.Lock()
 # COOLDOWN DE PLAYBACK
 # Evita que o microfone capture o finalzinho da própria fala da caixa de som
 # (especialmente no modo mãos-livres de sessões como quiz/receita).
-PLAYBACK_TAIL_COOLDOWN = 0.1  # segundos de silêncio forçado após tocar áudio
+# Aumentado para 3.0s porque o buffer ALSA/PulseAudio de computadores antigos (Celeron)
+# pode atrasar a reprodução do ffplay em até 2 segundos.
+PLAYBACK_TAIL_COOLDOWN = 3.0  # segundos de silêncio forçado após tocar áudio
 _playback_cooldown_until = 0.0
 
 # Variáveis Globais de Estado
