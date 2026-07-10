@@ -92,9 +92,16 @@ class TVSkill:
                     is_on = True # Assume que ligou com sucesso
                     
                     # Se há mais comandos na fila (ex: abrir app) e a TV estava desligada, 
-                    # precisamos aguardar o sistema Tizen ligar a rede WebSocket
+                    # aguarda o Tizen iniciar a rede WebSocket
                     if idx < len(actions) - 1:
-                        time.sleep(3)
+                        # Em TVs Samsung, a rede pode demorar até 10-15s após ligar.
+                        for _ in range(15):
+                            time.sleep(1)
+                            # Tenta checar se já está online
+                            check = _run_async(tv.get_status())
+                            if check.get("status") != "offline":
+                                time.sleep(2) # Dá mais 2s pra estabilizar
+                                break
                         
             elif action == "power_off":
                 if not is_offline and power_state != "standby":
@@ -121,6 +128,7 @@ class TVSkill:
                     
             elif action == "open_app":
                 if app_name:
+                    app_name_lower = app_name.lower()
                     apps = {
                         "netflix": "11101200001",
                         "youtube": "111299001912",
@@ -132,7 +140,18 @@ class TVSkill:
                         "hbo": "3201807016597",
                         "apple tv": "3201807016597"
                     }
-                    app_id = apps.get(app_name.lower())
+                    app_id = apps.get(app_name_lower)
+                    
+                    # Busca dinâmica na TV caso não esteja no dicionário fixo
+                    if not app_id:
+                        installed_apps = _run_async(tv.get_app_list())
+                        if installed_apps and isinstance(installed_apps, dict) and "data" in installed_apps:
+                            for app in installed_apps["data"]:
+                                app_real_name = app.get("name", "").lower()
+                                if app_name_lower == app_real_name or app_name_lower in app_real_name:
+                                    app_id = app.get("appId")
+                                    break
+                                    
                     if app_id:
                         _run_async(tv.open_app(app_id))
                         
