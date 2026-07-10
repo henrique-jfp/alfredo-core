@@ -68,16 +68,20 @@ class SamsungTVManager:
         logger.info("Enviando KEY_POWER para desligar a TV via rede local.")
         return await self._run_local_command(self.tv.send_key, "KEY_POWER")
 
+    # Sentinel: retornado por _run_local_command quando a conexão falha
+    _LOCAL_FAIL = object()
+
     async def _run_local_command(self, func, *args, **kwargs):
-        """Executa um comando local tratando exceções de conexão."""
+        """Executa um comando local tratando exceções de conexão.
+        Retorna o resultado de func() ou _LOCAL_FAIL em caso de falha."""
         try:
             return await asyncio.to_thread(func, *args, **kwargs)
         except ConnectionFailure:
             logger.warning(f"Falha de conexão com a TV no IP {self.ip}. TV pode estar desligada ou rede inacessível.")
-            return None
+            return self._LOCAL_FAIL
         except Exception as e:
             logger.error(f"Erro inesperado ao conectar com a TV: {e}")
-            return None
+            return self._LOCAL_FAIL
 
     async def set_mute(self, mute: bool):
         """Define o estado de mudo da TV de forma ABSOLUTA (não alterna).
@@ -133,16 +137,22 @@ class SamsungTVManager:
         return await self._run_local_command(self.tv.send_key, key)
         
     async def open_app(self, app_id: str):
-        """Abre um aplicativo na TV pelo ID — prioriza rede local (mais confiável)."""
+        """Abre um aplicativo na TV pelo ID — tenta múltiplas estratégias."""
         logger.info(f"Abrindo app {app_id} na TV {self.ip}")
-        # Rede local primeiro: o WebSocket directo run_app() é mais confiável
-        # que o SmartThings custom.launchapp (que frequentemente retorna 200
-        # sem realmente abrir o app em TVs Samsung).
-        result = await self._run_local_command(self.tv.run_app, app_id)
-        if result:
-            logger.info(f"App {app_id} aberto via rede local.")
+
+        # Estratégia 1: run_app com DEEP_LINK (padrão, funciona na maioria das TVs)
+        result = await self._run_local_command(self.tv.run_app, app_id, "DEEP_LINK")
+        if result is not self._LOCAL_FAIL:
+            logger.info(f"App {app_id} aberto via DEEP_LINK.")
             return True
-        # Fallback: SmartThings
+
+        # Estratégia 2: run_app com NATIVE_LAUNCH (alguns modelos Tizen precisam)
+        result = await self._run_local_command(self.tv.run_app, app_id, "NATIVE_LAUNCH")
+        if result is not self._LOCAL_FAIL:
+            logger.info(f"App {app_id} aberto via NATIVE_LAUNCH.")
+            return True
+
+        # Estratégia 3: voltar para o SmartThings Home (às vezes o app já está aberto)
         if self.smartthings_pat and self.smartthings_device_id:
             try:
                 url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
@@ -150,17 +160,19 @@ class SamsungTVManager:
                 payload = {"commands": [{"component": "main", "capability": "custom.launchapp", "command": "launchApp", "arguments": [app_id]}]}
                 response = await asyncio.to_thread(requests.post, url, headers=headers, json=payload, timeout=5)
                 if response.status_code == 200:
-                    logger.info("App aberto via SmartThings com sucesso.")
+                    logger.info("App aberto via SmartThings.")
                     return True
-                logger.warning(f"SmartThings falhou ao abrir app. Code: {response.status_code}")
+                logger.warning(f"SmartThings falhou. Code: {response.status_code}")
             except Exception as e:
-                logger.error(f"Erro ao abrir app via SmartThings: {e}")
+                logger.error(f"Erro no SmartThings: {e}")
+
+        logger.error(f"Todas as estratégias falharam para abrir app {app_id}.")
         return False
 
     async def get_status(self):
         """Verifica o status atual da TV e informações de rede."""
         info = await self._run_local_command(self.tv.rest_device_info)
-        return info if info else {"status": "offline"}
+        return info if info is not self._LOCAL_FAIL else {"status": "offline"}
 
     async def get_app_list(self):
         """Obtém a lista de aplicativos instalados na TV (com seus IDs)."""
