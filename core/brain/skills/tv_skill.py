@@ -226,20 +226,7 @@ ANTENNA_CHANNEL_MAP = {
 # Claro tv+ é própria da operadora/plano e varia por região — NÃO chutei
 # valores aqui de propósito, pra não trocar pro canal errado silenciosamente.
 # Preencha com os números reais do seu guia de canais Claro tv+.
-CLARO_CHANNEL_MAP = {
-    "globo": None,
-    "sbt": None,
-    "record": None,
-    "band": None,
-    "redetv": None,
-    "cultura": None,
-    "sportv": None,
-    "globonews": None,
-    "gnt": None,
-    "multishow": None,
-    "premiere": None,
-    "combate": None,
-}
+
 
 # IDs de app fixos conhecidos (fallback: busca dinâmica na TV se não achar aqui)
 KNOWN_APP_IDS = {
