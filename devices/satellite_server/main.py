@@ -398,13 +398,15 @@ def audio_callback(indata, frames, time_info, status):
     # -----------------------------------------------------------------
     if oww_model:
         if _is_playing or time.time() < _playback_cooldown_until:
-            pass # Ignora áudio durante playback
+            oww_model.reset()  # Limpa scores acumulados durante playback
         else:
             prediction = oww_model.predict(cleaned)
-            # Verifica se algum modelo passou do limiar de 0.5
+            # Threshold elevado para 0.7 para evitar falsos positivos
+            # (conversa normal da casa era detectada com scores de 0.5-0.6)
             for mdl_name, score in prediction.items():
-                if score >= 0.5 and not is_recording:
+                if score >= 0.7 and not is_recording:
                     print(f"🔔 Palavra de ativação detectada pelo OpenWakeWord: {mdl_name} (Score: {score:.2f})", flush=True)
+                    oww_model.reset()  # Limpa para não re-triggar
                     try:
                         threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=2), daemon=True).start()
                     except:
