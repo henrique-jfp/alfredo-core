@@ -133,8 +133,16 @@ class SamsungTVManager:
         return await self._run_local_command(self.tv.send_key, key)
         
     async def open_app(self, app_id: str):
-        """Abre um aplicativo na TV pelo ID usando SmartThings (preferencial) ou rede local."""
+        """Abre um aplicativo na TV pelo ID — prioriza rede local (mais confiável)."""
         logger.info(f"Abrindo app {app_id} na TV {self.ip}")
+        # Rede local primeiro: o WebSocket directo run_app() é mais confiável
+        # que o SmartThings custom.launchapp (que frequentemente retorna 200
+        # sem realmente abrir o app em TVs Samsung).
+        result = await self._run_local_command(self.tv.run_app, app_id)
+        if result:
+            logger.info(f"App {app_id} aberto via rede local.")
+            return True
+        # Fallback: SmartThings
         if self.smartthings_pat and self.smartthings_device_id:
             try:
                 url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
@@ -144,12 +152,10 @@ class SamsungTVManager:
                 if response.status_code == 200:
                     logger.info("App aberto via SmartThings com sucesso.")
                     return True
-                else:
-                    logger.warning(f"SmartThings falhou ao abrir app. Code: {response.status_code}. Fallback para rede local.")
+                logger.warning(f"SmartThings falhou ao abrir app. Code: {response.status_code}")
             except Exception as e:
                 logger.error(f"Erro ao abrir app via SmartThings: {e}")
-        
-        return await self._run_local_command(self.tv.run_app, app_id)
+        return False
 
     async def get_status(self):
         """Verifica o status atual da TV e informações de rede."""
