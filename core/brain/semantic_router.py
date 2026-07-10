@@ -9,13 +9,14 @@ logger = logging.getLogger("alfredo.semantic_router")
 # Ordem de prioridade importa: as primeiras regras que baterem serão executadas.
 
 ROUTES = [
-    # ---- GERENCIAMENTO DE TV ----
-    (r"\b(liga|ligar)\b.*\btv\b", "manage_tv", {"action": "power_on"}, "Ligando a TV."),
-    (r"\b(desliga|desligar|apaga|apagar)\b.*\btv\b", "manage_tv", {"action": "power_off"}, "Desligando a TV."),
-    (r"\b(muda|mudo|silencia|silenciar)\b.*\btv\b", "manage_tv", {"action": "mute"}, "TV no mudo."),
-    (r"\b(tira|tirar)\b.*\bmudo\b.*\btv\b", "manage_tv", {"action": "unmute"}, "O som da TV foi ativado."),
-    (r"\b(aumenta|aumentar|sobe|subir)\b.*\b(volume|som)\b.*\btv\b", "manage_tv", {"action": "volume_up"}, "Aumentando o volume da TV."),
-    (r"\b(abaixa|abaixar|diminui|diminuir)\b.*\b(volume|som)\b.*\btv\b", "manage_tv", {"action": "volume_down"}, "Abaixando o volume da TV."),
+    # ---- GERENCIAMENTO DE TV (Agora suporta multi-comandos na mesma frase) ----
+    (r"\b(liga|ligar)\b.*\b(tv|televisão|televisao)\b", "manage_tv", {"action": "power_on"}, "Ok!"),
+    (r"\b(desliga|desligar|apaga|apagar)\b.*\b(tv|televisão|televisao)\b", "manage_tv", {"action": "power_off"}, "Ok!"),
+    (r"\b(muda|mudo|silencia|silenciar)\b.*\b(tv|televisão|televisao)\b", "manage_tv", {"action": "mute"}, "Ok!"),
+    (r"\b(tira|tirar)\b.*\bmudo\b.*\b(tv|televisão|televisao)\b", "manage_tv", {"action": "unmute"}, "Ok!"),
+    (r"\b(aumenta|aumentar|sobe|subir)\b.*\b(volume|som)\b", "manage_tv", {"action": "volume_up"}, "Ok!"),
+    (r"\b(abaixa|abaixar|diminui|diminuir)\b.*\b(volume|som)\b", "manage_tv", {"action": "volume_down"}, "Ok!"),
+    (r"\b(abre|abrir|coloca|colocar)\b.*\b(?P<app>netflix|youtube|spotify|prime|globoplay|disney|hbo|apple tv)\b", "manage_tv", {"action": "open_app"}, "Ok!"),
     
     # ---- MÚSICA E MÍDIA ----
     (r"\b(para|parar|pausa|pausar)\b.*\b(música|musica|som|spotify)\b", "manage_music", {"action": "pause"}, "Pausando a música."),
@@ -38,14 +39,25 @@ class FastSemanticRouter:
             self.compiled_routes.append((re.compile(pattern, re.IGNORECASE), tool, args, resp))
 
     def match(self, text: str) -> Optional[Tuple[str, Dict[str, Any], Optional[str]]]:
-        """
-        Tenta fazer o match do texto com as regras regulares.
-        Retorna (tool_name, tool_args, direct_response) se houver match.
-        """
         text = text.strip()
-        for regex, tool, args, resp in self.compiled_routes:
-            if regex.search(text):
-                logger.info(f"FastSemanticRouter interceptou: '{text}' -> {tool}")
-                return tool, args, resp
+        matched_tv_actions = []
+        tv_resp = None
         
+        for regex, tool, args, resp in self.compiled_routes:
+            match = regex.search(text)
+            if match:
+                if tool == "manage_tv":
+                    final_args = dict(args)
+                    if "app" in match.groupdict() and match.group("app"):
+                        final_args["app_name"] = match.group("app").lower()
+                    matched_tv_actions.append(final_args)
+                    tv_resp = resp
+                else:
+                    logger.info(f"FastSemanticRouter interceptou: '{text}' -> {tool}")
+                    return tool, args, resp
+        
+        if matched_tv_actions:
+            logger.info(f"FastSemanticRouter interceptou TV (Lote): '{text}' -> {matched_tv_actions}")
+            return "manage_tv", {"actions": matched_tv_actions}, tv_resp
+            
         return None

@@ -265,19 +265,29 @@ class AgentRouter:
                     },
                     {
                         "name": "manage_tv",
-                        "description": "OBRIGATÓRIO: Acione esta ferramenta SEMPRE que o usuário pedir para ligar, desligar, alterar volume, mutar ou abrir aplicativos na televisão/TV. Nunca recuse um pedido para controlar a TV.",
+                        "description": "OBRIGATÓRIO: Acione esta ferramenta SEMPRE que o usuário pedir para ligar, desligar, alterar volume, mutar ou abrir aplicativos na televisão/TV. Permite executar MÚLTIPLAS ações em sequência (ex: ligar a tv e depois abrir netflix).",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
-                                "action": {
-                                    "type": "STRING",
-                                    "description": "Ação a realizar",
-                                    "enum": ["power_on", "power_off", "mute", "unmute", "volume_up", "volume_down", "set_volume", "open_app"]
-                                },
-                                "app_name": {"type": "STRING", "description": "Nome do aplicativo para abrir (apenas para action='open_app')"},
-                                "volume": {"type": "INTEGER", "description": "Nível de volume desejado de 0 a 100 (apenas para action='set_volume')"}
+                                "actions": {
+                                    "type": "ARRAY",
+                                    "description": "Lista de ações sequenciais a executar na TV.",
+                                    "items": {
+                                        "type": "OBJECT",
+                                        "properties": {
+                                            "action": {
+                                                "type": "STRING",
+                                                "description": "Ação a realizar",
+                                                "enum": ["power_on", "power_off", "mute", "unmute", "volume_up", "volume_down", "set_volume", "open_app"]
+                                            },
+                                            "app_name": {"type": "STRING", "description": "Nome do app (ex: netflix, youtube)"},
+                                            "volume": {"type": "INTEGER", "description": "Volume (apenas set_volume)"}
+                                        },
+                                        "required": ["action"]
+                                    }
+                                }
                             },
-                            "required": ["action"]
+                            "required": ["actions"]
                         }
                     },
                     {
