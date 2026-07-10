@@ -31,6 +31,9 @@ sounddevice>=0.4.6
 # HTTP requests
 requests>=2.31.0
 
+# Natural date parsing (amanhã, próxima terça, daqui a 3 dias, etc)
+dateparser>=1.2.0
+
 # Database & Memory
 SQLAlchemy>=2.0.25
 

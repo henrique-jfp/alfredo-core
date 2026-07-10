@@ -69,7 +69,7 @@ class AgentRouter:
                             "type": "OBJECT",
                             "properties": {
                                 "location": {"type": "STRING", "description": "Cidade ou local alvo. Opcional."},
-                                "date": {"type": "STRING", "description": "Data alvo, ex: 'hoje', 'amanhã', 'depois de amanhã'"}
+                                "date": {"type": "STRING", "description": "Data alvo em linguagem natural. Ex: 'hoje', 'amanhã', 'depois de amanhã', 'próxima terça', 'sexta', 'semana que vem', 'mês que vem', 'daqui a 3 dias'"}
                             }
                         }
                     },
@@ -191,14 +191,21 @@ class AgentRouter:
                     },
                     {
                         "name": "manage_calendar",
-                        "description": "Gerencia compromissos na agenda: adiciona, lê ou remove eventos futuros.",
+                        "description": "Gerencia compromissos na agenda: adiciona, lê, remove ou remarca eventos futuros.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
-                                "action": {"type": "STRING", "description": "Ação: 'add', 'read' ou 'remove'"},
-                                "title": {"type": "STRING", "description": "Título do compromisso (para add/remove)"},
+                                "action": {"type": "STRING", "description": "Ação: 'add', 'read', 'remove' ou 'reschedule'"},
+                                "title": {"type": "STRING", "description": "Título do compromisso (para add/remove/reschedule)"},
                                 "start_time": {"type": "STRING", "description": "Data e hora ISO 8601. Ex: '2026-07-05T14:30:00' (para add)"},
-                                "date": {"type": "STRING", "description": "Data para leitura: 'hoje', 'amanhã' (apenas para read)"}
+                                "date": {"type": "STRING", "description": "Data para leitura em linguagem natural: 'hoje', 'amanhã', 'depois de amanhã', 'próxima terça', 'sexta', 'semana que vem', 'mês que vem', 'daqui a 3 dias' (apenas para read)"},
+                                "reminders_minutes": {
+                                    "type": "ARRAY",
+                                    "items": {"type": "NUMBER"},
+                                    "description": "Minutos antes do evento para lembrar. Padrão: [60]. Ex: [60,15,5] lembra 1h, 15min e 5min antes. Use [1440] para 1 dia antes."
+                                },
+                                "new_start_time": {"type": "STRING", "description": "Nova data/hora ISO 8601 (para reschedule). Ex: '2026-07-11T14:00:00'"},
+                                "offset_minutes": {"type": "NUMBER", "description": "Deslocamento em minutos (para reschedule). Positivo = adiar, negativo = adiantar. Ex: 30 adia 30 min"}
                             },
                             "required": ["action"]
                         }

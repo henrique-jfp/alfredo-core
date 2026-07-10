@@ -89,6 +89,8 @@ class Event(Base):
     title = Column(String, nullable=False)
     start_time = Column(DateTime(timezone=True), nullable=False, index=True)
     room_id = Column(String, nullable=False, index=True)
+    reminders = Column(String, default="60") # Minutos, separados por vírgula. Ex: "60,15,5"
+    notified = Column(String, default="") # Minutos já notificados. Ex: "60"
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class AppIntegration(Base):

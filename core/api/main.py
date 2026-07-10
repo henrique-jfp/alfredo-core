@@ -30,6 +30,22 @@ from core.api.satellite import rest_router as satellite_rest_router
 # Inicializa o banco (cria tabelas se não existirem)
 models.Base.metadata.create_all(bind=engine)
 
+# Migrações automáticas de schema para SQLite local
+try:
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE events ADD COLUMN reminders VARCHAR DEFAULT '60'"))
+        except Exception:
+            pass # Coluna já existe
+        try:
+            conn.execute(text("ALTER TABLE events ADD COLUMN notified VARCHAR DEFAULT ''"))
+        except Exception:
+            pass # Coluna já existe
+        conn.commit()
+except Exception as e:
+    logging.getLogger("alfredo.startup").error(f"Erro na migração do banco: {e}")
+
 # Sincroniza .env → DB (para quem já configurou pelo .env)
 from core.services.env_manager import sync_env_to_db
 _env_vars = sync_env_to_db()

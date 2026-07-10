@@ -13,26 +13,108 @@ from core.voice.tts.engine import get_tts_engine
 logger = logging.getLogger("alfredo.scheduler")
 TZ = ZoneInfo("America/Sao_Paulo")
 
+_global_scheduler = None
+
+def wakeup_scheduler():
+    if _global_scheduler:
+        _global_scheduler.wakeup_event.set()
+
 class SchedulerManager:
     def __init__(self, get_active_connections_cb):
         self.running = False
         self.get_active_connections_cb = get_active_connections_cb
         self._notified_events = set()
+        self.wakeup_event = asyncio.Event()
+        global _global_scheduler
+        _global_scheduler = self
+
+    async def _sync_next_timestamps(self):
+        db: Session = SessionLocal()
+        try:
+            now = datetime.now(timezone.utc)
+            # Próximo timer ativo
+            next_timer = db.query(models.Timer).filter(models.Timer.is_active == True).order_by(models.Timer.expires_at.asc()).first()
+            
+            # Próximo evento não notificado completamente
+            window_end = now + timedelta(days=365) # Procura no horizonte longo
+            upcoming_events = db.query(models.Event).filter(
+                models.Event.start_time >= now,
+                models.Event.start_time <= window_end
+            ).all()
+            
+            next_event_wakeup = None
+            for e in upcoming_events:
+                reminders_str = e.reminders or "60"
+                notified_str = e.notified or ""
+                
+                reminders_list = [int(r.strip()) for r in reminders_str.split(",") if r.strip().isdigit()]
+                notified_list = [int(n.strip()) for n in notified_str.split(",") if n.strip().isdigit()]
+                
+                for r in reminders_list:
+                    if r not in notified_list:
+                        wake_time = e.start_time - timedelta(minutes=r)
+                        if next_event_wakeup is None or wake_time < next_event_wakeup:
+                            next_event_wakeup = wake_time
+            
+            # Tem rotinas ativas baseadas em horário?
+            has_routines = db.query(models.Routine).filter(
+                models.Routine.is_active == True, 
+                models.Routine.trigger_type == "time"
+            ).first() is not None
+            
+            return next_timer, next_event_wakeup, has_routines
+        finally:
+            db.close()
 
     async def start(self):
         self.running = True
-        logger.info("Scheduler de background iniciado.")
+        logger.info("Scheduler Event-Driven iniciado.")
         while self.running:
+            self.wakeup_event.clear()
             try:
+                # Executa o trabalho atual
                 await self._check_timers()
                 await self._check_events()
                 await self._check_routines()
+                
+                # Calcula próximo momento de acordar
+                next_timer, next_event, has_routines = await self._sync_next_timestamps()
+                
+                now = datetime.now(timezone.utc)
+                sleep_times = [900] # Máximo 15 minutos (900 segundos)
+                
+                if next_timer:
+                    delta = (next_timer.expires_at - now).total_seconds()
+                    sleep_times.append(max(0, delta))
+                    
+                if next_event:
+                    # Eventos avisam no máximo 60 min antes (ver _check_events)
+                    wake_time = next_event.start_time - timedelta(minutes=60)
+                    delta = (wake_time - now).total_seconds()
+                    sleep_times.append(max(0, delta))
+                    
+                if has_routines:
+                    # Rotinas baseadas no relógio (HH:MM). Precisamos acordar na virada do minuto
+                    now_local = datetime.now()
+                    sec_to_next_minute = 60 - now_local.second
+                    sleep_times.append(max(0, sec_to_next_minute))
+                
+                timeout = min(sleep_times)
+                if timeout <= 0:
+                    timeout = 1 # Garante que não trava num loop de 0s
+                    
+                try:
+                    await asyncio.wait_for(self.wakeup_event.wait(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    pass # Acordou por tempo
+                    
             except Exception as e:
                 logger.error(f"Erro no loop do scheduler: {e}")
-            await asyncio.sleep(1)
+                await asyncio.sleep(5)
 
     def stop(self):
         self.running = False
+        self.wakeup_event.set()
 
     async def _check_timers(self):
         db: Session = SessionLocal()
@@ -133,11 +215,32 @@ class SchedulerManager:
         finally:
             db.close()
 
+    @staticmethod
+    def _format_reminder_time(minutes: int) -> str:
+        if minutes >= 43200:
+            days = minutes // 1440
+            return f"em {days} dias"
+        if minutes >= 1440:
+            return "amanhã"
+        if minutes >= 2880:
+            return f"em {minutes // 1440} dias"
+        if minutes == 60:
+            return "em 1 hora"
+        if minutes == 30:
+            return "em 30 minutos"
+        if minutes == 15:
+            return "em 15 minutos"
+        if minutes == 5:
+            return "em 5 minutos, está quase na hora"
+        if minutes <= 1:
+            return "agora"
+        return f"em {minutes} minutos"
+
     async def _check_events(self):
         db: Session = SessionLocal()
         try:
             now = datetime.now(timezone.utc)
-            window_end = now + timedelta(hours=1)
+            window_end = now + timedelta(hours=24)
 
             upcoming_events = db.query(models.Event).filter(
                 models.Event.start_time >= now,
@@ -145,64 +248,79 @@ class SchedulerManager:
             ).order_by(models.Event.start_time.asc()).all()
 
             for event in upcoming_events:
-                if event.id in self._notified_events:
-                    continue
-                self._notified_events.add(event.id)
-                logger.info(f"Evento próximo: '{event.title}' às {event.start_time}")
+                reminders_str = event.reminders or "60"
+                notified_str = event.notified or ""
+
+                reminders_list = sorted(
+                    [int(r.strip()) for r in reminders_str.split(",") if r.strip().isdigit()],
+                    reverse=True
+                )
+                notified_list = [int(n.strip()) for n in notified_str.split(",") if n.strip().isdigit()]
 
                 local_time = event.start_time.astimezone(TZ)
                 hora_str = local_time.strftime("%H:%M").replace(":00", " horas")
-                diff_min = int((event.start_time - now).total_seconds() / 60)
+                any_notified = False
 
-                if diff_min >= 55:
-                    tempo_str = "daqui a aproximadamente 1 hora"
-                elif diff_min >= 30:
-                    tempo_str = f"daqui a {diff_min} minutos"
-                elif diff_min >= 2:
-                    tempo_str = f"daqui a {diff_min} minutos"
-                else:
-                    tempo_str = "agora"
+                for r in reminders_list:
+                    if r in notified_list:
+                        any_notified = True
+                        continue
 
-                text_to_speak = f"Com licença! Você tem um compromisso {tempo_str}: {event.title}, às {hora_str}."
+                    reminder_time = event.start_time - timedelta(minutes=r)
+                    if now < reminder_time:
+                        continue
 
-                devices = db.query(models.Device).filter(models.Device.room_id == event.room_id).all()
-                active_connections = self.get_active_connections_cb()
+                    tempo_str = self._format_reminder_time(r)
+                    text_to_speak = f"Com licença! Você tem um compromisso {tempo_str}: {event.title}, às {hora_str}."
 
-                tts_filename = None
-                try:
-                    tts_filename = f"event_{event.id}_{int(time.time())}.wav"
-                    temp_dir = os.path.join(os.getcwd(), "tmp")
-                    os.makedirs(temp_dir, exist_ok=True)
-                    output_filepath = os.path.join(temp_dir, tts_filename)
-                    tts_engine = get_tts_engine()
-                    voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
-                    chosen_voice = voice_setting.value if voice_setting else "pt-BR-FranciscaNeural"
-                    tts_engine.reload_voice(chosen_voice)
-                    await tts_engine.synthesize_wav(text_to_speak, output_filepath)
-                except Exception as e:
-                    logger.error(f"Erro ao gerar áudio do evento: {e}")
+                    logger.info(f"Evento '{event.title}': lembrando {r} min antes (notified: {notified_str})")
+
+                    devices = db.query(models.Device).filter(models.Device.room_id == event.room_id).all()
+                    active_connections = self.get_active_connections_cb()
+
                     tts_filename = None
+                    try:
+                        tts_filename = f"event_{event.id}_{r}_{int(time.time())}.wav"
+                        temp_dir = os.path.join(os.getcwd(), "tmp")
+                        os.makedirs(temp_dir, exist_ok=True)
+                        output_filepath = os.path.join(temp_dir, tts_filename)
+                        tts_engine = get_tts_engine()
+                        voice_setting = db.query(models.Setting).filter(
+                            models.Setting.key == "assistant_voice"
+                        ).first()
+                        chosen_voice = voice_setting.value if voice_setting else "pt-BR-FranciscaNeural"
+                        tts_engine.reload_voice(chosen_voice)
+                        await tts_engine.synthesize_wav(text_to_speak, output_filepath)
+                    except Exception as e:
+                        logger.error(f"Erro ao gerar áudio do evento: {e}")
+                        tts_filename = None
 
-                for device in devices:
-                    ws = active_connections.get(device.device_id)
-                    if ws:
-                        try:
-                            if tts_filename:
-                                await ws.send_json({
-                                    "type": "play_audio",
-                                    "url": f"http://127.0.0.1:10001/api/audio/{tts_filename}"
-                                })
-                            else:
-                                await ws.send_json({
-                                    "type": "event_reminder",
-                                    "title": event.title,
-                                    "start_time": local_time.isoformat()
-                                })
-                            logger.info(f"Notificação de evento enviada ao device {device.device_id}")
-                        except Exception as e:
-                            logger.error(f"Erro ao enviar evento para {device.device_id}: {e}")
+                    for device in devices:
+                        ws = active_connections.get(device.device_id)
+                        if ws:
+                            try:
+                                if tts_filename:
+                                    await ws.send_json({
+                                        "type": "play_audio",
+                                        "url": f"http://127.0.0.1:10001/api/audio/{tts_filename}"
+                                    })
+                                else:
+                                    await ws.send_json({
+                                        "type": "event_reminder",
+                                        "title": event.title,
+                                        "start_time": local_time.isoformat()
+                                    })
+                                logger.info(f"Notificação de evento enviada ao device {device.device_id}")
+                            except Exception as e:
+                                logger.error(f"Erro ao enviar evento para {device.device_id}: {e}")
 
-            # Cleanup: remove IDs de eventos que já passaram há mais de 2 horas
+                    notified_list.append(r)
+                    event.notified = ",".join(str(n) for n in sorted(notified_list))
+                    db.commit()
+                    any_notified = True
+
+                self._notified_events.discard(event.id)
+
             old_cutoff = now - timedelta(hours=2)
             old_events = db.query(models.Event).filter(
                 models.Event.id.in_(self._notified_events),

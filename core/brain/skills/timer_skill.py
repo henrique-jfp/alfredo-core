@@ -182,6 +182,9 @@ class TimerSkill(Skill):
         db.add(new_timer)
         db.commit()
         
+        from core.services.scheduler import wakeup_scheduler
+        wakeup_scheduler()
+        
         # Injetar notificação na fila de websockets do router
         ws_tasks = context.get("ws_tasks")
         device_id = context.get("device_id")
@@ -219,10 +222,24 @@ class TimerSkill(Skill):
     def execute_tool(self, kwargs: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         db = context.get("db")
         room_id = context.get("room_id")
-        action = kwargs.get("action")
         
         if not db or not room_id:
             return {"error": "Sem contexto de banco ou sala"}
+
+        # Suporte a processamento em lote (vindo do roteador rápido)
+        if "actions" in kwargs:
+            responses = []
+            for act in kwargs["actions"]:
+                res = self.execute_tool(act, context)
+                if "direct_response" in res:
+                    responses.append(res["direct_response"])
+            
+            return {
+                "direct_response": " ".join(responses) if responses else "Feito.",
+                "status": "success"
+            }
+            
+        action = kwargs.get("action")
             
         if action == "list":
             timers = db.query(models.Timer).filter(models.Timer.is_active == True, models.Timer.room_id == room_id).all()
@@ -295,7 +312,10 @@ class TimerSkill(Skill):
             )
             db.add(new_timer)
             db.commit()
-            
+
+            from core.services.scheduler import wakeup_scheduler
+            wakeup_scheduler()
+
             ws_tasks = context.get("ws_tasks")
             device_id = context.get("device_id")
             if ws_tasks is not None and device_id:
