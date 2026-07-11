@@ -81,7 +81,7 @@ grep -i "error" ~/alfredo-core/uvicorn.log
 Tudo que o microfone escuta fica gravado no `satellite.log`. Para ver ao vivo:
 ```bash
 cd ~/alfredo-core
-tail -f satellite.log
+    tail -f satellite.log
 ```
 
 Se o serviço do Linux acusar algum erro estrutural, você também pode ver os logs do próprio gerenciador `systemd`:

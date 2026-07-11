@@ -52,7 +52,7 @@ class SchedulerManager:
                 
                 for r in reminders_list:
                     if r not in notified_list:
-                        wake_time = e.start_time - timedelta(minutes=r)
+                        wake_time = e.start_time.replace(tzinfo=timezone.utc) - timedelta(minutes=r)
                         if next_event_wakeup is None or wake_time < next_event_wakeup:
                             next_event_wakeup = wake_time
             
@@ -88,8 +88,7 @@ class SchedulerManager:
                     sleep_times.append(max(0, delta))
 
                 if next_event:
-                    wake_time = next_event.start_time - timedelta(minutes=60)
-                    delta = (wake_time - now).total_seconds()
+                    delta = (next_event - now).total_seconds()
                     sleep_times.append(max(0, delta))
 
                 if has_routines:
@@ -239,10 +238,12 @@ class SchedulerManager:
         try:
             now = datetime.now(timezone.utc)
             window_end = now + timedelta(hours=24)
+            now_naive = now.replace(tzinfo=None)
+            window_end_naive = window_end.replace(tzinfo=None)
 
             upcoming_events = db.query(models.Event).filter(
-                models.Event.start_time >= now,
-                models.Event.start_time <= window_end
+                models.Event.start_time >= now_naive,
+                models.Event.start_time <= window_end_naive
             ).order_by(models.Event.start_time.asc()).all()
 
             for event in upcoming_events:
@@ -255,7 +256,7 @@ class SchedulerManager:
                 )
                 notified_list = [int(n.strip()) for n in notified_str.split(",") if n.strip().isdigit()]
 
-                local_time = event.start_time.astimezone(TZ)
+                local_time = event.start_time.replace(tzinfo=timezone.utc).astimezone(TZ)
                 hora_str = local_time.strftime("%H:%M").replace(":00", " horas")
                 any_notified = False
 
@@ -264,7 +265,7 @@ class SchedulerManager:
                         any_notified = True
                         continue
 
-                    reminder_time = event.start_time - timedelta(minutes=r)
+                    reminder_time = event.start_time.replace(tzinfo=timezone.utc) - timedelta(minutes=r)
                     if now < reminder_time:
                         continue
 

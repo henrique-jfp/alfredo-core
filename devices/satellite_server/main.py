@@ -406,7 +406,7 @@ def audio_callback(indata, frames, time_info, status):
             # Threshold elevado para 0.7 para evitar falsos positivos
             # (conversa normal da casa era detectada com scores de 0.5-0.6)
             for mdl_name, score in prediction.items():
-                if score >= 0.7 and not is_recording:
+                if score >= 0.9 and not is_recording:
                     print(f"🔔 Palavra de ativação detectada pelo OpenWakeWord: {mdl_name} (Score: {score:.2f})", flush=True)
                     oww_model.reset()  # Limpa para não re-triggar
                     try:
