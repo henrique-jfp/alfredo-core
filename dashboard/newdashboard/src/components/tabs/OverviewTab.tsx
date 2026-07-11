@@ -345,8 +345,7 @@ export function OverviewTab() {
         <section className="alfredo-card flex min-h-0 flex-col p-5 md:p-6">
           <SectionHeading
             eyebrow="Atividade"
-            title="Conversas recentes"
-            subtitle="A tela vira briefing: menos log cru, mais contexto útil."
+            title="Conversas recentes" 
             action={
               <button className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]">
                 Ver histórico completo
@@ -417,9 +416,7 @@ export function OverviewTab() {
 
         <section className="alfredo-card flex min-h-0 flex-col p-5 md:p-6">
           <SectionHeading
-            eyebrow="Widgets rápidos"
             title="Compras, tarefas e lembretes"
-            subtitle="Um único bloco com abas internas evita três cards vazios competindo por altura."
           />
 
           <div className="mt-5 grid grid-cols-3 gap-2 rounded-2xl border border-white/5 bg-white/[0.02] p-2">

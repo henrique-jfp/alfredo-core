@@ -3,7 +3,7 @@ import logging
 import os
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Any
 
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2.credentials import Credentials
@@ -12,6 +12,7 @@ from googleapiclient.discovery import build
 from sqlalchemy.orm import Session
 
 from core.brain.memory import models
+from core.brain.memory.database import SessionLocal
 
 logger = logging.getLogger("alfredo.google_calendar")
 TZ = ZoneInfo("America/Sao_Paulo")
@@ -25,14 +26,47 @@ CLIENT_SECRETS["web"] = {
     "token_uri": "https://oauth2.googleapis.com/token",
 }
 
-_oauth_states: Dict[str, str] = {}
+
+def _save_oauth_state(state: str) -> None:
+    """Persiste o state OAuth no banco (tabela settings) para sobreviver a restarts."""
+    db = SessionLocal()
+    try:
+        setting = db.query(models.Setting).filter(models.Setting.key == f"oauth_state_{state}").first()
+        if not setting:
+            setting = models.Setting(key=f"oauth_state_{state}", value=datetime.now(timezone.utc).isoformat())
+            db.add(setting)
+        else:
+            setting.value = datetime.now(timezone.utc).isoformat()
+        db.commit()
+    except Exception as e:
+        logger.error(f"Erro ao salvar OAuth state: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _pop_oauth_state(state: str) -> bool:
+    """Remove e valida o state OAuth do banco. Retorna True se existia."""
+    db = SessionLocal()
+    try:
+        setting = db.query(models.Setting).filter(models.Setting.key == f"oauth_state_{state}").first()
+        if setting:
+            db.delete(setting)
+            db.commit()
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"Erro ao validar OAuth state: {e}")
+        db.rollback()
+        return False
+    finally:
+        db.close()
 
 def get_redirect_uri() -> str:
     public_url = os.getenv("PUBLIC_URL", "").rstrip("/")
     if public_url:
         return f"{public_url}/api/auth/google/callback"
     return "http://localhost:10001/api/auth/google/callback"
-
 def get_authorization_url() -> str:
     flow = Flow.from_client_config(CLIENT_SECRETS, scopes=SCOPES,
                                    redirect_uri=get_redirect_uri())
@@ -41,12 +75,12 @@ def get_authorization_url() -> str:
         prompt="consent",
         include_granted_scopes="true"
     )
-    _oauth_states[state] = datetime.now(timezone.utc).isoformat()
+    _save_oauth_state(state)
     return auth_url
 
+
 def exchange_code(code: str, state: str) -> Optional[str]:
-    expected = _oauth_states.pop(state, None)
-    if not expected:
+    if not _pop_oauth_state(state):
         logger.error("State inválido ou expirado no OAuth")
         return None
 
