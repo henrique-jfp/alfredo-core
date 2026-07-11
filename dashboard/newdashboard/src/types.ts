@@ -87,3 +87,14 @@ export interface CalendarEvent {
   day_name: string;
   room_id: string;
 }
+
+export interface IntegrationStatus {
+  is_configured: boolean;
+  is_connected: boolean;
+}
+
+export interface IntegrationsData {
+  local_ip: string;
+  spotify: IntegrationStatus;
+  google_calendar: IntegrationStatus;
+}

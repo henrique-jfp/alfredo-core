@@ -8,7 +8,8 @@ import {
   Memory,
   Weather,
   AIMetrics,
-  CalendarEvent
+  CalendarEvent,
+  IntegrationsData
 } from '../types';
 
 // Helper to fetch directly from the backend
@@ -64,5 +65,6 @@ export const api = {
     if (end) params.set('end', end);
     const qs = params.toString();
     return fetchFromAPI<{ events: CalendarEvent[] }>(`/api/dashboard/events${qs ? `?${qs}` : ''}`);
-  }
+  },
+  getIntegrations: () => fetchFromAPI<IntegrationsData>('/api/dashboard/integrations'),
 };

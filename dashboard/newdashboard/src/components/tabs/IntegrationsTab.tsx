@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Music2, HelpCircle, X, ExternalLink, CheckCircle, Sparkles, Shield, Radio } from 'lucide-react';
+import { Music2, HelpCircle, X, ExternalLink, CheckCircle, Sparkles, Shield, Radio, Calendar, Link as LinkIcon, Loader2 } from 'lucide-react';
 import { SectionHeading, StatusPulse, SkeletonBlock } from '../ui/DashboardPrimitives';
 
-interface SpotifyStatus {
+interface IntegrationStatus {
   is_configured: boolean;
   is_connected: boolean;
 }
 
 interface IntegrationsData {
   local_ip: string;
-  spotify: SpotifyStatus;
+  spotify: IntegrationStatus;
+  google_calendar: IntegrationStatus;
 }
 
 export function IntegrationsTab() {
@@ -78,8 +79,12 @@ export function IntegrationsTab() {
     }
   };
 
-  const handleConnect = () => {
+  const handleConnectSpotify = () => {
     window.location.href = '/api/spotify/login';
+  };
+
+  const handleConnectGoogleCalendar = () => {
+    window.location.href = '/api/auth/google/authorize';
   };
 
   if (loading) {
@@ -126,6 +131,7 @@ export function IntegrationsTab() {
   }
 
   const sp = data?.spotify;
+  const gc = data?.google_calendar;
   const localIp = data?.local_ip || 'localhost:10001';
 
   return (
@@ -207,7 +213,7 @@ export function IntegrationsTab() {
                   </button>
                 ) : (
                   <button
-                    onClick={handleConnect}
+                    onClick={handleConnectSpotify}
                     disabled={!sp?.is_configured}
                     className="alfredo-pill flex-1 justify-center border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
@@ -219,22 +225,60 @@ export function IntegrationsTab() {
           </div>
 
           <div className="alfredo-card p-6">
+            <div className="flex items-center gap-4">
+              <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#4285F4] to-[#34a853] text-white shadow-[0_0_20px_rgba(66,133,244,0.22)]">
+                <Calendar className="w-7 h-7" />
+              </div>
+              <div className="flex-1">
+                <h2 className="text-[18px] font-semibold text-[color:var(--text-primary)]">Google Calendar</h2>
+              </div>
+              {gc?.is_connected ? (
+                <StatusPulse label="Conectado" tone="success" />
+              ) : (
+                <span className="alfredo-pill border-rose-500/20 bg-rose-500/10 text-rose-400">
+                  {gc?.is_configured ? 'Não conectado' : 'Não configurado'}
+                </span>
+              )}
+            </div>
+
+            <p className="mt-4 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
+              Sincronize sua agenda: eventos, lembretes e resumo matinal automático pela voz.
+            </p>
+
+            <div className="mt-5 flex gap-2">
+              {gc?.is_connected ? (
+                <button className="alfredo-pill flex-1 justify-center border-blue-500/20 bg-blue-500/10 text-blue-400">
+                  Sincronizar agora
+                </button>
+              ) : (
+                <button
+                  onClick={handleConnectGoogleCalendar}
+                  disabled={!gc?.is_configured}
+                  className="alfredo-pill flex-1 justify-center border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Conectar Google Calendar
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="alfredo-card p-6">
             <SectionHeading
               eyebrow="Estado"
               title="Integração ativa"
               subtitle={`IP local: ${localIp}`}
-              action={<StatusPulse label={sp?.is_connected ? 'Online' : 'Aguardando'} tone={sp?.is_connected ? 'success' : 'warning'} />}
+              action={<StatusPulse label={sp?.is_connected || gc?.is_connected ? 'Online' : 'Aguardando'} tone={sp?.is_connected || gc?.is_connected ? 'success' : 'warning'} />}
             />
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div className="alfredo-surface p-4">
                 <div className="alfredo-section-label">Fluxo</div>
-                <div className="mt-2 text-[15px] text-[color:var(--text-primary)]">Spotify via OAuth</div>
-                <p className="mt-1 text-[13px] text-[color:var(--text-secondary)]">Conecte para tocar e controlar mídia por voz.</p>
+                <div className="mt-2 text-[15px] text-[color:var(--text-primary)]">Spotify via OAuth / Google Calendar via OAuth</div>
+                <p className="mt-1 text-[13px] text-[color:var(--text-secondary)]">Conecte para tocar e controlar mídia e agenda por voz.</p>
               </div>
               <div className="alfredo-surface p-4">
-                <div className="alfredo-section-label">Atalho</div>
-                <div className="mt-2 text-[15px] text-[color:var(--text-primary)]">`/api/spotify/login`</div>
-                <p className="mt-1 text-[13px] text-[color:var(--text-secondary)]">Abre o fluxo de autenticação da conta.</p>
+                <div className="alfredo-section-label">Atalhos</div>
+                <div className="mt-2 text-[15px] text-[color:var(--text-primary)]">`/api/spotify/login` · `/api/auth/google/authorize`</div>
+                <p className="mt-1 text-[13px] text-[color:var(--text-secondary)]">Abre os fluxos de autenticação das contas.</p>
               </div>
             </div>
           </div>
@@ -251,7 +295,6 @@ export function IntegrationsTab() {
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               {[
                 { name: 'Philips Hue', subtitle: 'Cenas, zonas e automações', tone: 'info', icon: Sparkles },
-                { name: 'Google Calendar', subtitle: 'Resumo matinal e agenda', tone: 'warning', icon: Radio },
                 { name: 'Casa Segura', subtitle: 'Sensores, portas e alertas', tone: 'danger', icon: Shield },
                 { name: 'Música local', subtitle: 'Players e rádios internos', tone: 'success', icon: Music2 },
               ].map((item) => {
