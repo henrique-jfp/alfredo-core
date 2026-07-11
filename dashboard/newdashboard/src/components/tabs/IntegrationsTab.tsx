@@ -253,8 +253,7 @@ export function IntegrationsTab() {
               ) : (
                 <button
                   onClick={handleConnectGoogleCalendar}
-                  disabled={!gc?.is_configured}
-                  className="alfredo-pill flex-1 justify-center border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="alfredo-pill flex-1 justify-center border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)]"
                 >
                   Conectar Google Calendar
                 </button>
