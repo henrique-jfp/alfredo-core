@@ -30,52 +30,13 @@ class ListSkill(Skill):
             return normalized
         if any(w in normalized for w in ("compra", "mercado", "feira", "supermercado")):
             return "compras"
-            if action == "email":
-                items_db = db.query(models.ListItem).filter(
-                    models.ListItem.room_id == room_id,
-                    models.ListItem.list_type == list_type
-                ).all()
-                
-                if not items_db:
-                    return {
-                        "error": f"A lista de {list_type} está vazia, não há nada para enviar.",
-                        "direct_response": f"Sua lista de {list_type} está vazia, não tenho nada para enviar."
-                    }
-                    
-                html_items = "".join([f"<li style='margin-bottom: 8px; font-size: 16px;'>{i.content}</li>" for i in items_db])
-                
-                html_body = f"""
-                <html>
-                    <body style="font-family: Arial, sans-serif; color: #333;">
-                        <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-                            <h2 style="color: #4CAF50;">Sua Lista de {list_type.capitalize()} 🛒</h2>
-                            <p>Aqui estão os itens da sua lista solicitada através do Alfredo:</p>
-                            <ul style="list-style-type: square;">
-                                {html_items}
-                            </ul>
-                            <hr style="border: none; border-top: 1px solid #eee; margin-top: 30px;">
-                            <p style="font-size: 12px; color: #999;">Enviado por Alfredo Home OS</p>
-                        </div>
-                    </body>
-                </html>
-                """
-                
-                from core.services.mail_service import send_email
-                success = send_email(f"Sua lista de {list_type.capitalize()}", html_body)
-                
-                if success:
-                    return {
-                        "status": "success",
-                        "message": "Email enviado com sucesso.",
-                        "direct_response": f"Pronto, enviei sua lista de {list_type} por email."
-                    }
-                else:
-                    return {
-                        "error": "Falha ao enviar email. Verifique as credenciais no .env."
-                    }
-                    
-            return {"error": "Ação desconhecida"}
-        return f"A sua lista de {list_type} foi esvaziada."
+        return "tarefas"
+
+    def can_handle(self, intent: str, text: str) -> bool:
+        return intent == "LIST"
+
+    def execute(self, text: str, context: Dict[str, Any]) -> str:
+        return "Para gerenciar listas, por favor use as funções de dashboard."
 
     def _remove_item(self, db, room_id, list_type, item_name) -> str:
         # Busca o item usando ilike para ignorar case e aceitar correspondência parcial
