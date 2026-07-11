@@ -1,28 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, MapPin, Mic2, Rss, Palette, CheckCircle2, Sparkles } from 'lucide-react';
+import { Settings, MapPin, Mic2, Rss, Palette, CheckCircle2, Sparkles, Trash2, Plus } from 'lucide-react';
 import { api } from '../../lib/api';
 import { SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
 import { cn } from '../../lib/utils';
+
+interface Location {
+  id: number;
+  name: string;
+  latitude: string;
+  longitude: string;
+  icon: string;
+}
 
 export function SettingsTab() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
 
-  const [locations, setLocations] = useState([
-    { id: 1, name: 'Casa', lat: '-22.9738', lon: '-43.1868', icon: '🏠' },
-    { id: 2, name: 'Trabalho', lat: '-22.9321', lon: '-43.1787', icon: '💼' },
-  ]);
-
-  const handleAddLocation = () => {
-    setLocations([
-      ...locations,
-      { id: Date.now(), name: 'Novo Endereço', lat: '-23.000', lon: '-43.000', icon: '📍' },
-    ]);
-  };
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [locationsLoading, setLocationsLoading] = useState(true);
 
   useEffect(() => {
     api.getSettings().then((data) => {
       setSettings(data);
+    });
+    api.getLocations().then((data) => {
+      setLocations(data);
+      setLocationsLoading(false);
     });
   }, []);
 
@@ -38,6 +41,25 @@ export function SettingsTab() {
       console.error('Erro ao salvar:', e);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleAddLocation = async () => {
+    const newLoc = { name: 'Novo Endereço', latitude: '-23.000', longitude: '-43.000', icon: '📍' };
+    try {
+      const created = await api.createLocation(newLoc);
+      setLocations([...locations, created]);
+    } catch (e) {
+      console.error('Erro ao criar endereço:', e);
+    }
+  };
+
+  const handleDeleteLocation = async (id: number) => {
+    try {
+      await api.deleteLocation(id);
+      setLocations(locations.filter((l) => l.id !== id));
+    } catch (e) {
+      console.error('Erro ao excluir endereço:', e);
     }
   };
 
@@ -159,28 +181,41 @@ export function SettingsTab() {
             />
 
             <div className="mt-5 flex flex-col gap-3">
-              {locations.map((loc) => (
-                <div key={loc.id} className="flex items-center gap-4 rounded-2xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brass-500/10 text-xl">
-                    {loc.icon}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[14px] font-semibold text-[color:var(--text-primary)]">{loc.name}</div>
-                    <div className="mt-0.5 font-mono text-[11px] text-[color:var(--text-tertiary)]">
-                      {loc.lat}, {loc.lon}
-                    </div>
-                  </div>
-                  <button className="text-[color:var(--text-tertiary)] transition-colors hover:text-rose-400" title="Excluir endereço">
-                    🗑️
-                  </button>
+              {locationsLoading ? (
+                <div className="flex items-center gap-2 text-[color:var(--text-tertiary)] text-sm">
+                  <span className="animate-spin">⟳</span> Carregando endereços...
                 </div>
-              ))}
-              <button
-                onClick={handleAddLocation}
-                className="alfredo-empty mt-2 border-dashed py-4 text-[14px] text-[color:var(--text-secondary)] hover:border-brass-500/30 hover:text-brass-300"
-              >
-                + Adicionar endereço
-              </button>
+              ) : (
+                <>
+                  {locations.map((loc) => (
+                    <div key={loc.id} className="flex items-center gap-4 rounded-2xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brass-500/10 text-xl">
+                        {loc.icon}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[14px] font-semibold text-[color:var(--text-primary)]">{loc.name}</div>
+                        <div className="mt-0.5 font-mono text-[11px] text-[color:var(--text-tertiary)]">
+                          {loc.latitude}, {loc.longitude}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteLocation(loc.id)}
+                        className="text-[color:var(--text-tertiary)] transition-colors hover:text-rose-400"
+                        title="Excluir endereço"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={handleAddLocation}
+                    className="alfredo-empty mt-2 border-dashed py-4 text-[14px] text-[color:var(--text-secondary)] hover:border-brass-500/30 hover:text-brass-300 flex items-center justify-center gap-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Adicionar endereço
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
