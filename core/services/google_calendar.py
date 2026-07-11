@@ -27,16 +27,19 @@ CLIENT_SECRETS["web"] = {
 }
 
 
-def _save_oauth_state(state: str) -> None:
+def _save_oauth_state(state: str, code_verifier: str = "") -> None:
     """Persiste o state OAuth no banco (tabela settings) para sobreviver a restarts."""
     db = SessionLocal()
     try:
         setting = db.query(models.Setting).filter(models.Setting.key == f"oauth_state_{state}").first()
+        value = datetime.now(timezone.utc).isoformat()
+        if code_verifier:
+            value += f"|{code_verifier}"
         if not setting:
-            setting = models.Setting(key=f"oauth_state_{state}", value=datetime.now(timezone.utc).isoformat())
+            setting = models.Setting(key=f"oauth_state_{state}", value=value)
             db.add(setting)
         else:
-            setting.value = datetime.now(timezone.utc).isoformat()
+            setting.value = value
         db.commit()
     except Exception as e:
         logger.error(f"Erro ao salvar OAuth state: {e}")
@@ -45,20 +48,22 @@ def _save_oauth_state(state: str) -> None:
         db.close()
 
 
-def _pop_oauth_state(state: str) -> bool:
-    """Remove e valida o state OAuth do banco. Retorna True se existia."""
+def _pop_oauth_state(state: str) -> tuple[bool, str]:
+    """Remove e valida o state OAuth do banco. Retorna (True, code_verifier) se existia."""
     db = SessionLocal()
     try:
         setting = db.query(models.Setting).filter(models.Setting.key == f"oauth_state_{state}").first()
         if setting:
+            parts = setting.value.split("|", 1)
+            code_verifier = parts[1] if len(parts) > 1 else ""
             db.delete(setting)
             db.commit()
-            return True
-        return False
+            return True, code_verifier
+        return False, ""
     except Exception as e:
         logger.error(f"Erro ao validar OAuth state: {e}")
         db.rollback()
-        return False
+        return False, ""
     finally:
         db.close()
 
@@ -75,22 +80,31 @@ def get_authorization_url() -> str:
         prompt="consent",
         include_granted_scopes="true"
     )
-    _save_oauth_state(state)
+    # Salva o code_verifier para PKCE
+    _save_oauth_state(state, flow.code_verifier)
     return auth_url
 
 
 def exchange_code(code: str, state: str) -> Optional[str]:
-    if not _pop_oauth_state(state):
+    logger.info(f"[DEBUG] exchange_code called with state={state}, code={code[:20]}...")
+    found, code_verifier = _pop_oauth_state(state)
+    if not found:
         logger.error("State inválido ou expirado no OAuth")
+        logger.info("[DEBUG] State NOT found in DB")
         return None
+    logger.info("[DEBUG] State found and popped from DB")
 
     flow = Flow.from_client_config(CLIENT_SECRETS, scopes=SCOPES,
                                    redirect_uri=get_redirect_uri())
+    logger.info(f"[DEBUG] Redirect URI: {get_redirect_uri()}")
+    logger.info(f"[DEBUG] Client ID: {CLIENT_SECRETS['web']['client_id'][:20]}...")
     try:
-        flow.fetch_token(code=code)
+        flow.fetch_token(code=code, code_verifier=code_verifier)
+        logger.info("[DEBUG] Token fetched successfully")
         return flow.credentials.to_json()
     except Exception as e:
         logger.error(f"Erro ao trocar código por token: {e}")
+        logger.info(f"[DEBUG] Exception in fetch_token: {e}")
         return None
 
 def get_credentials(db: Session) -> Optional[Credentials]:
