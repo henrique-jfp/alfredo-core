@@ -185,6 +185,7 @@ class SpotifyCredentials(BaseModel):
 def get_integrations(db: Session = Depends(get_db)):
     """Retorna o status das integrações e o IP local."""
     spotify = db.query(models.AppIntegration).filter(models.AppIntegration.app_name == "spotify").first()
+    google_cal = db.query(models.AppIntegration).filter(models.AppIntegration.app_name == "google_calendar").first()
     
     # Tenta descobrir o IP real da máquina na rede local para o QR Code
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -201,6 +202,10 @@ def get_integrations(db: Session = Depends(get_db)):
         "spotify": {
             "is_configured": spotify is not None and bool(spotify.client_id),
             "is_connected": spotify.is_connected if spotify else False
+        },
+        "google_calendar": {
+            "is_configured": google_cal is not None and bool(google_cal.client_id),
+            "is_connected": google_cal.is_connected if google_cal else False
         }
     }
 
