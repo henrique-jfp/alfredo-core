@@ -54,6 +54,20 @@ class YouTubeSkill(Skill):
         if not query:
             return "O que você gostaria de ouvir no YouTube?"
 
+        normalized_query = re.sub(r"\s+", " ", query).strip().lower()
+        ambiguous_queries = {
+            "ultimo video",
+            "ultimo video do youtube",
+            "video do youtube",
+            "youtube",
+            "musica",
+            "tocar",
+            "toca",
+            "play",
+        }
+        if normalized_query in ambiguous_queries or len(normalized_query) < 4:
+            return "Diga o nome do canal, música, vídeo ou live com mais detalhes."
+
         logger.info(f"Buscando áudio no YouTube para a query: '{query}' (live={is_live})")
 
         ydl_opts = {

@@ -80,3 +80,17 @@ async def tv_open_app(room_id: str, app_id: str, db: Session = Depends(get_db)):
 async def tv_status(room_id: str, db: Session = Depends(get_db)):
     tv = _get_tv_manager(room_id, db)
     return await tv.get_status()
+
+@router.get("/diagnose/{room_id}")
+async def tv_diagnose(room_id: str, db: Session = Depends(get_db)):
+    config = db.query(models.TVConfig).filter(models.TVConfig.room_id == room_id).first()
+    if not config or not config.ip_address:
+        raise HTTPException(status_code=400, detail="TV not configured for this room")
+
+    tv = SamsungTVManager(
+        ip=config.ip_address,
+        mac=config.mac_address,
+        smartthings_pat=config.smartthings_pat,
+        smartthings_device_id=config.smartthings_device_id
+    )
+    return await tv.diagnose_smartthings()

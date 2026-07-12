@@ -259,6 +259,12 @@ class CalendarSkill(Skill):
         db.add(new_event)
         db.commit()
 
+        try:
+            from core.services.google_calendar import push_event
+            push_event(db, new_event)
+        except Exception as e:
+            logger.error(f"Falha ao sincronizar novo evento com Google: {e}")
+
         from core.services.scheduler import wakeup_scheduler
         wakeup_scheduler()
 
@@ -346,6 +352,11 @@ class CalendarSkill(Skill):
             title = found.title
             db.delete(found)
             db.commit()
+            try:
+                from core.services.google_calendar import delete_event
+                delete_event(db, found)
+            except Exception as e:
+                logger.error(f"Falha ao remover evento do Google: {e}")
             from core.services.scheduler import wakeup_scheduler
             wakeup_scheduler()
             return f"Pronto, cancelei o compromisso {title} da sua agenda."
@@ -462,6 +473,12 @@ class CalendarSkill(Skill):
         found.start_time = new_utc
         db.commit()
 
+        try:
+            from core.services.google_calendar import update_event
+            update_event(db, found)
+        except Exception as e:
+            logger.error(f"Falha ao atualizar evento no Google: {e}")
+
         from core.services.scheduler import wakeup_scheduler
         wakeup_scheduler()
 
@@ -575,6 +592,12 @@ class CalendarSkill(Skill):
             db.add(new_event)
             db.commit()
 
+            try:
+                from core.services.google_calendar import push_event
+                push_event(db, new_event)
+            except Exception as e:
+                logger.error(f"Falha ao sincronizar evento com Google: {e}")
+
             from core.services.scheduler import wakeup_scheduler
             wakeup_scheduler()
 
@@ -619,6 +642,11 @@ class CalendarSkill(Skill):
             title = found.title
             db.delete(found)
             db.commit()
+            try:
+                from core.services.google_calendar import delete_event
+                delete_event(db, found)
+            except Exception as e:
+                logger.error(f"Falha ao remover evento do Google: {e}")
             
             from core.services.scheduler import wakeup_scheduler
             wakeup_scheduler()
@@ -694,6 +722,12 @@ class CalendarSkill(Skill):
 
             found.start_time = new_utc
             db.commit()
+
+            try:
+                from core.services.google_calendar import update_event
+                update_event(db, found)
+            except Exception as e:
+                logger.error(f"Falha ao atualizar evento no Google: {e}")
 
             from core.services.scheduler import wakeup_scheduler
             wakeup_scheduler()

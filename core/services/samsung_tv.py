@@ -23,6 +23,9 @@ class SamsungTVManager:
         os.makedirs(os.path.dirname(self.token_file), exist_ok=True)
         # Timeout de 15s para dar tempo de o usuário apertar "Permitir" na TV no primeiro acesso
         self.tv = SamsungTVWS(host=ip, port=8002, token_file=self.token_file, timeout=15)
+        self._smartthings_checked = False
+        self._smartthings_ok = False
+        self._smartthings_reason = None
         
     async def power_on(self):
         """Tenta ligar a TV via SmartThings (Nível 1) ou Wake-on-LAN (Nível 2).
@@ -32,7 +35,7 @@ class SamsungTVManager:
         para decidir se ainda precisa (ou não) recorrer ao botão de controle
         remoto local, que é um TOGGLE e pode desligar a TV de volta.
         """
-        if self.smartthings_pat and self.smartthings_device_id:
+        if await self._ensure_smartthings():
             try:
                 url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
                 headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
@@ -51,9 +54,126 @@ class SamsungTVManager:
 
         return False
 
+    async def diagnose_smartthings(self) -> Dict[str, Any]:
+        """Valida se o PAT e o device_id funcionam antes de tentar comandos.
+
+        Retorna um diagnóstico estruturado para diferenciar:
+        - PAT inválido/expirado
+        - device_id inexistente/inacessível
+        - device acessível, mas sem as capabilities esperadas
+        """
+        if not self.smartthings_pat or not self.smartthings_device_id:
+            return {
+                "configured": False,
+                "ok": False,
+                "reason": "missing_credentials",
+                "message": "SmartThings PAT ou device_id não configurado."
+            }
+
+        url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}"
+        headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
+
+        try:
+            response = await asyncio.to_thread(requests.get, url, headers=headers, timeout=5)
+        except Exception as e:
+            return {
+                "configured": True,
+                "ok": False,
+                "reason": "request_error",
+                "message": f"Falha ao consultar SmartThings: {e}"
+            }
+
+        if response.status_code == 401:
+            return {
+                "configured": True,
+                "ok": False,
+                "reason": "unauthorized",
+                "message": "PAT do SmartThings inválido, expirado ou sem permissão para esta conta."
+            }
+
+        if response.status_code == 404:
+            return {
+                "configured": True,
+                "ok": False,
+                "reason": "device_not_found",
+                "message": "Device ID não encontrado ou sem acesso a esse dispositivo no SmartThings."
+            }
+
+        if response.status_code != 200:
+            return {
+                "configured": True,
+                "ok": False,
+                "reason": "unexpected_status",
+                "status_code": response.status_code,
+                "message": f"SmartThings respondeu HTTP {response.status_code} ao consultar o device."
+            }
+
+        data = {}
+        try:
+            data = response.json() or {}
+        except Exception:
+            data = {}
+
+        capabilities = []
+        try:
+            capabilities = [
+                item.get("id")
+                for item in data.get("components", [])
+                for item in item.get("capabilities", [])
+                if item.get("id")
+            ]
+        except Exception:
+            capabilities = []
+
+        supports_switch = "switch" in capabilities
+        supports_mute = "audioMute" in capabilities
+        supports_volume = "audioVolume" in capabilities
+
+        return {
+            "configured": True,
+            "ok": supports_switch and (supports_mute or supports_volume),
+            "reason": "ok" if (supports_switch and (supports_mute or supports_volume)) else "missing_capabilities",
+            "device": {
+                "id": data.get("deviceId") or self.smartthings_device_id,
+                "label": data.get("label"),
+                "name": data.get("name"),
+                "manufacturer": data.get("manufacturerName"),
+            },
+            "capabilities": {
+                "switch": supports_switch,
+                "audioMute": supports_mute,
+                "audioVolume": supports_volume,
+            },
+            "message": (
+                "SmartThings OK."
+                if supports_switch and (supports_mute or supports_volume)
+                else "Device acessível, mas não expõe capabilities esperadas para controle confiável da TV."
+            )
+        }
+
+    async def _ensure_smartthings(self) -> bool:
+        """Faz uma checagem única e evita repetir requests que já falharam."""
+        if self._smartthings_checked:
+            return self._smartthings_ok
+
+        diag = await self.diagnose_smartthings()
+        self._smartthings_checked = True
+        self._smartthings_ok = bool(diag.get("ok"))
+        self._smartthings_reason = diag.get("reason")
+
+        if not self._smartthings_ok:
+            logger.warning(
+                "SmartThings indisponível para a TV %s (%s): %s",
+                self.ip,
+                self._smartthings_reason,
+                diag.get("message"),
+            )
+
+        return self._smartthings_ok
+
     async def power_off(self):
         """Desliga a TV via SmartThings (Nível 1) ou controle remoto (Nível 2)."""
-        if self.smartthings_pat and self.smartthings_device_id:
+        if await self._ensure_smartthings():
             try:
                 url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
                 headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
@@ -98,7 +218,7 @@ class SamsungTVManager:
         (KEY_MUTE, toggle) se o SmartThings não estiver configurado ou falhar
         — nesse caso não há garantia de que o resultado final seja o pedido.
         """
-        if self.smartthings_pat and self.smartthings_device_id:
+        if await self._ensure_smartthings():
             try:
                 url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
                 headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
@@ -114,13 +234,13 @@ class SamsungTVManager:
 
         logger.warning(
             f"Fallback para KEY_MUTE local (TOGGLE, não absoluto) ao tentar mute={mute}. "
-            "Configure o SmartThings PAT/Device ID para um controle de mudo confiável."
+            "SmartThings indisponível ou inválido."
         )
         return await self._run_local_command(self.tv.send_key, "KEY_MUTE")
 
     async def set_volume(self, volume: int):
         """Ajusta o volume da TV."""
-        if self.smartthings_pat and self.smartthings_device_id:
+        if await self._ensure_smartthings():
             try:
                 url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
                 headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
@@ -153,7 +273,7 @@ class SamsungTVManager:
             return True
 
         # Estratégia 3: voltar para o SmartThings Home (às vezes o app já está aberto)
-        if self.smartthings_pat and self.smartthings_device_id:
+        if await self._ensure_smartthings():
             try:
                 url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
                 headers = {"Authorization": f"Bearer {self.smartthings_pat}"}

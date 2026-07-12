@@ -55,6 +55,7 @@ _is_playing = False
 _playback_lock = threading.Lock()
 _session_mode = False
 _session_lock = threading.Lock()
+current_music_process = None
 
 # Variáveis Globais de Estado
 is_recording = False
@@ -238,6 +239,31 @@ def play_audio(filename):
         _is_playing = False
 
 
+def _stop_current_music():
+    global current_music_process, _is_playing
+    if current_music_process:
+        try:
+            current_music_process.terminate()
+            current_music_process.wait(timeout=2)
+        except Exception:
+            pass
+        current_music_process = None
+    with _playback_lock:
+        _is_playing = False
+
+
+def _watch_music_process(proc):
+    global current_music_process, _is_playing
+    try:
+        proc.wait()
+    except Exception:
+        pass
+    if current_music_process is proc:
+        current_music_process = None
+    with _playback_lock:
+        _is_playing = False
+
+
 def send_audio_and_play(filename):
     print("Enviando áudio para o servidor (Groq API STT e Router)...")
     url = f"{SERVER_URL}/api/voice"
@@ -358,6 +384,7 @@ def vosk_worker():
                     vosk_worker.last_print = text
                 if text.strip() and any(v in text for v in wake_variants):
                     print(f"🔔 Palavra de ativação '{wake_word.upper()}' detectada pelo Vosk!", flush=True)
+                    _stop_current_music()
                     try:
                         threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=2), daemon=True).start()
                     except:
@@ -578,7 +605,7 @@ def stream_worker():
 
 
 def websocket_loop():
-    global ws_instance, is_streaming, wake_word
+    global ws_instance, is_streaming, wake_word, _is_playing
     ws_url = f"ws://{SERVER_URL.replace('http://', '').replace('https://', '')}/api/ws/satellite/{DEVICE_ID}"
 
     while True:
@@ -608,12 +635,7 @@ def websocket_loop():
                         print(f"\n🎵 [SATÉLITE] Recebi o comando de tocar um Stream (Live/Música)!")
                         print(f"▶️ Tentando tocar via mplayer/vlc: {audio_url}")
                         global current_music_process
-                        if 'current_music_process' in globals() and current_music_process:
-                            try:
-                                current_music_process.terminate()
-                                current_music_process.wait(timeout=2)
-                            except:
-                                pass
+                        _stop_current_music()
                         try:
                             current_music_process = subprocess.Popen(["mplayer", "-novideo", audio_url],
                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -623,14 +645,13 @@ def websocket_loop():
                                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                             except FileNotFoundError:
                                 print("⚠️ Nenhum player de áudio instalado. Instale: sudo apt install mplayer")
+                        if current_music_process:
+                            with _playback_lock:
+                                _is_playing = True
+                            threading.Thread(target=_watch_music_process, args=(current_music_process,), daemon=True).start()
                     elif data.get("type") == "stop_audio":
                         print("\n🛑 [SATÉLITE] Parando música atual.")
-                        if 'current_music_process' in globals() and current_music_process:
-                            try:
-                                current_music_process.terminate()
-                            except:
-                                pass
-                            current_music_process = None
+                        _stop_current_music()
                     elif data.get("type") == "START_STREAM":
                         print(f"\n🎙️ [LIVE AUDIO] Iniciando stream de áudio ao vivo para o Dashboard...")
                         global is_streaming

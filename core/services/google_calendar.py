@@ -114,7 +114,8 @@ def get_credentials(db: Session) -> Optional[Credentials]:
     if not integ or not integ.token_data:
         return None
     try:
-        creds = Credentials.from_json(integ.token_data)
+        token_info = json.loads(integ.token_data)
+        creds = Credentials.from_authorized_user_info(token_info, SCOPES)
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(GoogleRequest())
             integ.token_data = creds.to_json()
@@ -162,6 +163,57 @@ def push_event(db: Session, event: models.Event) -> bool:
         return True
     except Exception as e:
         logger.error(f"Erro no push do evento '{event.title}': {e}")
+        return False
+
+def update_event(db: Session, event: models.Event) -> bool:
+    creds = get_credentials(db)
+    if not creds or not event.google_event_id:
+        return False
+    try:
+        service = get_calendar_service(creds)
+        local_dt = event.start_time.astimezone(TZ)
+        body = {
+            "summary": event.title,
+            "start": {
+                "dateTime": local_dt.isoformat(),
+                "timeZone": "America/Sao_Paulo",
+            },
+            "end": {
+                "dateTime": (local_dt + timedelta(hours=1)).isoformat(),
+                "timeZone": "America/Sao_Paulo",
+            },
+        }
+        if event.reminders:
+            mins = [int(r.strip()) for r in event.reminders.split(",") if r.strip().isdigit()]
+            if mins:
+                body["reminders"] = {
+                    "useDefault": False,
+                    "overrides": [{"method": "popup", "minutes": m} for m in mins]
+                }
+        updated = service.events().update(
+            calendarId="primary",
+            eventId=event.google_event_id,
+            body=body
+        ).execute()
+        event.google_updated = updated.get("updated")
+        db.commit()
+        logger.info(f"Evento '{event.title}' atualizado no Google Calendar (id={event.google_event_id})")
+        return True
+    except Exception as e:
+        logger.error(f"Erro no update do evento '{event.title}': {e}")
+        return False
+
+def delete_event(db: Session, event: models.Event) -> bool:
+    creds = get_credentials(db)
+    if not creds or not event.google_event_id:
+        return False
+    try:
+        service = get_calendar_service(creds)
+        service.events().delete(calendarId="primary", eventId=event.google_event_id).execute()
+        logger.info(f"Evento '{event.title}' removido do Google Calendar (id={event.google_event_id})")
+        return True
+    except Exception as e:
+        logger.error(f"Erro ao remover evento '{event.title}' do Google: {e}")
         return False
 
 def push_pending_events(db: Session, room_id: Optional[str] = None) -> int:
