@@ -53,17 +53,45 @@ def _find_input_device(name_substring: Optional[str]):
                 if dev.get('max_input_channels', 0) > 0 and term_lower in dev.get('name', '').lower():
                     print(f"🎙️ [ÁUDIO] Dispositivo preferido encontrado: [{idx}] {dev['name']} "
                           f"({dev['max_input_channels']} canais, {dev.get('default_samplerate')}Hz)", flush=True)
-                    return idx, int(dev['max_input_channels'])
+                    return idx, int(dev['max_input_channels']), float(dev.get('default_samplerate') or RATE)
 
         for idx, dev in enumerate(devices):
             if dev.get('max_input_channels', 0) > 0:
                 print(f"⚠️ [ÁUDIO] Usando primeiro input disponível: [{idx}] {dev['name']} "
                       f"({dev['max_input_channels']} canais, {dev.get('default_samplerate')}Hz)", flush=True)
-                return idx, int(dev['max_input_channels'])
+                return idx, int(dev['max_input_channels']), float(dev.get('default_samplerate') or RATE)
     except Exception as e:
         print(f"⚠️ [ÁUDIO] Erro ao buscar dispositivo preferido: {e}", flush=True)
     print("⚠️ [ÁUDIO] Nenhum dispositivo de entrada encontrado, usando padrão do sistema.", flush=True)
-    return None, CHANNELS
+    return None, CHANNELS, float(RATE)
+
+
+def _open_input_stream(device_index: Optional[int], device_channels: int, samplerate: float):
+    """Abre o stream tentando a taxa preferida e depois o sample rate nativo do device."""
+    attempts = []
+    preferred_rate = float(RATE)
+    native_rate = float(samplerate or RATE)
+
+    for rate in (preferred_rate, native_rate):
+        if rate in attempts:
+            continue
+        attempts.append(rate)
+        try:
+            print(f"🎚️ [ÁUDIO] Tentando abrir InputStream em {rate} Hz...", flush=True)
+            return sd.InputStream(
+                device=device_index,
+                samplerate=rate,
+                channels=device_channels,
+                dtype=DTYPE,
+                blocksize=BLOCKSIZE,
+                callback=audio_callback
+            )
+        except Exception as exc:
+            print(f"⚠️ [ÁUDIO] Falha ao abrir stream em {rate} Hz: {exc}", flush=True)
+    raise RuntimeError(
+        f"Não foi possível abrir nenhum InputStream válido para o device {device_index} "
+        f"com taxas testadas: {attempts}"
+    )
 WAVE_RESPONSE = "response.wav"
 SERVER_URL = "http://pvserver:10001"
 DEVICE_ID = "server-satellite-sala"
@@ -838,17 +866,10 @@ def main():
     print(f"\n🎧 [Satélite da Sala] MODO PORCUPINE ONLINE e ouvindo silenciosamente...")
     print(f"👉 Diga 'ALEXA' ou o seu modelo customizado para me chamar!\n")
 
-    device_index, device_channels = _find_input_device(PREFERRED_MIC_NAME)
+    device_index, device_channels, device_samplerate = _find_input_device(PREFERRED_MIC_NAME)
 
     try:
-        with sd.InputStream(
-            device=device_index,
-            samplerate=RATE,
-            channels=device_channels,
-            dtype=DTYPE,
-            blocksize=BLOCKSIZE,
-            callback=audio_callback
-        ):
+        with _open_input_stream(device_index, device_channels, device_samplerate):
             while True:
                 time.sleep(1)
     except KeyboardInterrupt:
