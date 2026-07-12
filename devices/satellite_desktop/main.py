@@ -707,11 +707,27 @@ def main():
     print(f"👉 Diga '{wake_word.upper()}' para me chamar!\n")
 
     try:
-        native_channels = sd.query_devices(sd.default.device[0])['max_input_channels']
+        input_device = sd.default.device[0]
+        if input_device is None:
+            devices = sd.query_devices()
+            for idx, dev in enumerate(devices):
+                if dev.get('max_input_channels', 0) > 0 and ('ps3' in dev.get('name', '').lower() or 'eye' in dev.get('name', '').lower()):
+                    input_device = idx
+                    print(f"🎙️ [ÁUDIO] PS3 Eye encontrado: [{idx}] {dev['name']}", flush=True)
+                    break
+            if input_device is None:
+                for idx, dev in enumerate(devices):
+                    if dev.get('max_input_channels', 0) > 0:
+                        input_device = idx
+                        print(f"⚠️ [ÁUDIO] Usando primeiro input disponível: [{idx}] {dev['name']}", flush=True)
+                        break
+
+        native_channels = sd.query_devices(input_device)['max_input_channels']
             
         print(f"🎙️ Capturando áudio em {native_channels} canais nativos para evitar distorção de downmix do PortAudio...")
         
         with sd.InputStream(
+            device=input_device,
             samplerate=RATE,
             channels=native_channels,
             dtype=DTYPE,

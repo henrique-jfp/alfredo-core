@@ -33,28 +33,36 @@ DTYPE = 'int16'
 BLOCKSIZE = 1280  # OpenWakeWord usa chunks de 1280 samples (80ms) a 16kHz
 WAVE_OUTPUT = "request.wav"
 
-# Nome (ou parte dele) do dispositivo de microfone preferido. Se encontrado,
-# o satélite usa ele diretamente em vez do dispositivo "default" do sistema
-# — evita passar por camadas extras de reamostragem/downmix do PulseAudio/ALSA
-# que podem causar picotamento em CPUs fracas. Deixe None para usar o padrão.
-PREFERRED_MIC_NAME = os.getenv("ALFREDO_MIC_NAME", "USB_Camera")
+# Nome (ou parte dele) do dispositivo de microfone preferido.
+# Prioriza PS3 Eye e nomes configurados explicitamente, com fallback seguro.
+PREFERRED_MIC_NAME = os.getenv("ALFREDO_MIC_NAME", "PS3 Eye")
 
 
 def _find_input_device(name_substring: Optional[str]):
-    """Procura um dispositivo de entrada cujo nome contenha `name_substring`.
-    Retorna (index, num_channels) ou (None, CHANNELS) se não encontrar."""
-    if not name_substring:
-        return None, CHANNELS
+    """Procura um dispositivo de entrada com fallback por prioridade."""
     try:
         devices = sd.query_devices()
+        preferred_terms = []
+        if name_substring:
+            preferred_terms.append(name_substring)
+        preferred_terms.extend(["ps3 eye", "ps3", "eye"])
+
+        for term in preferred_terms:
+            term_lower = term.lower()
+            for idx, dev in enumerate(devices):
+                if dev.get('max_input_channels', 0) > 0 and term_lower in dev.get('name', '').lower():
+                    print(f"🎙️ [ÁUDIO] Dispositivo preferido encontrado: [{idx}] {dev['name']} "
+                          f"({dev['max_input_channels']} canais, {dev.get('default_samplerate')}Hz)", flush=True)
+                    return idx, int(dev['max_input_channels'])
+
         for idx, dev in enumerate(devices):
-            if dev.get('max_input_channels', 0) > 0 and name_substring.lower() in dev.get('name', '').lower():
-                print(f"🎙️ [ÁUDIO] Dispositivo preferido encontrado: [{idx}] {dev['name']} "
+            if dev.get('max_input_channels', 0) > 0:
+                print(f"⚠️ [ÁUDIO] Usando primeiro input disponível: [{idx}] {dev['name']} "
                       f"({dev['max_input_channels']} canais, {dev.get('default_samplerate')}Hz)", flush=True)
                 return idx, int(dev['max_input_channels'])
     except Exception as e:
         print(f"⚠️ [ÁUDIO] Erro ao buscar dispositivo preferido: {e}", flush=True)
-    print(f"⚠️ [ÁUDIO] Dispositivo '{name_substring}' não encontrado, usando padrão do sistema.", flush=True)
+    print("⚠️ [ÁUDIO] Nenhum dispositivo de entrada encontrado, usando padrão do sistema.", flush=True)
     return None, CHANNELS
 WAVE_RESPONSE = "response.wav"
 SERVER_URL = "http://pvserver:10001"
