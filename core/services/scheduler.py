@@ -416,7 +416,7 @@ class SchedulerManager:
         try:
             from core.services.google_calendar import sync_all, get_sync_status
             status = get_sync_status(db)
-            if status["is_connected"] and status["pending_events"] > 0:
+            if status["is_connected"]:
                 result = sync_all(db)
                 logger.info(f"Google Calendar sync automático: pushed={result['pushed']}, pulled={result['pulled']}")
         except Exception as e:

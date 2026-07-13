@@ -87,6 +87,16 @@ export function IntegrationsTab() {
     window.location.href = '/api/auth/google/authorize';
   };
 
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSyncCalendar = async () => {
+    setSyncing(true);
+    try {
+      await fetch('/api/auth/google/sync', { method: 'POST' });
+    } catch {}
+    setSyncing(false);
+  };
+
   if (loading) {
     return (
       <div className="grid h-full gap-5 pb-10 pr-2 overflow-y-auto xl:grid-cols-[1.1fr_0.9fr]">
@@ -247,8 +257,12 @@ export function IntegrationsTab() {
 
             <div className="mt-5 flex gap-2">
               {gc?.is_connected ? (
-                <button className="alfredo-pill flex-1 justify-center border-blue-500/20 bg-blue-500/10 text-blue-400">
-                  Sincronizar agora
+                <button
+                  onClick={handleSyncCalendar}
+                  disabled={syncing}
+                  className="alfredo-pill flex-1 justify-center border-blue-500/20 bg-blue-500/10 text-blue-400 disabled:opacity-50"
+                >
+                  {syncing ? 'Sincronizando...' : 'Sincronizar agora'}
                 </button>
               ) : (
                 <button

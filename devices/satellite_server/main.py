@@ -450,7 +450,7 @@ def _audio_callback_impl(indata, frames, time_info, status):
     global oww_model, is_recording, has_spoken, silence_frames, recording_buffer
     global is_calibrated, calibration_frames, calibration_sum, noise_threshold
     global full_audio_buffer, dashcam_buffer, SOFTWARE_MULTIPLIER, noise_gate_hold, _session_mode
-    global live_recording_bytes
+    global live_recording_bytes, _last_detection_time, _last_detection_lock
 
     # Tratar overflow ao invés de descartar silenciosamente
     if status:
