@@ -137,7 +137,9 @@ audio_stream: Optional[sd.InputStream] = None
 oww_model = None
 vad: Optional[webrtcvad.Vad] = None
 
-# Supressão de áudio durante playback para evitar loop (eco)
+_last_detection_time = 0.0
+_last_detection_lock = threading.Lock()
+
 _is_playing = False
 _playback_lock = threading.Lock()
 _session_mode = False
@@ -439,6 +441,12 @@ def send_audio_and_play(filename):
 
 
 def audio_callback(indata, frames, time_info, status):
+    try:
+        _audio_callback_impl(indata, frames, time_info, status)
+    except Exception as e:
+        print(f"⚠️ [AUDIO] Erro no callback: {e}", flush=True)
+
+def _audio_callback_impl(indata, frames, time_info, status):
     global oww_model, is_recording, has_spoken, silence_frames, recording_buffer
     global is_calibrated, calibration_frames, calibration_sum, noise_threshold
     global full_audio_buffer, dashcam_buffer, SOFTWARE_MULTIPLIER, noise_gate_hold, _session_mode
@@ -448,7 +456,6 @@ def audio_callback(indata, frames, time_info, status):
     if status:
         if status.input_overflow:
             print("⚠️ [AUDIO] Buffer overflow detectado! Áudio pode picotar.", flush=True)
-        # Continua processando ao invés de descartar o frame
 
     # Downmix explícito: se o dispositivo tem mais de 1 canal (ex: array de
     # 4 mics da PS3 Eye), reduz pra mono aqui mesmo, de forma controlada e
@@ -497,11 +504,16 @@ def audio_callback(indata, frames, time_info, status):
             # (conversa normal da casa era detectada com scores de 0.5-0.6)
             for mdl_name, score in prediction.items():
                     if score >= 0.9 and not is_recording:
+                        now = time.time()
+                        with _last_detection_lock:
+                            if now - _last_detection_time < 5.0:
+                                continue
+                            _last_detection_time = now
                         print(f"🔔 Palavra de ativação detectada pelo OpenWakeWord: {mdl_name} (Score: {score:.2f})", flush=True)
-                        oww_model.reset()  # Limpa para não re-triggar
+                        oww_model.reset()
                         _stop_current_music()
                         try:
-                            threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=2), daemon=True).start()
+                            threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=5), daemon=True).start()
                         except:
                             pass
                         _start_recording()
@@ -717,7 +729,7 @@ def _start_playback():
         ['ffplay', '-nodisp', '-autoexit', '-fflags', 'nobuffer', '-flags', 'low_delay', '-probesize', '32', '-analyzeduration', '0', '-i', 'pipe:0'],
         stdin=subprocess.PIPE,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE
+        stderr=subprocess.DEVNULL
     )
 
 def _stop_playback():
@@ -732,14 +744,17 @@ def _stop_playback():
         _is_playing = False
         _playback_cooldown_until = time.time() + PLAYBACK_TAIL_COOLDOWN
     
-    # Auto-unmute TV
+    threading.Thread(target=_post_playback_cleanup, daemon=True).start()
+
+
+def _post_playback_cleanup():
     try:
-        threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=false", timeout=2), daemon=True).start()
+        requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=false", timeout=5)
     except:
         pass
-    
     time.sleep(PLAYBACK_TAIL_COOLDOWN)
     _check_session_mode()
+
 
 def _send_and_play(audio_data: bytes, vosk_text: str = ""):
     t_start = time.time()
