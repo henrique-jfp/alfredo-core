@@ -5,6 +5,7 @@ import struct
 def test_mic():
     # Kill the satellite temporarily so it releases the microphone
     subprocess.run(["pkill", "-f", "local_satellite.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["pkill", "-f", "devices/satellite_server/main.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run(["pkill", "-f", "arecord"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
     print("Gravando do microfone por 3 segundos...")

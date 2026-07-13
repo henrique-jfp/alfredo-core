@@ -139,7 +139,7 @@ def play_audio(filename):
     print("* Reprodução finalizada.")
 
 def start_websocket():
-    ws_url = f"ws://127.0.0.1:10001/ws/satellite/{DEVICE_ID}"
+    ws_url = f"ws://127.0.0.1:10001/api/ws/satellite/{DEVICE_ID}"
     try:
         with connect(ws_url) as websocket:
             while True:
