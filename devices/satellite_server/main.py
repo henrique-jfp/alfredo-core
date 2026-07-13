@@ -92,6 +92,34 @@ def _open_input_stream(device_index: Optional[int], device_channels: int, sample
         f"Não foi possível abrir nenhum InputStream válido para o device {device_index} "
         f"com taxas testadas: {attempts}"
     )
+
+
+def _run_audio_mixer_commands(commands: list[list[str]]) -> None:
+    """Tenta aplicar comandos de áudio com fallback entre pactl e amixer."""
+    tried = []
+    for cmd in commands:
+        try:
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            tried.append(" ".join(cmd))
+        except Exception as exc:
+            print(f"⚠️ [ÁUDIO] Falha ao executar {' '.join(cmd)}: {exc}", flush=True)
+
+
+def _apply_capture_level(percent: str) -> None:
+    """Aplica ganho de captura no source padrão e em mixers ALSA conhecidos."""
+    _run_audio_mixer_commands([
+        ["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{percent}%"],
+        ["amixer", "sset", "Capture", f"{percent}%"],
+        ["amixer", "-c", "1", "sset", "Mic", f"{percent}%"],
+    ])
+
+
+def _apply_master_level(percent: str) -> None:
+    """Aplica volume master na saída padrão e em mixers ALSA conhecidos."""
+    _run_audio_mixer_commands([
+        ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{percent}%"],
+        ["amixer", "sset", "Master", f"{percent}%"],
+    ])
 WAVE_RESPONSE = "response.wav"
 SERVER_URL = "http://pvserver:10001"
 DEVICE_ID = "server-satellite-sala"
@@ -815,12 +843,11 @@ def websocket_loop():
                     elif data.get("type") == "SET_ALSA_CAPTURE":
                         val = data.get("value")
                         print(f"🎚️ Ajustando ALSA Capture para {val}%")
-                        subprocess.Popen(["amixer", "sset", "Capture", f"{val}%"], stdout=subprocess.DEVNULL)
-                        subprocess.Popen(["amixer", "-c", "1", "sset", "Mic", f"{val}%"], stdout=subprocess.DEVNULL)
+                        _apply_capture_level(f"{int(float(val))}")
                     elif data.get("type") == "SET_ALSA_MASTER":
                         val = data.get("value")
                         print(f"🔊 Ajustando ALSA Master para {val}%")
-                        subprocess.Popen(["amixer", "sset", "Master", f"{val}%"], stdout=subprocess.DEVNULL)
+                        _apply_master_level(f"{int(float(val))}")
                     elif data.get("type") == "SET_SOFTWARE_PREAMP":
                         val = float(data.get("value", 1.0))
                         print(f"⚡ Ajustando Multiplicador de Software para {val}x")
@@ -867,6 +894,11 @@ def main():
     print(f"👉 Diga 'ALEXA' ou o seu modelo customizado para me chamar!\n")
 
     device_index, device_channels, device_samplerate = _find_input_device(PREFERRED_MIC_NAME)
+    print(
+        f"🎙️ [ÁUDIO] Input selecionado: index={device_index}, channels={device_channels}, "
+        f"samplerate={device_samplerate}, preferido='{PREFERRED_MIC_NAME}'",
+        flush=True
+    )
 
     try:
         with _open_input_stream(device_index, device_channels, device_samplerate):

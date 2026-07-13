@@ -70,9 +70,13 @@ function SatellitesTabContent() {
         if (!mounted) return;
         setSatellites(validData);
         if (validData.length > 0) {
-          setSelectedSat(validData[0]);
-          setVolume(validData[0].volume ?? 70);
-          setBrightness(validData[0].brightness ?? 50);
+          const livingRoomSat =
+            validData.find((sat) => sat.room_id === 'ROOM_LIVING') ||
+            validData.find((sat) => sat.device_id === 'server-satellite-sala') ||
+            validData[0];
+          setSelectedSat(livingRoomSat);
+          setVolume(livingRoomSat.volume ?? 70);
+          setBrightness(livingRoomSat.brightness ?? 50);
         }
       } catch (err) {
         console.error(err);
