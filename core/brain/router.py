@@ -699,11 +699,49 @@ class AgentRouter:
             for interaction in reversed(last_interactions):
                 history_str += f"Usuário: {interaction.input_text}\nAlfredo: {interaction.output_text}\n"
                     
-            # 2. Fetch long-term memories
+            # 2. Fetch long-term memories using RAG (Vector Search)
             memory_facts = db.query(models.MemoryFact).filter(models.MemoryFact.room_id == room_id).all()
             if memory_facts:
-                memories = [f"- {m.fact}" for m in memory_facts]
-                long_term_memory = "\nFatos permanentes conhecidos sobre o usuário:\n" + "\n".join(memories)
+                try:
+                    import json
+                    from core.services.embedding_service import get_embedding, cosine_similarity
+                    # Obtém vetor da fala do usuário
+                    user_vec = get_embedding(text)
+                    relevant_memories = []
+                    
+                    if user_vec:
+                        for memory in memory_facts:
+                            if not memory.embedding:
+                                # Se é um dado legado sem embedding, nós mantemos por garantia ou ignoramos?
+                                # Por segurança, incluiremos dados sem embeddings ou com falhas
+                                relevant_memories.append((1.0, memory.fact))
+                                continue
+                                
+                            try:
+                                mem_vec = json.loads(memory.embedding)
+                                sim = cosine_similarity(user_vec, mem_vec)
+                                if sim > 0.3: # Threshold
+                                    relevant_memories.append((sim, memory.fact))
+                            except Exception as e:
+                                logger.error(f"Erro ao calcular RAG da memória ID {memory.id}: {e}")
+                                relevant_memories.append((1.0, memory.fact))
+                        
+                        # Ordena pela similaridade decrescente e pega os Top 5
+                        relevant_memories.sort(key=lambda x: x[0], reverse=True)
+                        top_memories = relevant_memories[:5]
+                        
+                        if top_memories:
+                            memories_str = [f"- {m[1]}" for m in top_memories]
+                            long_term_memory = "\nFatos permanentes relevantes conhecidos sobre o usuário (Contexto Local):\n" + "\n".join(memories_str)
+                        else:
+                            long_term_memory = ""
+                    else:
+                        # Fallback se a API do Google GenAI falhar no embedding
+                        memories_str = [f"- {m.fact}" for m in memory_facts[:5]]
+                        long_term_memory = "\nFatos permanentes conhecidos sobre o usuário:\n" + "\n".join(memories_str)
+                except Exception as e:
+                    logger.error(f"Erro fatal no pipeline RAG: {e}")
+                    long_term_memory = ""
             else:
                 long_term_memory = ""
 

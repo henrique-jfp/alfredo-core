@@ -26,14 +26,21 @@ class MemorySkill(Skill):
         
         if db and fact:
             from core.brain.memory import models
+            from core.services.embedding_service import get_embedding
+            import json
+            
+            # Gera o vetor antes de salvar
+            embedding_vec = get_embedding(fact)
+            embedding_str = json.dumps(embedding_vec) if embedding_vec else None
             
             memory = models.MemoryFact(
                 fact=fact,
+                embedding=embedding_str,
                 room_id=room_id
             )
             db.add(memory)
             db.commit()
-            logger.info("Fato salvo na Memória de Longo Prazo.")
+            logger.info("Fato salvo na Memória de Longo Prazo com Embedding.")
 
         return {
             "status": "success",

@@ -152,6 +152,7 @@ class MemoryFact(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     fact = Column(String, nullable=False)
+    embedding = Column(String, nullable=True) # JSON array of floats for RAG
     room_id = Column(String, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

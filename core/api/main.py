@@ -54,6 +54,10 @@ try:
             conn.execute(text("ALTER TABLE app_integrations ADD COLUMN token_data VARCHAR"))
         except Exception:
             pass
+        try:
+            conn.execute(text("ALTER TABLE memory_facts ADD COLUMN embedding VARCHAR"))
+        except Exception:
+            pass
         conn.commit()
 except Exception as e:
     logging.getLogger("alfredo.startup").error(f"Erro na migração do banco: {e}")
