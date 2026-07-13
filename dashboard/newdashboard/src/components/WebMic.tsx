@@ -9,12 +9,11 @@ export function WebMic() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playOnServer, setPlayOnServer] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
   const isInitializingRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const playbackContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -32,7 +31,8 @@ export function WebMic() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const audioContext = new AudioCtx({ sampleRate: 16000 });
       audioContextRef.current = audioContext;
       
       const source = audioContext.createMediaStreamSource(stream);
@@ -71,16 +71,40 @@ export function WebMic() {
 
       ws.onmessage = async (event) => {
         if (event.data instanceof Blob) {
-          // Received TTS audio!
-          cleanupEverything();
-          
-          if (!playOnServer) {
-            const audioUrl = URL.createObjectURL(event.data);
+          // Received TTS audio. Stop capture, but keep the playback context
+          // alive until the response finishes.
+          stopCapture();
+
+          try {
+            setIsPlaying(true);
+            const blobUrl = URL.createObjectURL(event.data);
+
             if (audioPlayerRef.current) {
-              audioPlayerRef.current.src = audioUrl;
-              setIsPlaying(true);
-              audioPlayerRef.current.play();
+              audioPlayerRef.current.src = blobUrl;
+              await audioPlayerRef.current.play();
+              audioPlayerRef.current.onended = () => {
+                URL.revokeObjectURL(blobUrl);
+                setIsPlaying(false);
+                cleanupAfterPlayback();
+              };
+            } else {
+              const playbackContext = playbackContextRef.current ?? new AudioCtx();
+              playbackContextRef.current = playbackContext;
+              const arrayBuffer = await event.data.arrayBuffer();
+              const audioBuffer = await playbackContext.decodeAudioData(arrayBuffer.slice(0));
+              const playSource = playbackContext.createBufferSource();
+              playSource.buffer = audioBuffer;
+              playSource.connect(playbackContext.destination);
+              playSource.onended = () => {
+                setIsPlaying(false);
+                cleanupAfterPlayback();
+              };
+              playSource.start();
             }
+          } catch (err) {
+            console.error("Erro ao tocar áudio", err);
+            setIsPlaying(false);
+            cleanupAfterPlayback();
           }
         } else if (typeof event.data === 'string') {
           try {
@@ -121,6 +145,10 @@ export function WebMic() {
       audioContextRef.current.close();
       audioContextRef.current = null;
     }
+    if (playbackContextRef.current) {
+      playbackContextRef.current.close();
+      playbackContextRef.current = null;
+    }
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.close();
       wsRef.current = null;
@@ -130,15 +158,43 @@ export function WebMic() {
     isRecordingRef.current = false;
   };
 
+  const stopCapture = () => {
+    if (isRecordingRef.current) {
+      setIsRecording(false);
+      isRecordingRef.current = false;
+    }
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    setIsProcessing(true);
+  };
+
+  const cleanupAfterPlayback = () => {
+    if (playbackContextRef.current) {
+      playbackContextRef.current.close();
+      playbackContextRef.current = null;
+    }
+    setIsProcessing(false);
+  };
+
   const stopRecording = (e?: React.TouchEvent | React.MouseEvent) => {
     if (e && e.type === 'touchend') {
       if (e.cancelable) e.preventDefault();
     }
-    if (isRecording) {
-      setIsRecording(false);
-      isRecordingRef.current = false;
-      setIsProcessing(true); // Wait for TTS to come back via WS
-      
+      if (isRecording) {
+        setIsRecording(false);
+        isRecordingRef.current = false;
+        setIsProcessing(true); // Wait for TTS to come back via WS
+
       if (processorRef.current) {
         processorRef.current.disconnect();
         processorRef.current = null;
