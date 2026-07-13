@@ -476,8 +476,8 @@ def audio_callback(indata, frames, time_info, status):
                             threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=2), daemon=True).start()
                         except:
                             pass
-                    _start_recording()
-                    break
+                        _start_recording()
+                        break
 
     if not is_recording:
         # Dashcam: manter sempre os últimos 3 segundos na memória (pré-gravação)
