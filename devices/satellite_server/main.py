@@ -45,7 +45,7 @@ def _find_input_device(name_substring: Optional[str]):
         preferred_terms = []
         if name_substring:
             preferred_terms.append(name_substring)
-        preferred_terms.extend(["ps3 eye", "ps3", "eye"])
+        preferred_terms.extend(["ps3 eye", "ps3", "eye", "usb camera", "omnivision"])
 
         for term in preferred_terms:
             term_lower = term.lower()
