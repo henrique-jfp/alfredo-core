@@ -10,6 +10,9 @@ from core.brain.memory.database import get_db
 from fastapi.responses import FileResponse
 import json
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+TZ = ZoneInfo("America/Sao_Paulo")
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
@@ -500,16 +503,18 @@ class DateRangePayload(BaseModel):
 @router.get("/events")
 def get_events(start: str = "", end: str = "", db: Session = Depends(get_db)):
     """Retorna eventos do calendário em um intervalo de datas."""
-    from core.brain.skills.calendar_skill import TZ
-
     now = datetime.now(TZ)
     if start:
-        start_dt = datetime.fromisoformat(start).astimezone(TZ)
+        start_dt = datetime.fromisoformat(start)
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=TZ)
     else:
         start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     if end:
-        end_dt = datetime.fromisoformat(end).astimezone(TZ)
+        end_dt = datetime.fromisoformat(end)
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=TZ)
     else:
         end_dt = start_dt + timedelta(days=6)
         end_dt = end_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -550,10 +555,11 @@ def create_event(payload: EventCreatePayload, db: Session = Depends(get_db)):
     try:
         start_dt = datetime.fromisoformat(payload.start_time)
         if start_dt.tzinfo is None:
-            start_dt = start_dt.replace(tzinfo=timezone.utc)
+            start_dt = start_dt.replace(tzinfo=TZ)
+        start_utc = start_dt.astimezone(timezone.utc)
         event = models.Event(
             title=payload.title,
-            start_time=start_dt,
+            start_time=start_utc,
             room_id=payload.room_id,
             reminders=payload.reminders,
         )
