@@ -109,10 +109,10 @@ class AgentRouter:
                         "name": "get_weather",
                         "description": "Obtém a previsão do tempo para um local e data",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
-                                "location": {"type": "STRING", "description": "Cidade ou local alvo. Opcional."},
-                                "date": {"type": "STRING", "description": "Data alvo em linguagem natural. Ex: 'hoje', 'amanhã', 'depois de amanhã', 'próxima terça', 'sexta', 'semana que vem', 'mês que vem', 'daqui a 3 dias'"}
+                                "location": {"type": "string", "description": "Cidade ou local alvo. Opcional."},
+                                "date": {"type": "string", "description": "Data alvo em linguagem natural. Ex: 'hoje', 'amanhã', 'depois de amanhã', 'próxima terça', 'sexta', 'semana que vem', 'mês que vem', 'daqui a 3 dias'"}
                             }
                         }
                     },
@@ -120,10 +120,10 @@ class AgentRouter:
                         "name": "get_traffic",
                         "description": "Acione SEMPRE que o usuário perguntar sobre trânsito, tempo de viagem ou rota. NUNCA pergunte sobre meio de transporte.",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
-                                "origin": {"type": "STRING", "description": "Origem. Se omitido, use 'casa'."},
-                                "destination": {"type": "STRING", "description": "Destino. Se omitido, use 'trabalho'."}
+                                "origin": {"type": "string", "description": "Origem. Se omitido, use 'casa'."},
+                                "destination": {"type": "string", "description": "Destino. Se omitido, use 'trabalho'."}
                             }
                         }
                     },
@@ -131,21 +131,21 @@ class AgentRouter:
                         "name": "manage_list",
                         "description": "GERENCIAR LISTAS: use esta ferramenta OBRIGATORIAMENTE para adicionar, ler, remover, limpar ou enviar via Telegram itens em listas de 'compras' ou 'tarefas'. NÃO responda como texto — execute a ferramenta.",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
-                                "action": {"type": "STRING", "description": "Ação a realizar: 'add', 'read', 'remove', 'clear' ou 'email'"},
+                                "action": {"type": "string", "description": "Ação a realizar: 'add', 'read', 'remove', 'clear' ou 'email'"},
                                 "list_type": {
-                                    "type": "STRING",
+                                    "type": "string",
                                     "description": "Tipo de lista suportado pelo Dashboard.",
                                     "enum": ["compras", "tarefas"]
                                 },
                                 "items": {
-                                    "type": "ARRAY", 
-                                    "items": {"type": "STRING"},
+                                    "type": "array", 
+                                    "items": {"type": "string"},
                                     "description": "Itens a adicionar (apenas para a ação 'add')"
                                 },
                                 "item": {
-                                    "type": "STRING",
+                                    "type": "string",
                                     "description": "Item a remover (apenas para a ação 'remove')"
                                 }
                             },
@@ -156,13 +156,13 @@ class AgentRouter:
                         "name": "manage_timer",
                         "description": "GERENCIAR ALARMES E TIMERS: use esta ferramenta OBRIGATORIAMENTE para criar, listar ou deletar alarmes, despertadores ou cronômetros. Se o usuário pedir múltiplos timers na mesma frase, CHAME ESTA FERRAMENTA MÚLTIPLAS VEZES (uma para cada timer). NUNCA responda que o alarme foi criado sem acionar esta ferramenta.",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
-                                "action": {"type": "STRING", "description": "Ação a realizar: 'create', 'list' ou 'delete'"},
-                                "duration_seconds": {"type": "INTEGER", "description": "Duração em segundos para timers relativos (ex: daqui a 5 min = 300)"},
-                                "target_hour": {"type": "INTEGER", "description": "Hora absoluta (0-23) para alarmes ou despertadores (ex: às 7 da manhã = 7, às 3 da tarde = 15)"},
-                                "target_minute": {"type": "INTEGER", "description": "Minuto absoluto (0-59) para alarmes (ex: 7h43 = 43). Padrão é 0."},
-                                "message": {"type": "STRING", "description": "Mensagem ou motivo do alarme/lembrete"}
+                                "action": {"type": "string", "description": "Ação a realizar: 'create', 'list' ou 'delete'"},
+                                "duration_seconds": {"type": "integer", "description": "Duração em segundos para timers relativos (ex: daqui a 5 min = 300)"},
+                                "target_hour": {"type": "integer", "description": "Hora absoluta (0-23) para alarmes ou despertadores (ex: às 7 da manhã = 7, às 3 da tarde = 15)"},
+                                "target_minute": {"type": "integer", "description": "Minuto absoluto (0-59) para alarmes (ex: 7h43 = 43). Padrão é 0."},
+                                "message": {"type": "string", "description": "Mensagem ou motivo do alarme/lembrete"}
                             },
                             "required": ["action"]
                         }
@@ -171,9 +171,9 @@ class AgentRouter:
                         "name": "get_time",
                         "description": "Retorna a data atual ou o horário atual do sistema",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
-                                "request_type": {"type": "STRING", "description": "O que o usuário quer saber: 'time' ou 'date'"}
+                                "request_type": {"type": "string", "description": "O que o usuário quer saber: 'time' ou 'date'"}
                             },
                             "required": ["request_type"]
                         }
@@ -182,11 +182,11 @@ class AgentRouter:
                         "name": "search_media",
                         "description": "Busca sugestões de filmes e séries baseadas em gênero, ano ou década usando a API do TMDB",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
-                                "media_type": {"type": "STRING", "description": "O tipo de mídia procurado: 'movie' para filmes, 'tv' para séries. O padrão é 'movie' se não for especificado."},
-                                "genre": {"type": "STRING", "description": "O gênero desejado. Ex: 'Ficção científica', 'Ação', 'Comédia'"},
-                                "decade_or_year": {"type": "STRING", "description": "Ano específico (ex: '1999') ou início de década (ex: '1990' para anos 90, '2000' para anos 2000)"}
+                                "media_type": {"type": "string", "description": "O tipo de mídia procurado: 'movie' para filmes, 'tv' para séries. O padrão é 'movie' se não for especificado."},
+                                "genre": {"type": "string", "description": "O gênero desejado. Ex: 'Ficção científica', 'Ação', 'Comédia'"},
+                                "decade_or_year": {"type": "string", "description": "Ano específico (ex: '1999') ou início de década (ex: '1990' para anos 90, '2000' para anos 2000)"}
                             }
                         }
                     },
@@ -194,11 +194,11 @@ class AgentRouter:
                         "name": "manage_music",
                         "description": "Controla a reprodução no Spotify: tocar música/artista/playlist, pausar, pular faixa, voltar, retomar e ajustar volume. Use APENAS para MÚSICAS no Spotify. Para lives, podcasts ou conteúdo que só existe no YouTube, use 'play_youtube'.",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
-                                "action": {"type": "STRING", "description": "Ação: 'search' para buscar e tocar, 'pause', 'resume', 'next', 'previous' ou 'volume'"},
-                                "query": {"type": "STRING", "description": "Nome da música ou artista (apenas para action='search')"},
-                                "volume": {"type": "INTEGER", "description": "Volume de 0 a 100 (apenas para action='volume')"}
+                                "action": {"type": "string", "description": "Ação: 'search' para buscar e tocar, 'pause', 'resume', 'next', 'previous' ou 'volume'"},
+                                "query": {"type": "string", "description": "Nome da música ou artista (apenas para action='search')"},
+                                "volume": {"type": "integer", "description": "Volume de 0 a 100 (apenas para action='volume')"}
                             },
                             "required": ["action"]
                         }
@@ -207,14 +207,14 @@ class AgentRouter:
                         "name": "manage_quiz",
                         "description": "Inicia, atualiza placar ou encerra um jogo interativo de perguntas e respostas (Quiz / Tarefa Escolar) com o usuário.",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
-                                "action": {"type": "STRING", "description": "'start' para iniciar, 'update' para salvar placar, 'stop' para encerrar"},
-                                "subject": {"type": "STRING", "description": "O assunto do quiz. Ex: 'matemática', 'geografia', 'conhecimentos gerais'"},
-                                "difficulty": {"type": "STRING", "description": "O nível de dificuldade do quiz. Ex: 'criança de 9 anos', 'difícil', 'adulto'"},
-                                "score": {"type": "NUMBER", "description": "Número de acertos (usar com action='update')"},
-                                "questions_count": {"type": "NUMBER", "description": "Total de perguntas feitas (usar com action='update')"},
-                                "max_questions": {"type": "NUMBER", "description": "Limite máximo de perguntas (padrão: 10)"}
+                                "action": {"type": "string", "description": "'start' para iniciar, 'update' para salvar placar, 'stop' para encerrar"},
+                                "subject": {"type": "string", "description": "O assunto do quiz. Ex: 'matemática', 'geografia', 'conhecimentos gerais'"},
+                                "difficulty": {"type": "string", "description": "O nível de dificuldade do quiz. Ex: 'criança de 9 anos', 'difícil', 'adulto'"},
+                                "score": {"type": "number", "description": "Número de acertos (usar com action='update')"},
+                                "questions_count": {"type": "number", "description": "Total de perguntas feitas (usar com action='update')"},
+                                "max_questions": {"type": "number", "description": "Limite máximo de perguntas (padrão: 10)"}
                             },
                             "required": ["action"]
                         }
@@ -223,11 +223,11 @@ class AgentRouter:
                         "name": "manage_recipe",
                         "description": "Ensina receitas passo a passo ou sugere harmonização de vinhos e comidas.",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
-                                "action": {"type": "STRING", "description": "'recipe' para iniciar, 'next_step' após cada passo, 'pairing' para harmonização, 'finish' para encerrar"},
-                                "query": {"type": "STRING", "description": "O nome do prato ou do vinho. Ex: 'risoto de funghi' ou 'vinho tinto'"},
-                                "step": {"type": "NUMBER", "description": "Número do próximo passo (usar com action='next_step')"}
+                                "action": {"type": "string", "description": "'recipe' para iniciar, 'next_step' após cada passo, 'pairing' para harmonização, 'finish' para encerrar"},
+                                "query": {"type": "string", "description": "O nome do prato ou do vinho. Ex: 'risoto de funghi' ou 'vinho tinto'"},
+                                "step": {"type": "number", "description": "Número do próximo passo (usar com action='next_step')"}
                             },
                             "required": ["action", "query"]
                         }
@@ -236,19 +236,19 @@ class AgentRouter:
                         "name": "manage_calendar",
                         "description": "Gerencia compromissos na agenda: adiciona, lê, remove ou remarca eventos futuros.",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
-                                "action": {"type": "STRING", "description": "Ação: 'add', 'read', 'remove' ou 'reschedule'"},
-                                "title": {"type": "STRING", "description": "Título do compromisso (para add/remove/reschedule)"},
-                                "start_time": {"type": "STRING", "description": "Data e hora ISO 8601. Ex: '2026-07-05T14:30:00' (para add)"},
-                                "date": {"type": "STRING", "description": "Data para leitura em linguagem natural: 'hoje', 'amanhã', 'depois de amanhã', 'próxima terça', 'sexta', 'semana que vem', 'mês que vem', 'daqui a 3 dias' (apenas para read)"},
+                                "action": {"type": "string", "description": "Ação: 'add', 'read', 'remove' ou 'reschedule'"},
+                                "title": {"type": "string", "description": "Título do compromisso (para add/remove/reschedule)"},
+                                "start_time": {"type": "string", "description": "Data e hora ISO 8601. Ex: '2026-07-05T14:30:00' (para add)"},
+                                "date": {"type": "string", "description": "Data para leitura em linguagem natural: 'hoje', 'amanhã', 'depois de amanhã', 'próxima terça', 'sexta', 'semana que vem', 'mês que vem', 'daqui a 3 dias' (apenas para read)"},
                                 "reminders_minutes": {
-                                    "type": "ARRAY",
-                                    "items": {"type": "NUMBER"},
+                                    "type": "array",
+                                    "items": {"type": "number"},
                                     "description": "Minutos antes do evento para lembrar. Padrão: [60]. Ex: [60,15,5] lembra 1h, 15min e 5min antes. Use [1440] para 1 dia antes."
                                 },
-                                "new_start_time": {"type": "STRING", "description": "Nova data/hora ISO 8601 (para reschedule). Ex: '2026-07-11T14:00:00'"},
-                                "offset_minutes": {"type": "NUMBER", "description": "Deslocamento em minutos (para reschedule). Positivo = adiar, negativo = adiantar. Ex: 30 adia 30 min"}
+                                "new_start_time": {"type": "string", "description": "Nova data/hora ISO 8601 (para reschedule). Ex: '2026-07-11T14:00:00'"},
+                                "offset_minutes": {"type": "number", "description": "Deslocamento em minutos (para reschedule). Positivo = adiar, negativo = adiantar. Ex: 30 adia 30 min"}
                             },
                             "required": ["action"]
                         }
@@ -257,19 +257,19 @@ class AgentRouter:
                         "name": "log_dream",
                         "description": "Acionado quando o usuário relata um sonho. Extrai os temas centrais e gera uma interpretação profunda.",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
                                 "themes": {
-                                    "type": "ARRAY", 
-                                    "items": {"type": "STRING"}, 
+                                    "type": "array", 
+                                    "items": {"type": "string"}, 
                                     "description": "3 a 5 palavras-chave curtas ou temas principais do sonho relatado."
                                 },
                                 "interpretation": {
-                                    "type": "STRING", 
+                                    "type": "string", 
                                     "description": "Uma interpretação poética e psicológica do sonho em 2 frases."
                                 },
                                 "raw_text": {
-                                    "type": "STRING",
+                                    "type": "string",
                                     "description": "O relato completo do sonho como o usuário contou, preservado para registro."
                                 }
                             },
@@ -280,10 +280,10 @@ class AgentRouter:
                         "name": "manage_memory",
                         "description": "Salva um fato ou preferência permanente sobre o usuário (ex: alergias, horários, gostos) na memória de longo prazo.",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
                                 "fact": {
-                                    "type": "STRING", 
+                                    "type": "string", 
                                     "description": "A frase resumida sobre o fato a ser salvo. Ex: 'O usuário é alérgico a amendoim'."
                                 }
                             },
@@ -294,11 +294,11 @@ class AgentRouter:
                         "name": "translate",
                         "description": "Traduz frases ou palavras entre idiomas, ou dá mini-aulas de idiomas. Ex: 'traduza hello para português', 'como se fala obrigado em inglês', 'me dá uma aula de francês'",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
-                                "action": {"type": "STRING", "description": "Ação a realizar: 'translate' para tradução normal, 'lesson' para mini-aula"},
-                                "text": {"type": "STRING", "description": "A frase ou palavra a ser traduzida ou o tópico da aula"},
-                                "target_language": {"type": "STRING", "description": "Idioma alvo da tradução ou aula. Ex: 'inglês', 'espanhol', 'francês', 'italiano'"}
+                                "action": {"type": "string", "description": "Ação a realizar: 'translate' para tradução normal, 'lesson' para mini-aula"},
+                                "text": {"type": "string", "description": "A frase ou palavra a ser traduzida ou o tópico da aula"},
+                                "target_language": {"type": "string", "description": "Idioma alvo da tradução ou aula. Ex: 'inglês', 'espanhol', 'francês', 'italiano'"}
                             },
                             "required": ["action"]
                         }
@@ -307,9 +307,9 @@ class AgentRouter:
                         "name": "get_news",
                         "description": "Obtém as principais manchetes de notícias do Brasil e do mundo. Permite filtrar por categoria: política, esportes, economia, mundo, tecnologia, saúde, cultura ou ciência.",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
-                                "category": {"type": "STRING", "description": "Categoria opcional: politica, esportes, economia, mundo, tecnologia, saude, cultura, ciencia"}
+                                "category": {"type": "string", "description": "Categoria opcional: politica, esportes, economia, mundo, tecnologia, saude, cultura, ciencia"}
                             }
                         }
                     },
@@ -317,21 +317,21 @@ class AgentRouter:
                         "name": "manage_tv",
                         "description": "OBRIGATÓRIO: Acione esta ferramenta SEMPRE que o usuário pedir para ligar, desligar, alterar volume, mutar ou abrir aplicativos na televisão/TV. Permite executar MÚLTIPLAS ações em sequência (ex: ligar a tv e depois abrir netflix).",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
                                 "actions": {
-                                    "type": "ARRAY",
+                                    "type": "array",
                                     "description": "Lista de ações sequenciais a executar na TV.",
                                     "items": {
-                                        "type": "OBJECT",
+                                        "type": "object",
                                         "properties": {
                                             "action": {
-                                                "type": "STRING",
+                                                "type": "string",
                                                 "description": "Ação a realizar",
                                                 "enum": ["power_on", "power_off", "mute", "unmute", "volume_up", "volume_down", "set_volume", "open_app"]
                                             },
-                                            "app_name": {"type": "STRING", "description": "Nome do app (ex: netflix, youtube)"},
-                                            "volume": {"type": "INTEGER", "description": "Volume (apenas set_volume)"}
+                                            "app_name": {"type": "string", "description": "Nome do app (ex: netflix, youtube)"},
+                                            "volume": {"type": "integer", "description": "Volume (apenas set_volume)"}
                                         },
                                         "required": ["action"]
                                     }
@@ -344,12 +344,13 @@ class AgentRouter:
                         "name": "play_youtube",
                         "description": "Toca ou para áudio do YouTube: transmissões ao vivo (ex: CazéTV, GloboNews), podcasts, vídeos. Use para LIVES, PODCASTS, CANAIS ou quando o usuário disser 'no YouTube'. Para músicas no Spotify, use 'manage_music'. Use action='stop' quando o usuário pedir para parar o YouTube.",
                         "parameters": {
-                            "type": "OBJECT",
+                            "type": "object",
                             "properties": {
-                                "action": {"type": "STRING", "description": "Ação: 'play' (padrão) para tocar, 'stop' para parar a reprodução"},
-                                "query": {"type": "STRING", "description": "Nome do canal, live, podcast ou vídeo (apenas para action='play')"},
-                                "is_live": {"type": "BOOLEAN", "description": "Se é uma transmissão ao vivo (apenas para action='play')"}
-                            }
+                                "action": {"type": "string", "description": "Ação: 'play' (padrão) para tocar, 'stop' para parar a reprodução"},
+                                "query": {"type": "string", "description": "Nome do canal, live, podcast ou vídeo (apenas para action='play')"},
+                                "is_live": {"type": "boolean", "description": "Se é uma transmissão ao vivo (apenas para action='play')"}
+                            },
+                            "required": ["action"]
                         }
                     }
                 ]
@@ -794,7 +795,7 @@ class AgentRouter:
         system_prompt += f"\n\nContexto Oculto do Sistema:\n- Horário e data atual exatos: {now.strftime('%d/%m/%Y %H:%M:%S')}"
         tools = self._get_tools_schema()
         model = genai.GenerativeModel(
-            model_name='gemini-3.1-flash-lite',
+            model_name='gemini-2.5-flash',
             tools=tools,
             system_instruction=system_prompt,
             generation_config=genai.GenerationConfig(temperature=0.9)
@@ -948,7 +949,7 @@ class AgentRouter:
             
             logger.warning(f"Gemini retornou parts vazias. Finish reason: {response.candidates[0].finish_reason if response.candidates else 'Unknown'}. Fallback sem tools...")
             model_fallback = genai.GenerativeModel(
-                model_name='gemini-3.1-flash-lite',
+                model_name='gemini-2.5-flash',
                 system_instruction=system_prompt,
                 generation_config=genai.GenerationConfig(temperature=0.9)
             )
@@ -1151,7 +1152,7 @@ class AgentRouter:
         tools = self._get_tools_schema()
         
         model = genai.GenerativeModel(
-            model_name='gemini-3.1-flash-lite',
+            model_name='gemini-2.5-flash',
             system_instruction=system_prompt,
             tools=tools,
             generation_config=genai.GenerationConfig(temperature=0.8)

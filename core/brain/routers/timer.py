@@ -7,15 +7,12 @@ def parse_timers(text: str) -> Optional[List[Dict[str, Any]]]:
     Função customizada de extração de múltiplos timers da frase.
     Busca por padrões como "5 minutos", "1 hora e meia", etc.
     """
-    # Se a frase não tiver indicativos de timer, falha rápido.
-    if not re.search(r'\b(avisa|avisar|desperta|despertar|timer|alarme|cronometro|daqui a|em)\b', text):
-        return None
-
-    # Busca por números + unidades de tempo (ex: "5 minutos", "1 hora e 30 minutos")
-    # Expressão simplificada para capturar pares de (número) (unidade)
-    # Suporta numerais por extenso básicos se quisermos, mas aqui usamos dígitos
+    # Busca direta por padrões de tempo (número + unidade)
+    # Se não encontrar, falha rápido — evita falsos positivos com "em"
     pattern = re.compile(r'\b(\d+)\s*(minuto|minutos|hora|horas|segundo|segundos)\b')
-    matches = pattern.finditer(text)
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return None
     
     actions = []
     
