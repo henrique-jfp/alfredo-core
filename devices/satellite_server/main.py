@@ -147,6 +147,8 @@ _is_playing = False
 _playback_lock = threading.Lock()
 _session_mode = False
 _session_lock = threading.Lock()
+_vad_only_mode = False
+_vad_speech_frames = 0
 current_music_process = None
 
 # COOLDOWN DE PLAYBACK
@@ -454,6 +456,7 @@ def _audio_callback_impl(indata, frames, time_info, status):
     global is_calibrated, calibration_frames, calibration_sum, noise_threshold
     global full_audio_buffer, dashcam_buffer, SOFTWARE_MULTIPLIER, noise_gate_hold, _session_mode
     global live_recording_bytes, _last_detection_time, _last_detection_lock, accumulated_vosk_text
+    global _vad_only_mode, _vad_speech_frames
 
     # Tratar overflow ao invés de descartar silenciosamente
     if status:
@@ -518,7 +521,6 @@ def _audio_callback_impl(indata, frames, time_info, status):
                     print(f"  VOSK resultado: '{text}'", flush=True)
                     if any(re.search(rf'\b{re.escape(v)}\b', text) for v in wake_variants):
                         print(f"🔔 Palavra de ativação '{wake_word.upper()}' detectada pelo Vosk!", flush=True)
-                        global accumulated_vosk_text
                         accumulated_vosk_text = text
                         _stop_current_music()
                         try:
@@ -538,6 +540,7 @@ def _audio_callback_impl(indata, frames, time_info, status):
             prediction = oww_model.predict(cleaned)
             for mdl_name, score in prediction.items():
                 if score >= 0.7 and not is_recording:
+                    accumulated_vosk_text = ""
                     _stop_current_music()
                     try:
                         threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=5), daemon=True).start()
@@ -545,6 +548,31 @@ def _audio_callback_impl(indata, frames, time_info, status):
                         pass
                     _start_recording()
                     break
+
+    # -----------------------------------------------------------------
+    # VAD-only mode: sem wake word, grava qualquer fala sustentada
+    # -----------------------------------------------------------------
+    if _vad_only_mode and not is_recording:
+        if _is_playing or time.time() < _playback_cooldown_until:
+            pass
+        else:
+            offset = 0
+            while offset + 320 <= len(bytes_data):
+                chunk = bytes_data[offset:offset + 320]
+                offset += 320
+                rms = get_rms(chunk)
+                vad_result = vad.is_speech(chunk, RATE)
+                if _is_confirmed_speech(vad_result, rms, noise_threshold):
+                    _vad_speech_frames += 1
+                else:
+                    _vad_speech_frames = 0
+            # 5 frames consecutivos de VAD = ~0.5s de fala contínua
+            if _vad_speech_frames >= 5:
+                print(f"🔊 [VAD-ONLY] Fala contínua detectada! Gravando...", flush=True)
+                accumulated_vosk_text = ""
+                _stop_current_music()
+                _start_recording()
+                _vad_speech_frames = 0
 
     if not is_recording:
         # Dashcam: manter sempre os últimos 3 segundos na memória (pré-gravação)
@@ -667,15 +695,22 @@ def _audio_callback_impl(indata, frames, time_info, status):
 def _start_recording():
     global is_recording, recording_buffer, has_spoken, silence_frames
     global full_audio_buffer, dashcam_buffer, _session_mode, accumulated_vosk_text
-    global live_recording_bytes, vosk_rec
+    global live_recording_bytes, vosk_rec, _vad_speech_frames
     is_recording = True
     recording_buffer = bytearray()
-    accumulated_vosk_text = ""
     live_recording_bytes = 0
+    _vad_speech_frames = 0
 
     full_audio_buffer = bytearray(dashcam_buffer)
     dashcam_buffer.clear()
     
+    # NÃO limpar accumulated_vosk_text aqui! O Vosk já salvou o texto do
+    # wake word + comando antes de chamar _start_recording(). Se limparmos,
+    # _finish_recording() enviará texto vazio e o servidor perderá o fast path.
+    # Só limpamos quando session_mode ativa sem wake word.
+    if _session_mode:
+        accumulated_vosk_text = ""
+
     has_spoken = not _session_mode
     silence_frames = 0
     if vosk_rec:
@@ -907,15 +942,38 @@ def main():
 
     # Vosk: reconhecimento contínuo para wake word "alfredo"
     print("🧠 Carregando Vosk para wake word...")
-    try:
-        vosk_model = VoskModel(lang="pt")
-        vosk_rec = KaldiRecognizer(vosk_model, RATE)
-        vosk_rec.SetWords(False)
-        print("🟢 Vosk carregado com sucesso!")
-    except Exception as e:
-        print(f"⚠️  Vosk não disponível: {e}. Usando OpenWakeWord como fallback.")
-        vosk_model = None
-        vosk_rec = None
+    logging.getLogger("vosk").setLevel(logging.ERROR)
+
+    # Tenta 1: modelo local (core/voice/stt/models/)
+    model_local = os.path.join(os.path.dirname(__file__), "..", "..", "core", "voice", "stt", "models", "vosk-model-small-pt-0.3")
+    if os.path.exists(model_local):
+        try:
+            vosk_model = VoskModel(model_local)
+            vosk_rec = KaldiRecognizer(vosk_model, RATE)
+            vosk_rec.SetWords(False)
+            print("🟢 Vosk carregado (modelo local)!")
+        except Exception as e:
+            print(f"⚠️  Erro ao carregar Vosk local: {e}")
+            vosk_model = None
+            vosk_rec = None
+    else:
+        print(f"⚠️  Modelo local não encontrado em {model_local}.")
+        # Tenta 2: auto-download via lang="pt"
+        print("📡 Tentando baixar modelo Vosk automático (lang='pt')...")
+        try:
+            vosk_model = VoskModel(lang="pt")
+            vosk_rec = KaldiRecognizer(vosk_model, RATE)
+            vosk_rec.SetWords(False)
+            print("🟢 Vosk carregado (auto-download)!")
+        except Exception as e:
+            print(f"⚠️  Falha ao baixar Vosk: {e}")
+            vosk_model = None
+            vosk_rec = None
+
+    if not vosk_rec:
+        print("❌ Nenhum modelo Vosk disponível.")
+        print("   Faça o download manual: https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip")
+        print("   Extraia para: core/voice/stt/models/vosk-model-small-pt-0.3")
 
     # OpenWakeWord como fallback (modelo "Alexa" - foneticamente diferente de "alfredo")
     print("🧠 Carregando OpenWakeWord (fallback)...")
@@ -932,9 +990,12 @@ def main():
         print(f"⚠️  Falha ao carregar OpenWakeWord: {e}")
         oww_model = None
 
+    global _vad_only_mode
     if not vosk_rec and not oww_model:
-        print("❌ Nenhum motor de wake word disponível. Encerrando.")
-        sys.exit(1)
+        _vad_only_mode = True
+        print("⚠️  Nenhum motor de wake word. Entrando em modo VAD (sempre ouvindo)...")
+        print("   O servidor filtrará comandos sem wake word.")
+        print("   ATENÇÃO: Qualquer áudio será enviado ao servidor para verificação.")
 
     # VAD: agressividade alta (3) para reduzir falsos positivos
     vad = webrtcvad.Vad(3)
