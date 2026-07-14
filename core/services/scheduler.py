@@ -236,6 +236,15 @@ class SchedulerManager:
             for event in upcoming_events:
                 if not event.room_id:
                     continue
+                # Migra eventos do Google Calendar que foram puxados antes
+                # da correção de timezone (não tinham room_id nem notified).
+                # Google já gerencia suas próprias notificações.
+                if event.google_event_id and event.notified != "all":
+                    event.notified = "all"
+                    db.commit()
+                    continue
+                if event.notified == "all":
+                    continue
                 reminders_str = event.reminders or "60"
                 notified_str = event.notified or ""
 

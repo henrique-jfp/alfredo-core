@@ -266,11 +266,28 @@ def pull_events(db: Session) -> int:
 
             title = item.get("summary", "(sem título)")
 
+            reminders_str = None
+            google_reminders = item.get("reminders", {})
+            if google_reminders.get("useDefault"):
+                reminders_str = ""
+            else:
+                overrides = google_reminders.get("overrides", [])
+                mins = sorted(set(
+                    str(o["minutes"]) for o in overrides
+                    if o.get("minutes") and o.get("method") != "email"
+                ), key=int, reverse=True)
+                reminders_str = ",".join(mins) if mins else ""
+
+            stored_reminders = reminders_str if reminders_str is not None else "60"
+            stored_notified = "all" if reminders_str == "" else ""
+
             if existing:
                 g_updated = item.get("updated", "")
                 if g_updated and g_updated != existing.google_updated:
                     existing.title = title
                     existing.start_time = start_dt
+                    existing.reminders = stored_reminders
+                    existing.notified = stored_notified
                     existing.google_updated = g_updated
                     db.commit()
                     count += 1
@@ -284,6 +301,8 @@ def pull_events(db: Session) -> int:
                     room_id=room[0] if room else None,
                     google_event_id=gevent_id,
                     google_updated=item.get("updated", ""),
+                    reminders=stored_reminders,
+                    notified=stored_notified,
                 )
                 db.add(new_event)
                 db.commit()
