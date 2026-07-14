@@ -1,4 +1,5 @@
 import os
+import re
 import time as _time
 import logging
 from typing import AsyncGenerator
@@ -12,6 +13,15 @@ from core.brain.router import get_router
 from core.api.satellite import manager
 
 logger = logging.getLogger("alfredo.voice_pipeline")
+
+_WAKE_WORDS = ["alfredo", "alfre", "fredo", "al fredo", "hey alfredo", "ok alfredo"]
+
+def _has_wake_word(text: str) -> bool:
+    text_lower = text.lower().strip()
+    for w in _WAKE_WORDS:
+        if re.search(rf'\b{re.escape(w)}\b', text_lower):
+            return True
+    return False
 
 async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: str, db: Session, is_webm: bool = False, stream_tts: bool = True, vosk_text: str = "") -> AsyncGenerator[bytes, None]:
     """
@@ -98,10 +108,21 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
             transcribed_text = ""
 
     if not transcribed_text.strip():
-        # Silence or unrecognized
         return
 
-    # 3. Roteamento de Intenção (Streaming Real)
+    # 3a. Guarda: rejeita se não houver wake word (a menos que em sessão ativa)
+    # O fast path (semantic router com vosk_text) executa antes deste guarda,
+    # então comandos determinísticos como "pausa a música" passam mesmo sem wake word.
+    if not _has_wake_word(transcribed_text):
+        session_active = db.query(models.SessionState).filter(
+            models.SessionState.room_id == room_id,
+            models.SessionState.is_active == True
+        ).first()
+        if not session_active:
+            logger.info(f"Ignorando '{transcribed_text}': sem wake word e sem sessão ativa.")
+            return
+
+    # 3b. Roteamento de Intenção (Streaming Real)
     t_llm_start = _time.time()
     logger.info("Enviando texto para o Router (Streaming)...")
     try:

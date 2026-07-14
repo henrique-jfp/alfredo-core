@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 
 os.environ['PYTHONUNBUFFERED'] = '1'
@@ -39,9 +40,7 @@ ROOM_ID = "ROOM_OFFICE"
 
 wake_word = "alfredo"
 wake_variants = [
-    "alfredo", "alfre", "fredo", "frente", "al fredo",
-    "alfredou", "alfreu", "alfrente", "alfred",
-    "enredo", "enredou", "enreda", "alegre"
+    "alfredo", "alfre", "fredo", "al fredo", "alfred"
 ]
 
 alarm_process = None
@@ -382,7 +381,7 @@ def vosk_worker():
                 if text.strip() and text != getattr(vosk_worker, "last_print", ""):
                     print(f"  VOSK resultado: '{text}'", flush=True)
                     vosk_worker.last_print = text
-                if text.strip() and any(v in text for v in wake_variants):
+                if text.strip() and any(re.search(rf'\b{re.escape(v)}\b', text) for v in wake_variants):
                     print(f"🔔 Palavra de ativação '{wake_word.upper()}' detectada pelo Vosk!", flush=True)
                     _stop_current_music()
                     try:
