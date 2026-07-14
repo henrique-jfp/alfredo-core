@@ -14,7 +14,7 @@ from core.api.satellite import manager
 
 logger = logging.getLogger("alfredo.voice_pipeline")
 
-_WAKE_WORDS = ["alfredo", "alfre", "fredo", "al fredo", "hey alfredo", "ok alfredo"]
+_WAKE_WORDS = ["alfredo", "alfre", "fredo", "al fredo", "hey alfredo", "ok alfredo", "alexa", "é alexa"]
 
 def _has_wake_word(text: str) -> bool:
     text_lower = text.lower().strip()
