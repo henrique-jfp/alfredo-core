@@ -52,7 +52,7 @@ class SchedulerManager:
                 
                 for r in reminders_list:
                     if r not in notified_list:
-                        wake_time = e.start_time.replace(tzinfo=timezone.utc) - timedelta(minutes=r)
+                        wake_time = e.start_time.astimezone(timezone.utc) - timedelta(minutes=r)
                         if next_event_wakeup is None or wake_time < next_event_wakeup:
                             next_event_wakeup = wake_time
             
@@ -163,54 +163,43 @@ class SchedulerManager:
                         logger.error(f"Erro ao gerar áudio do cronômetro: {e}")
                         tts_filename = None
                 
-                for device in devices:
-                    ws = active_connections.get(device.device_id)
-                    if ws:
-                        try:
-                            if timer.timer_type == "alarm":
-                                await ws.send_json({
-                                    "type": "play_alarm",
-                                    "message": timer.message or "Despertador tocando!"
-                                })
-                            else:
-                                if tts_filename:
-                                    await ws.send_json({
-                                        "type": "play_audio",
-                                        "url": f"http://127.0.0.1:10001/api/audio/{tts_filename}"
-                                    })
-                                else:
-                                    # Fallback
-                                    await ws.send_json({
-                                        "type": "timer_expired",
-                                        "message": timer.message or "Tempo esgotado!",
-                                        "duration_seconds": timer.duration_seconds
-                                    })
-                            logger.info(f"Notificação enviada ao device {device.device_id}")
-                        except Exception as e:
-                            logger.error(f"Erro ao enviar aviso para o device {device.device_id}: {e}")
-
-                # Sempre envia para o dashboard se estiver aberto
-                ws_dash = active_connections.get("dashboard-virtual-mic")
-                if ws_dash:
+                device, ws = self._get_first_connected_device(devices, active_connections)
+                if ws:
                     try:
                         if timer.timer_type == "alarm":
-                            await ws_dash.send_json({
+                            await ws.send_json({
                                 "type": "play_alarm",
                                 "message": timer.message or "Despertador tocando!"
                             })
-                        elif tts_filename:
-                            await ws_dash.send_json({
-                                "type": "play_audio",
-                                "url": f"/api/audio/{tts_filename}"
-                            })
+                        else:
+                            if tts_filename:
+                                await ws.send_json({
+                                    "type": "play_audio",
+                                    "url": f"http://127.0.0.1:10001/api/audio/{tts_filename}"
+                                })
+                            else:
+                                await ws.send_json({
+                                    "type": "timer_expired",
+                                    "message": timer.message or "Tempo esgotado!",
+                                    "duration_seconds": timer.duration_seconds
+                                })
+                        logger.info(f"Notificação enviada ao device {device.device_id}")
                     except Exception as e:
-                        logger.error(f"Erro ao notificar dashboard: {e}")
+                        logger.error(f"Erro ao enviar aviso para o device {device.device_id}: {e}")
                             
             if expired_timers:
                 db.commit()
                 
         finally:
             db.close()
+
+    @staticmethod
+    def _get_first_connected_device(devices, active_connections):
+        for device in devices:
+            ws = active_connections.get(device.device_id)
+            if ws:
+                return device, ws
+        return None, None
 
     @staticmethod
     def _format_reminder_time(minutes: int) -> str:
@@ -237,16 +226,16 @@ class SchedulerManager:
         db: Session = SessionLocal()
         try:
             now = datetime.now(timezone.utc)
-            window_end = now + timedelta(hours=24)
-            now_naive = now.replace(tzinfo=None)
-            window_end_naive = window_end.replace(tzinfo=None)
+            window_end = now + timedelta(days=365)
 
             upcoming_events = db.query(models.Event).filter(
-                models.Event.start_time >= now_naive,
-                models.Event.start_time <= window_end_naive
+                models.Event.start_time >= now,
+                models.Event.start_time <= window_end
             ).order_by(models.Event.start_time.asc()).all()
 
             for event in upcoming_events:
+                if not event.room_id:
+                    continue
                 reminders_str = event.reminders or "60"
                 notified_str = event.notified or ""
 
@@ -256,7 +245,7 @@ class SchedulerManager:
                 )
                 notified_list = [int(n.strip()) for n in notified_str.split(",") if n.strip().isdigit()]
 
-                local_time = event.start_time.replace(tzinfo=timezone.utc).astimezone(TZ)
+                local_time = event.start_time.astimezone(TZ)
                 hora_str = local_time.strftime("%H:%M").replace(":00", " horas")
                 any_notified = False
 
@@ -265,7 +254,7 @@ class SchedulerManager:
                         any_notified = True
                         continue
 
-                    reminder_time = event.start_time.replace(tzinfo=timezone.utc) - timedelta(minutes=r)
+                    reminder_time = event.start_time.astimezone(timezone.utc) - timedelta(minutes=r)
                     if now < reminder_time:
                         continue
 
@@ -294,24 +283,23 @@ class SchedulerManager:
                         logger.error(f"Erro ao gerar áudio do evento: {e}")
                         tts_filename = None
 
-                    for device in devices:
-                        ws = active_connections.get(device.device_id)
-                        if ws:
-                            try:
-                                if tts_filename:
-                                    await ws.send_json({
-                                        "type": "play_audio",
-                                        "url": f"http://127.0.0.1:10001/api/audio/{tts_filename}"
-                                    })
-                                else:
-                                    await ws.send_json({
-                                        "type": "event_reminder",
-                                        "title": event.title,
-                                        "start_time": local_time.isoformat()
-                                    })
-                                logger.info(f"Notificação de evento enviada ao device {device.device_id}")
-                            except Exception as e:
-                                logger.error(f"Erro ao enviar evento para {device.device_id}: {e}")
+                    device, ws = self._get_first_connected_device(devices, active_connections)
+                    if ws:
+                        try:
+                            if tts_filename:
+                                await ws.send_json({
+                                    "type": "play_audio",
+                                    "url": f"http://127.0.0.1:10001/api/audio/{tts_filename}"
+                                })
+                            else:
+                                await ws.send_json({
+                                    "type": "event_reminder",
+                                    "title": event.title,
+                                    "start_time": local_time.isoformat()
+                                })
+                            logger.info(f"Notificação de evento enviada ao device {device.device_id}")
+                        except Exception as e:
+                            logger.error(f"Erro ao enviar evento para {device.device_id}: {e}")
 
                     notified_list.append(r)
                     event.notified = ",".join(str(n) for n in sorted(notified_list))
@@ -379,22 +367,21 @@ class SchedulerManager:
                     devices = db.query(models.Device).filter(models.Device.room_id == routine.room_id).all()
                     active_connections = self.get_active_connections_cb()
                     
-                    for device in devices:
-                        ws = active_connections.get(device.device_id)
-                        if ws:
-                            try:
-                                await ws.send_json({
-                                    "type": "play_audio",
-                                    "url": f"http://127.0.0.1:10001/api/audio/{filename}"
-                                })
-                                logger.info(f"Comando de rotina enviado ao device {device.device_id}")
+                    device, ws = self._get_first_connected_device(devices, active_connections)
+                    if ws:
+                        try:
+                            await ws.send_json({
+                                "type": "play_audio",
+                                "url": f"http://127.0.0.1:10001/api/audio/{filename}"
+                            })
+                            logger.info(f"Comando de rotina enviado ao device {device.device_id}")
+                            
+                            # Envia as pendências WebSocket geradas pela Skill para a sala toda
+                            for task in context["ws_tasks"]:
+                                await ws.send_json(task["payload"])
                                 
-                                # Envia as pendências WebSocket geradas pela Skill para a sala toda
-                                for task in context["ws_tasks"]:
-                                    await ws.send_json(task["payload"])
-                                    
-                            except Exception as e:
-                                logger.error(f"Erro ao enviar rotina para {device.device_id}: {e}")
+                        except Exception as e:
+                            logger.error(f"Erro ao enviar rotina para {device.device_id}: {e}")
                                 
                 routine.last_run = now
                 

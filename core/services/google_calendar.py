@@ -275,10 +275,13 @@ def pull_events(db: Session) -> int:
                     db.commit()
                     count += 1
             else:
+                room = db.query(models.Device.room_id).filter(
+                    models.Device.room_id.isnot(None)
+                ).first()
                 new_event = models.Event(
                     title=title,
                     start_time=start_dt,
-                    room_id="google_sync",
+                    room_id=room[0] if room else None,
                     google_event_id=gevent_id,
                     google_updated=item.get("updated", ""),
                 )
