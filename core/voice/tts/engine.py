@@ -5,10 +5,13 @@ import struct
 import logging
 import asyncio
 import subprocess
+import shutil
 import edge_tts
 
 
 import hashlib
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 logger = logging.getLogger("alfredo.tts")
 
@@ -134,13 +137,6 @@ class TTSEngine:
         clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
         logger.info(f"Sintetizando áudio na nuvem para o texto: '{clean_text}'")
 
-        VOICE_MAP = {
-            "en-US": "en-US-AriaNeural", "es-ES": "es-ES-ElviraNeural",
-            "de-DE": "de-DE-AmalaNeural", "fr-FR": "fr-FR-DeniseNeural",
-            "it-IT": "it-IT-IsabellaNeural", "ja-JP": "ja-JP-NanamiNeural",
-            "zh-CN": "zh-CN-XiaoxiaoNeural"
-        }
-
         pattern = r'<lang="([^"]+)">(.*?)</lang>'
         parts = re.split(pattern, clean_text)
         parsed_segments = []
@@ -153,7 +149,7 @@ class TTSEngine:
                 locale = parts[i]
                 inside_text = parts[i+1]
                 if inside_text.strip():
-                    voice = VOICE_MAP.get(locale, self.current_voice_name)
+                    voice = self._get_translation_voice(locale)
                     parsed_segments.append((voice, inside_text.strip()))
                 i += 2
 
@@ -210,13 +206,6 @@ class TTSEngine:
         clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
         logger.info(f"Iniciando stream TTS para: '{clean_text}'")
 
-        VOICE_MAP = {
-            "en-US": "en-US-AriaNeural", "es-ES": "es-ES-ElviraNeural",
-            "de-DE": "de-DE-AmalaNeural", "fr-FR": "fr-FR-DeniseNeural",
-            "it-IT": "it-IT-IsabellaNeural", "ja-JP": "ja-JP-NanamiNeural",
-            "zh-CN": "zh-CN-XiaoxiaoNeural"
-        }
-
         pattern = r'<lang="([^"]+)">(.*?)</lang>'
         parts = re.split(pattern, clean_text)
         parsed_segments = []
@@ -229,7 +218,7 @@ class TTSEngine:
                 locale = parts[i]
                 inside_text = parts[i+1]
                 if inside_text.strip():
-                    voice = VOICE_MAP.get(locale, self.current_voice_name)
+                    voice = self._get_translation_voice(locale)
                     parsed_segments.append((voice, inside_text.strip()))
                 i += 2
         if not parsed_segments:
@@ -243,13 +232,6 @@ class TTSEngine:
 
     async def stream_audio_from_generator(self, text_generator):
         logger.info("Iniciando stream TTS encadeado (LLM -> Edge-TTS)...")
-
-        VOICE_MAP = {
-            "en-US": "en-US-AriaNeural", "es-ES": "es-ES-ElviraNeural",
-            "de-DE": "de-DE-AmalaNeural", "fr-FR": "fr-FR-DeniseNeural",
-            "it-IT": "it-IT-IsabellaNeural", "ja-JP": "ja-JP-NanamiNeural",
-            "zh-CN": "zh-CN-XiaoxiaoNeural"
-        }
 
         async for sentence in text_generator:
             clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', sentence)
@@ -267,7 +249,7 @@ class TTSEngine:
                     locale = parts[i]
                     inside_text = parts[i+1]
                     if inside_text.strip():
-                        voice = VOICE_MAP.get(locale, self.current_voice_name)
+                        voice = self._get_translation_voice(locale)
                         parsed_segments.append((voice, inside_text.strip()))
                     i += 2
             if not parsed_segments:
@@ -311,20 +293,12 @@ def _build_wav_header(sample_rate: int, data_size: int, sample_width: int = 2, c
 
 
 def _find_piper_binary() -> str | None:
-    for name in ["piper", "piper.exe", "piper-tts"]:
-        try:
-            result = subprocess.run(["which", name], capture_output=True, text=True, timeout=3)
-            if result.returncode == 0:
-                return result.stdout.strip()
-        except FileNotFoundError:
-            pass
-        # Try where for Windows
-        try:
-            result = subprocess.run(["where", name], capture_output=True, text=True, timeout=3, shell=True)
-            if result.returncode == 0:
-                return result.stdout.strip().split("\n")[0]
-        except:
-            pass
+    pip_bin = shutil.which("piper")
+    if pip_bin:
+        return pip_bin
+    venv_piper = os.path.join(PROJECT_ROOT, ".venv", "bin", "piper")
+    if os.path.exists(venv_piper) and os.access(venv_piper, os.X_OK):
+        return venv_piper
     return None
 
 
@@ -407,6 +381,14 @@ class PiperTTS:
         for i in range(0, len(wav_bytes), chunk_size):
             yield wav_bytes[i:i + chunk_size]
 
+    async def synthesize_wav(self, text: str, output_filepath: str):
+        """Gera WAV completo via Piper e salva no disco (para notificações, timers, etc.)."""
+        wav_bytes = await self._text_to_wav(text)
+        os.makedirs(os.path.dirname(output_filepath) or ".", exist_ok=True)
+        with open(output_filepath, "wb") as f:
+            f.write(wav_bytes)
+        logger.info(f"Áudio Piper salvo em: {output_filepath}")
+
     async def stream_audio_from_generator(self, text_generator):
         """
         Recebe AsyncGenerator de frases, gera WAV para cada uma em sequência,
@@ -428,6 +410,7 @@ class PiperTTS:
 
 # ──────────────────────────────────────────────
 # Factory: seleciona backend via env TTS_BACKEND
+# ou pelo parâmetro backend (lido do DB).
 # ──────────────────────────────────────────────
 
 _tts_instance = None
@@ -438,7 +421,7 @@ def get_tts_engine():
     if _tts_instance is None:
         backend = os.getenv("TTS_BACKEND", "edge").strip().lower()
         if backend == "piper":
-            logger.info("TTS_BACKEND=piper → usando Piper TTS local (lento neste hardware)")
+            logger.info("TTS_BACKEND=piper → usando Piper TTS local")
             _tts_instance = PiperTTS()
         else:
             logger.info("TTS_BACKEND=edge → usando Edge-TTS (cloud)")

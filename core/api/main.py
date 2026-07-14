@@ -109,8 +109,8 @@ scheduler = SchedulerManager(get_active_connections)
 async def startup_event():
     asyncio.create_task(scheduler.start())
     # Warm up TTS cache for fast routing responses
-    from core.voice.pipeline import get_tts_engine
     from core.brain.routers import ROUTES
+    from core.voice.tts.engine import get_tts_engine
     fixed_responses = [r.response for r in ROUTES if r.response]
     if fixed_responses:
         logger.info("Aquecendo cache TTS para respostas rápidas...")
@@ -200,7 +200,7 @@ async def process_voice(
         
     vosk_text = urllib.parse.unquote(x_vosk_text) if x_vosk_text else ""
     generator = process_audio_pipeline(audio_bytes, x_device_id, x_room_id, db, is_webm=is_webm, vosk_text=vosk_text)
-    
+
     tts_engine = get_tts_engine()
     return StreamingResponse(
         generator,
@@ -290,7 +290,7 @@ async def process_voice_text(
     try:
         voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
         chosen_voice = voice_setting.value.strip() if voice_setting and voice_setting.value and voice_setting.value.strip() else "pt-BR-FranciscaNeural"
-        
+
         tts_engine = get_tts_engine()
         tts_engine.reload_voice(chosen_voice)
         await tts_engine.synthesize_wav(response_text, output_filepath)
@@ -330,6 +330,11 @@ def get_weather(db: Session = Depends(get_db)):
     """Retorna o clima atual (com cache) da cidade configurada."""
     return get_current_weather(db)
 
+@app.get("/api/weather/forecast")
+def get_weather_forecast(db: Session = Depends(get_db)):
+    """Retorna a previsão estendida (atual + 5 dias)."""
+    from core.services.weather_service import get_forecast
+    return get_forecast(db)
 
 
 # Adicionando o Router do Dashboard

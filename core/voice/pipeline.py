@@ -156,7 +156,7 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
     try:
         voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
         chosen_voice = voice_setting.value.strip() if voice_setting and voice_setting.value and voice_setting.value.strip() else "pt-BR-FranciscaNeural"
-        
+
         tts_engine = get_tts_engine()
         tts_engine.reload_voice(chosen_voice)
         

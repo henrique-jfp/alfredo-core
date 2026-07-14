@@ -98,3 +98,50 @@ export interface IntegrationsData {
   spotify: IntegrationStatus;
   google_calendar: IntegrationStatus;
 }
+
+export interface ForecastHourly {
+  dt: number;
+  time: string;
+  date: string;
+  temp: number;
+  feels_like: number;
+  humidity: number;
+  weather_code: number;
+  description: string;
+  icon: string;
+  wind_speed: number;
+  pop: number;
+}
+
+export interface ForecastDaily {
+  date: string;
+  max_temp: number;
+  min_temp: number;
+  weather_code: number;
+  description: string;
+  pop: number;
+}
+
+export interface ForecastCurrent {
+  temperature: string;
+  feels_like: string;
+  humidity: string;
+  pressure: string;
+  description: string;
+  weather_code: number;
+  icon: string;
+  max_temp: string;
+  min_temp: string;
+  wind_speed: string;
+  wind_deg: number;
+  visibility: number;
+  sunrise: number;
+  sunset: number;
+}
+
+export interface ForecastData {
+  city: string;
+  current: ForecastCurrent;
+  hourly: ForecastHourly[];
+  daily: ForecastDaily[];
+}

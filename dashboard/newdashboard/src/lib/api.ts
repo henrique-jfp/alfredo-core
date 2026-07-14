@@ -9,7 +9,8 @@ import {
   Weather,
   AIMetrics,
   CalendarEvent,
-  IntegrationsData
+  IntegrationsData,
+  ForecastData
 } from '../types';
 
 // Helper to fetch directly from the backend
@@ -66,5 +67,12 @@ export const api = {
     const qs = params.toString();
     return fetchFromAPI<{ events: CalendarEvent[] }>(`/api/dashboard/events${qs ? `?${qs}` : ''}`);
   },
+  createEvent: (data: { title: string; start_time: string; room_id?: string }) => fetchFromAPI<any>('/api/dashboard/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }),
+  deleteEvent: (id: number) => fetchFromAPI<any>(`/api/dashboard/events/${id}`, { method: 'DELETE' }),
+  getForecast: () => fetchFromAPI<ForecastData>('/api/weather/forecast'),
   getIntegrations: () => fetchFromAPI<IntegrationsData>('/api/dashboard/integrations'),
 };

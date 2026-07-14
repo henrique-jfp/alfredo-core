@@ -342,14 +342,14 @@ class AgentRouter:
                     },
                     {
                         "name": "play_youtube",
-                        "description": "Toca áudio do YouTube: transmissões ao vivo (ex: CazéTV, GloboNews, CNN), podcasts, vídeos específicos, músicas que não estão no Spotify. Use para LIVES, PODCASTS, CANAIS ou quando o usuário disser 'no YouTube'. Para músicas no Spotify, use 'manage_music'.",
+                        "description": "Toca ou para áudio do YouTube: transmissões ao vivo (ex: CazéTV, GloboNews), podcasts, vídeos. Use para LIVES, PODCASTS, CANAIS ou quando o usuário disser 'no YouTube'. Para músicas no Spotify, use 'manage_music'. Use action='stop' quando o usuário pedir para parar o YouTube.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
-                                "query": {"type": "STRING", "description": "Nome do canal, live, podcast ou vídeo a ser tocado. Ex: 'CazéTV', 'Flow Podcast', 'lofi para estudar'"},
-                                "is_live": {"type": "BOOLEAN", "description": "Se é uma transmissão ao vivo. Use true se o usuário pedir 'ao vivo', 'live' ou um canal que só faz live."}
-                            },
-                            "required": ["query"]
+                                "action": {"type": "STRING", "description": "Ação: 'play' (padrão) para tocar, 'stop' para parar a reprodução"},
+                                "query": {"type": "STRING", "description": "Nome do canal, live, podcast ou vídeo (apenas para action='play')"},
+                                "is_live": {"type": "BOOLEAN", "description": "Se é uma transmissão ao vivo (apenas para action='play')"}
+                            }
                         }
                     }
                 ]
@@ -395,8 +395,7 @@ class AgentRouter:
             # Auto-referência
             "como você", "quem é você", "o que você",
             "qual sua", "qual é sua", "qual o seu",
-            # Traduções (a skill translate usa Gemini mas é simples)
-            "traduza", "traduz", "tradução", "traducao", "significa",
+            # (removido: tradução precisa do Gemini para <lang> tags)
             # Conselhos e opiniões
             "o que acha", "o que você acha", "sua opinião",
             "me ajuda", "me ajude", "sugere", "sugira", "recomenda",
@@ -459,6 +458,7 @@ class AgentRouter:
         system = (
             "Você é o Alfredo, assistente residencial amigável e natural. "
             "Responda com 1-2 frases curtas e diretas. NUNCA use emojis. "
+            "Se o usuário te chamar de Alexa, não corrija — é apenas a wake word do sistema. "
             f"Seja variado e criativo — nunca repita respostas (Semente aleatória: {random.randint(1,10000)})."
         )
         db = context.get("db")
@@ -522,6 +522,7 @@ class AgentRouter:
         system = (
             "Você é o Alfredo, assistente residencial amigável e natural. "
             "Responda com 1-2 frases curtas e diretas. NUNCA use emojis. "
+            "Se o usuário te chamar de Alexa, não corrija — é apenas a wake word do sistema. "
             f"Seja variado e criativo — nunca repita respostas (Semente aleatória: {random.randint(1,10000)})."
         )
         db = context.get("db")
@@ -649,6 +650,8 @@ class AgentRouter:
             skill = self.skills.get(tool_name)
             if skill:
                 if hasattr(skill, "execute_tool"):
+                    if tool_name in ("manage_calendar",):
+                        tool_args["_text"] = text
                     result = skill.execute_tool(tool_args, context)
                 else:
                     result = skill.execute(text, context)
@@ -768,6 +771,7 @@ class AgentRouter:
             "Você é o Alfredo, assistente residencial amigável e natural. "
             "Respostas utilitárias (horas/clima) sejam diretas. Respostas criativas (piadas/histórias) sejam variadas e surpreendentes — NUNCA repita a mesma piada. "
             "NUNCA use emojis. "
+            "Se o usuário te chamar de Alexa, não corrija — é apenas a wake word do sistema. "
             "Traduções: use <lang=\"LOCALE\">texto</lang> (ex: <lang=\"en-US\">apple</lang>). "
             "Quiz ativo: valide, corrija e faça nova pergunta. "
             "Receita ativa: UM passo por vez, sempre cite o prato. "
@@ -1019,6 +1023,8 @@ class AgentRouter:
                     skill = self.skills.get(tool_name)
                     if skill:
                         if hasattr(skill, "execute_tool"):
+                            if tool_name in ("manage_calendar",):
+                                tool_args["_text"] = text
                             result = await asyncio.to_thread(skill.execute_tool, tool_args, context)
                         else:
                             result = await asyncio.to_thread(skill.execute, text, context)
@@ -1128,6 +1134,8 @@ class AgentRouter:
             "Você é o Alfredo, um assistente virtual ultra avançado para automação residencial. "
             "Responda sempre de forma natural, amigável e conversacional. Seja breve, no máximo 2 frases. "
             "NUNCA utilize emojis ou símbolos complexos nas suas respostas. "
+            "Se o usuário te chamar de Alexa, não corrija — é apenas a wake word do sistema. "
+            "Traduções: use <lang=\"LOCALE\">texto</lang> (ex: <lang=\"en-US\">apple</lang>). "
             "REGRA CRÍTICA: se existe uma ferramenta para a ação pedida (lista, timer/despertador, TV, música, agenda, memória), você DEVE chamá-la. "
             "NUNCA diga que vai fazer algo sem de fato invocar a function correspondente."
         )

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import socket
@@ -123,7 +123,7 @@ def get_history(limit: int = 15, db: Session = Depends(get_db)):
             "input_text": item.input_text,
             "output_text": item.output_text,
             "latency_ms": item.latency_ms,
-            "timestamp": item.timestamp.isoformat() if item.timestamp else None
+            "timestamp": item.timestamp.replace(tzinfo=timezone.utc).isoformat() if item.timestamp else None
         } for item in history
     ]
 
@@ -376,7 +376,6 @@ async def test_tts(payload: VoiceTestPayload):
     output_filepath = os.path.join(temp_dir, f"test_{int(time.time())}.wav")
     
     try:
-        # A TTSEngine foi atualizada para aceitar troca de voz dinâmica via nuvem
         tts = get_tts_engine()
         tts.reload_voice(payload.voice_name)
         await tts.synthesize_wav("Olá, eu sou o seu assistente. Como posso ajudar hoje?", output_filepath)
@@ -538,6 +537,41 @@ def get_events(start: str = "", end: str = "", db: Session = Depends(get_db)):
         })
 
     return {"events": result, "start": start_dt.isoformat(), "end": end_dt.isoformat()}
+
+class EventCreatePayload(BaseModel):
+    title: str
+    start_time: str
+    room_id: str = "ROOM_LIVING"
+    reminders: str = "60"
+
+@router.post("/events")
+def create_event(payload: EventCreatePayload, db: Session = Depends(get_db)):
+    """Cria um novo evento no calendário."""
+    try:
+        start_dt = datetime.fromisoformat(payload.start_time)
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        event = models.Event(
+            title=payload.title,
+            start_time=start_dt,
+            room_id=payload.room_id,
+            reminders=payload.reminders,
+        )
+        db.add(event)
+        db.commit()
+        return {"status": "created", "id": event.id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/events/{event_id}")
+def delete_event(event_id: int, db: Session = Depends(get_db)):
+    """Remove um evento."""
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+    db.delete(event)
+    db.commit()
+    return {"status": "deleted"}
 
 @router.get("/ai_metrics")
 def get_ai_metrics(db: Session = Depends(get_db)):

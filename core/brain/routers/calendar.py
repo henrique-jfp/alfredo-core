@@ -25,5 +25,5 @@ ROUTES = [
 
     # READ catch-all (any mention of agenda/compromissos)
     Route(_CAL,
-          "manage_calendar", {"action": "read", "date": "hoje"}, None, True),
+          "manage_calendar", {"action": "read"}, None, False),
 ]

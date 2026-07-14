@@ -46,15 +46,18 @@ class CalendarSkill(Skill):
 
     def _read_events(self, db, room_id, text_lower) -> str:
         now = datetime.now(TZ)
-        resolved = self._resolve_date(text_lower)
-        if resolved:
-            target_date, day_str = resolved
-        else:
-            target_date = now
-            day_str = "hoje"
+        time_range = self._resolve_date_range(text_lower)
 
-        start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-        end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(timezone.utc)
+        if not time_range:
+            time_range = {
+                "start": now.replace(hour=0, minute=0, second=0, microsecond=0),
+                "end": now.replace(hour=23, minute=59, second=59, microsecond=999999),
+                "label": "hoje"
+            }
+
+        start_of_day = time_range["start"].astimezone(timezone.utc)
+        end_of_day = time_range["end"].astimezone(timezone.utc)
+        day_str = time_range["label"]
 
         events = db.query(models.Event).filter(
             models.Event.room_id == room_id,
@@ -69,7 +72,8 @@ class CalendarSkill(Skill):
         for e in events:
             local_time = e.start_time.astimezone(TZ)
             hora_str = local_time.strftime("%H:%M").replace(":00", " horas")
-            itens.append(f"{e.title} às {hora_str}")
+            dia_str = local_time.strftime("%A").lower()
+            itens.append(f"{e.title} {dia_str} às {hora_str}")
 
         if len(itens) > 1:
             texto = ", ".join(itens[:-1]) + " e " + itens[-1]
@@ -165,6 +169,56 @@ class CalendarSkill(Skill):
         if re.search(r"(?:semana|pr[óo]xima)\s+que\s+vem", text_lower) or re.search(r"pr[óo]xima\s+semana", text_lower):
             days = 7 - now.weekday()
             return (now + timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0), "semana que vem"
+
+        return None
+
+    @staticmethod
+    def _resolve_date_range(text: str) -> Optional[Dict[str, Any]]:
+        now = datetime.now(TZ)
+        text_lower = text.lower().strip()
+
+        is_next_week = re.search(r"(?:semana|pr[óo]xima)\s+que\s+vem|pr[óo]xima\s+semana", text_lower)
+        if is_next_week:
+            days = 7 - now.weekday()
+            start = (now + timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end = (start + timedelta(days=7)).replace(hour=23, minute=59, second=59, microsecond=999999)
+            return {"start": start, "end": end, "label": "semana que vem"}
+
+        has_semana = re.search(r"\bsemana\b", text_lower)
+        if has_semana:
+            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            end = (start + timedelta(days=7)).replace(hour=23, minute=59, second=59, microsecond=999999)
+            return {"start": start, "end": end, "label": "essa semana"}
+
+        is_next_month = re.search(r"(?:m[eê]s|pr[óo]ximo)\s+que\s+vem|pr[óo]ximo\s+m[eê]s|m[eê]s\s+que\s+vem", text_lower)
+        if is_next_month:
+            if now.month == 12:
+                start = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            else:
+                start = now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            if start.month == 12:
+                end = start.replace(year=start.year + 1, month=1, day=1) - timedelta(days=1)
+            else:
+                end = start.replace(month=start.month + 1, day=1) - timedelta(days=1)
+            end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+            label = "mês que vem" if re.search(r"m[eê]s\s+que\s+vem", text_lower) else "próximo mês"
+            return {"start": start, "end": end, "label": label}
+
+        has_mes = re.search(r"\bm[eê]s\b", text_lower)
+        if has_mes:
+            start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            if now.month == 12:
+                end = now.replace(year=now.year + 1, month=1, day=1, hour=23, minute=59, second=59, microsecond=999999) - timedelta(days=1)
+            else:
+                end = now.replace(month=now.month + 1, day=1, hour=23, minute=59, second=59, microsecond=999999) - timedelta(days=1)
+            return {"start": start, "end": end, "label": "este mês"}
+
+        resolved = CalendarSkill._resolve_date(text)
+        if resolved:
+            target_date, desc = resolved
+            start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            end = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            return {"start": start, "end": end, "label": desc}
 
         return None
 
@@ -495,16 +549,22 @@ class CalendarSkill(Skill):
 
         if action == "read":
             date_ref = kwargs.get("date", "hoje")
+            raw_text = kwargs.get("_text", "")
 
-            resolved = self._resolve_date(date_ref)
-            if resolved:
-                target_date, day_str = resolved
-            else:
-                target_date = datetime.now(TZ)
-                day_str = "hoje"
+            time_range = self._resolve_date_range(raw_text if raw_text else date_ref)
+            if not time_range:
+                time_range = self._resolve_date_range(date_ref)
+            if not time_range:
+                now = datetime.now(TZ)
+                time_range = {
+                    "start": now.replace(hour=0, minute=0, second=0, microsecond=0),
+                    "end": now.replace(hour=23, minute=59, second=59, microsecond=999999),
+                    "label": "hoje"
+                }
 
-            start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-            end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(timezone.utc)
+            start_of_day = time_range["start"].astimezone(timezone.utc)
+            end_of_day = time_range["end"].astimezone(timezone.utc)
+            day_str = time_range["label"]
 
             events = db.query(models.Event).filter(
                 models.Event.room_id == room_id,

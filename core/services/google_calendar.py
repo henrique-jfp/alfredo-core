@@ -234,8 +234,8 @@ def pull_events(db: Session) -> int:
     try:
         service = get_calendar_service(creds)
         now_utc = datetime.now(timezone.utc)
-        time_min = (now_utc - timedelta(days=30)).isoformat() + "Z"
-        time_max = (now_utc + timedelta(days=90)).isoformat() + "Z"
+        time_min = (now_utc - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        time_max = (now_utc + timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         events_result = service.events().list(
             calendarId="primary",

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Play, Pause, SkipForward, SkipBack, Music } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -16,60 +16,69 @@ interface SpotifyState {
 export function SpotifyCard() {
   const [state, setState] = useState<SpotifyState | null>(null);
   const [localProgress, setLocalProgress] = useState(0);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
-    const fetchNowPlaying = async () => {
-      try {
-        const res = await fetch('/api/spotify/now-playing');
-        const data = await res.json();
-        if (!data.error) {
-          setState(data);
-          if (data.progress_ms) {
-            setLocalProgress(data.progress_ms);
+    const connectSSE = () => {
+      const es = new EventSource('/api/spotify/now-playing/stream');
+      eventSourceRef.current = es;
+
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (!data.error) {
+            setState(data);
+            if (data.progress_ms) {
+              setLocalProgress(data.progress_ms);
+            }
+          } else {
+            setState({ is_playing: false });
           }
-        } else {
-          setState({ is_playing: false });
+        } catch (e) {
+          console.error("Failed to parse SSE data", e);
         }
-      } catch (e) {
-        console.error("Failed to fetch spotify state", e);
-      }
+      };
+
+      es.onerror = () => {
+        es.close();
+        eventSourceRef.current = null;
+        setTimeout(connectSSE, 3000);
+      };
     };
 
-    fetchNowPlaying();
-    const interval = setInterval(fetchNowPlaying, 3000);
-    return () => clearInterval(interval);
+    connectSSE();
+
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+    };
   }, []);
 
-  // Animação de progresso local
   useEffect(() => {
     if (!state?.is_playing || !state.duration_ms) return;
-    
+
     const interval = setInterval(() => {
       setLocalProgress(p => {
         const next = p + 1000;
         return next > state.duration_ms! ? state.duration_ms! : next;
       });
     }, 1000);
-    
+
     return () => clearInterval(interval);
   }, [state?.is_playing, state?.duration_ms, state?.track_name]);
 
   const handleControl = async (action: string) => {
-    // Otimista
     if (action === 'play' && state) setState({ ...state, is_playing: true });
     if (action === 'pause' && state) setState({ ...state, is_playing: false });
-    
+
     try {
       await fetch('/api/spotify/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action })
       });
-      // Força fetch após 500ms para pegar estado real
-      setTimeout(async () => {
-        const res = await fetch('/api/spotify/now-playing');
-        setState(await res.json());
-      }, 500);
     } catch (e) {
       console.error("Failed to send command", e);
     }
@@ -84,43 +93,40 @@ export function SpotifyCard() {
     );
   }
 
-  const progressPercent = state.duration_ms 
+  const progressPercent = state.duration_ms
     ? Math.min((localProgress / state.duration_ms) * 100, 100)
     : 0;
 
   return (
     <div className="alfredo-card group relative overflow-hidden p-5 transition-colors hover:bg-[color:var(--bg-surface-2)]">
-      {/* Imagem de fundo borrada otimizada */}
       {state.album_art && (
         <>
-          <div 
+          <div
             className="absolute inset-0 opacity-30 bg-cover bg-center transition-opacity duration-1000"
             style={{ backgroundImage: `url(${state.album_art})` }}
           />
           <div className="absolute inset-0 backdrop-blur-3xl bg-black/40" />
         </>
       )}
-      
+
       <div className="relative z-10 flex items-center gap-5">
-        {/* Capa do Álbum com animação de entrada e hover */}
         <div className="relative w-20 h-20 rounded-xl overflow-hidden shadow-lg flex-shrink-0 group-hover:shadow-emerald-500/20 transition-all">
           <AnimatePresence mode="popLayout">
-            <motion.img 
+            <motion.img
               key={state.album_art}
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
               transition={{ type: "spring", stiffness: 200, damping: 20 }}
-              src={state.album_art || "/default-album.png"} 
-              alt="Album" 
+              src={state.album_art || "/default-album.png"}
+              alt="Album"
               className="w-full h-full object-cover"
             />
           </AnimatePresence>
         </div>
 
-        {/* Info */}
         <div className="flex-1 min-w-0">
-          <motion.h3 
+          <motion.h3
             key={state.track_name}
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
@@ -128,7 +134,7 @@ export function SpotifyCard() {
           >
             {state.track_name}
           </motion.h3>
-          <motion.p 
+          <motion.p
             key={state.artist_name}
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
@@ -150,16 +156,15 @@ export function SpotifyCard() {
           </div>
         </div>
 
-        {/* Controles */}
         <div className="flex items-center gap-3">
-            <button 
+            <button
               onClick={() => handleControl('prev')}
             className="rounded-full p-2.5 text-[color:var(--text-secondary)] transition-colors hover:bg-white/[0.05] hover:text-[color:var(--text-primary)] active:scale-95"
           >
             <SkipBack className="w-5 h-5 fill-current" />
           </button>
-          
-          <button 
+
+          <button
             onClick={() => handleControl(state.is_playing ? 'pause' : 'play')}
             className="rounded-full bg-brass-500 p-3 text-[color:var(--bg-base)] transition-all hover:bg-brass-400 active:scale-95 shadow-[0_0_20px_rgba(212,162,78,0.2)] hover:shadow-[0_0_28px_rgba(212,162,78,0.25)]"
           >
@@ -169,8 +174,8 @@ export function SpotifyCard() {
               <Play className="w-6 h-6 fill-current ml-0.5" />
             )}
           </button>
-          
-          <button 
+
+          <button
             onClick={() => handleControl('next')}
             className="rounded-full p-2.5 text-[color:var(--text-secondary)] transition-colors hover:bg-white/[0.05] hover:text-[color:var(--text-primary)] active:scale-95"
           >
@@ -179,9 +184,8 @@ export function SpotifyCard() {
         </div>
       </div>
 
-      {/* Barra de Progresso Animada */}
       <div className="absolute bottom-0 left-0 h-1 w-full overflow-hidden bg-white/10">
-        <motion.div 
+        <motion.div
           className="h-full w-full origin-left bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.6)]"
           initial={{ scaleX: 0 }}
           animate={{ scaleX: progressPercent / 100 }}

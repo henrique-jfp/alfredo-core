@@ -13,7 +13,8 @@ import { type LucideIcon,
   Sparkles,
   Layers3,
   RefreshCw,
-  CalendarDays
+  CalendarDays,
+  CloudSun
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { StatusPulse } from './ui/DashboardPrimitives';
@@ -27,7 +28,8 @@ export type TabId =
   | 'dispositivos'
   | 'sonhos'
   | 'configuracoes'
-  | 'calendario';
+  | 'calendario'
+  | 'clima';
 
 interface SidebarProps {
   activeTab: TabId;
@@ -46,6 +48,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       items: [
         { id: 'visao-geral', label: 'Visão Geral', icon: LayoutGrid },
         { id: 'calendario', label: 'Calendário', icon: CalendarDays },
+        { id: 'clima', label: 'Clima', icon: CloudSun },
         { id: 'integracoes', label: 'Integrações', icon: Link2 },
         { id: 'dispositivos', label: 'Dispositivos', icon: SlidersHorizontal },
         { id: 'rotinas', label: 'Rotinas', icon: Clock },
