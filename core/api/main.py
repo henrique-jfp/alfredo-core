@@ -11,10 +11,14 @@ import asyncio
 from typing import Dict, Any
 import urllib.parse
 
-from core.services.scheduler import SchedulerManager
-
 # Carrega as variáveis de ambiente (Groq, Auth, etc) ANTES de inicializar o resto
 load_dotenv()
+
+# Recarrega as chaves no key_manager AGORA que o .env foi carregado
+from core.services.key_manager import reload_keys
+reload_keys()
+
+from core.services.scheduler import SchedulerManager
 
 from core.brain.memory import models
 from core.brain.memory.database import engine, get_db
