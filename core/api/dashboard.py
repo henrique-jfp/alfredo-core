@@ -487,15 +487,24 @@ def update_memory(memory_id: int, payload: MemoryUpdate, db: Session = Depends(g
 
 @router.get("/status")
 def get_api_status():
-    import core.brain.router as brain_router
-    total_keys, current_idx, global_requests = brain_router.get_gemini_key_status()
+    from core.services.key_manager import get_simple_status
+    ks = get_simple_status()
     
     return {
         "status": "online",
-        "model": "gemini-3.1-flash-lite",
-        "keys_total": total_keys,
-        "current_key_idx": current_idx,
-        "global_requests": global_requests
+        "model": "gemini-2.5-flash",
+        "gemini": {
+            "total_keys": ks["gemini_total_keys"],
+            "active_keys": ks["gemini_active_keys"],
+            "in_cooldown": ks["gemini_in_cooldown"],
+            "total_requests": ks["gemini_total_requests"]
+        },
+        "groq": {
+            "total_keys": ks["groq_total_keys"],
+            "active_keys": ks["groq_active_keys"],
+            "in_cooldown": ks["groq_in_cooldown"],
+            "total_requests": ks["groq_total_requests"]
+        }
     }
 
 class DateRangePayload(BaseModel):

@@ -2,19 +2,33 @@ import os
 import logging
 from groq import Groq
 
+from core.services.key_manager import next_groq_key, mark_groq_cooldown
+
 logger = logging.getLogger("alfredo.stt")
 
 class GroqSTT:
     def __init__(self):
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            logger.warning("GROQ_API_KEY não encontrada. A transcrição por Groq falhará.")
-        try:
-            self.client = Groq(api_key=api_key)
-            logger.info("Motor STT (Groq Whisper Large V3) inicializado com sucesso.")
-        except Exception as e:
-            logger.error(f"Erro ao inicializar o cliente Groq para STT: {e}")
-            raise
+        # Cliente será criado sob demanda com a chave selecionada pelo round-robin
+        self._client_cache = {}
+        key, key_num, total = next_groq_key()
+        if not key:
+            logger.warning("Nenhuma chave GROQ_API_KEYS ou GROQ_API_KEY encontrada. STT falhará.")
+        else:
+            logger.info(f"Motor STT (Groq Whisper Large V3) pronto. {total} chave(s) Groq configurada(s).")
+
+    def _get_client(self):
+        """Retorna um cliente Groq configurado com a chave atual do round-robin."""
+        key, key_num, total = next_groq_key()
+        if not key:
+            return None
+        # Cache simples por preview da chave
+        cache_key = key[:20]
+        if cache_key not in self._client_cache:
+            self._client_cache = {}
+            self._client_cache[cache_key] = Groq(api_key=key)
+        if total > 1:
+            logger.debug(f"STT Groq: usando chave [{key_num} de {total}]")
+        return self._client_cache[cache_key]
 
     def transcribe_wav(self, audio_filepath: str) -> str:
         if not os.path.exists(audio_filepath):
@@ -36,8 +50,11 @@ class GroqSTT:
             target_file = audio_filepath
 
         try:
+            client = self._get_client()
+            if not client:
+                return ""
             with open(target_file, "rb") as file:
-                transcription = self.client.audio.transcriptions.create(
+                transcription = client.audio.transcriptions.create(
                   file=(os.path.basename(target_file), file.read()),
                   model="whisper-large-v3",
                   response_format="text",
@@ -56,6 +73,10 @@ class GroqSTT:
             logger.info(f"Transcrição concluída via Groq Whisper: '{final_text}'")
             return final_text
         except Exception as e:
+            err_str = str(e).lower()
+            if "429" in err_str or "rate limit" in err_str or "quota" in err_str:
+                logger.warning("STT Groq: rate limit atingido! Cooldown de 60s.")
+                # key_manager já gerencia; a próxima chamada usará outra chave
             logger.error(f"Erro na transcrição via Groq Whisper: {e}")
             return ""
         finally:
@@ -66,9 +87,12 @@ class GroqSTT:
         """Transcreve áudio a partir de bytes em memória (evita I/O de disco)."""
         logger.info(f"Enviando {len(audio_bytes)} bytes para Groq Whisper API (in-memory)")
         try:
+            client = self._get_client()
+            if not client:
+                return ""
             import time
             t_start = time.time()
-            transcription = self.client.audio.transcriptions.create(
+            transcription = client.audio.transcriptions.create(
               file=(filename, audio_bytes),
               model="whisper-large-v3",
               response_format="text",
@@ -81,6 +105,9 @@ class GroqSTT:
             logger.info(f"STT concluído em {latency}ms: '{final_text}'")
             return final_text
         except Exception as e:
+            err_str = str(e).lower()
+            if "429" in err_str or "rate limit" in err_str or "quota" in err_str:
+                logger.warning("STT Groq (bytes): rate limit atingido! Cooldown de 60s.")
             logger.error(f"Erro na transcrição via Groq Whisper (bytes): {e}")
             return ""
 

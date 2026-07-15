@@ -2,9 +2,10 @@ import os
 import json
 import logging
 import re
+import time
 import threading
 import google.generativeai as genai
-from groq import Groq as GroqClient
+from google.api_core import exceptions as google_exceptions
 from typing import Dict, Any
 from core.brain.skills.weather_skill import WeatherSkill
 from core.brain.skills.traffic_skill import TrafficSkill
@@ -22,51 +23,19 @@ from core.brain.skills.news_skill import NewsSkill
 from core.brain.skills.music_skill import MusicSkill
 from core.brain.skills.tv_skill import TVSkill
 from core.brain.skills.youtube_skill import YouTubeSkill
+from core.services.key_manager import (
+    next_gemini_key, next_groq_key,
+    mark_gemini_cooldown, mark_groq_cooldown,
+    get_simple_status, reload_keys
+)
 
 logger = logging.getLogger("alfredo.agent")
 
-_global_key_idx = 0
-_global_key_lock = threading.Lock()
-
-
-def _load_gemini_keys() -> list[str]:
-    keys_env = os.getenv("GEMINI_API_KEYS", "")
-    if keys_env:
-        raw_keys = re.split(r"[\n,;]+", keys_env)
-        keys = [key.strip().strip('"').strip("'") for key in raw_keys if key.strip()]
-    else:
-        single = os.getenv("GEMINI_API_KEY", "").strip()
-        keys = [single.strip('"').strip("'")] if single else []
-
-    deduped_keys = []
-    seen = set()
-    for key in keys:
-        if key and key not in seen:
-            deduped_keys.append(key)
-            seen.add(key)
-    return deduped_keys
-
-
-def _select_next_gemini_key(keys: list[str]) -> tuple[str | None, int]:
-    if not keys:
-        return None, 0
-
-    global _global_key_idx
-    with _global_key_lock:
-        key_index = _global_key_idx % len(keys)
-        current_key = keys[key_index]
-        current_number = key_index + 1
-        _global_key_idx += 1
-    return current_key, current_number
-
-
-def get_gemini_key_status() -> tuple[int, int, int]:
-    keys = _load_gemini_keys()
-    total_keys = len(keys)
-    with _global_key_lock:
-        current_idx = (_global_key_idx % total_keys) + 1 if total_keys > 0 else 0
-        global_requests = _global_key_idx
-    return total_keys, current_idx, global_requests
+# Funções legadas mantidas para compatibilidade com imports externos
+def get_gemini_key_status():
+    """Compatibilidade: retorna (total_keys, current_idx, global_requests)."""
+    status = get_simple_status()
+    return status["gemini_total_keys"], 1, status["gemini_total_requests"]
 
 class AgentRouter:
     def __init__(self):
@@ -88,14 +57,8 @@ class AgentRouter:
             "manage_tv": TVSkill(),
             "play_youtube": YouTubeSkill()
         }
-        self.groq_client = None
-        groq_key = os.getenv("GROQ_API_KEY")
-        if groq_key:
-            try:
-                from groq import Groq
-                self.groq_client = Groq(api_key=groq_key)
-            except Exception as e:
-                logger.warning(f"Não foi possível inicializar o cliente Groq: {e}")
+        # Groq client será criado sob demanda com a chave selecionada
+        self._groq_client_cache = {}
                 
         # Semantic Router Local (Fast Interceptor)
         from core.brain.semantic_router import FastSemanticRouter
@@ -451,9 +414,26 @@ class AgentRouter:
             return True
         return False
 
+    def _get_groq_client(self):
+        """Cria (ou reusa em cache) um cliente Groq com a chave atual do round-robin.
+        O cache permite reusar o mesmo cliente enquanto a mesma chave estiver ativa,
+        evitando criar um novo cliente a cada requisição."""
+        from groq import Groq
+        key, key_num, total = next_groq_key()
+        if not key:
+            return None
+        cache_key = key[:20]  # preview serve como cache key
+        if cache_key not in self._groq_client_cache:
+            self._groq_client_cache = {}  # limpa cache velho
+            self._groq_client_cache[cache_key] = Groq(api_key=key)
+        if total > 1:
+            logger.debug(f"Groq: usando chave [{key_num} de {total}]")
+        return self._groq_client_cache[cache_key]
+
     def _process_fast(self, text: str, context: Dict[str, Any]) -> str:
         """Fast path via Groq (~300ms) para queries conversacionais sem tools."""
-        if not self.groq_client:
+        groq_client = self._get_groq_client()
+        if not groq_client:
             return None
         import random
         system = (
@@ -497,7 +477,7 @@ class AgentRouter:
         try:
             import time
             t_start = time.time()
-            completion = self.groq_client.chat.completions.create(
+            completion = groq_client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[
                     {"role": "system", "content": system},
@@ -517,7 +497,8 @@ class AgentRouter:
 
     async def _process_fast_stream(self, text: str, context: Dict[str, Any]):
         """Fast path via Groq (~300ms) com streaming real de tokens."""
-        if not self.groq_client:
+        groq_client = self._get_groq_client()
+        if not groq_client:
             return
         import random
         system = (
@@ -562,7 +543,7 @@ class AgentRouter:
             
             # Groq client is synchronous, so we run the streaming request in a thread
             def do_stream():
-                return self.groq_client.chat.completions.create(
+                return groq_client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[
                         {"role": "system", "content": system},
@@ -671,15 +652,12 @@ class AgentRouter:
                 return fast_result
             logger.info("Groq fast path falhou, caindo para Gemini")
 
-        keys = _load_gemini_keys()
-        if not keys:
-            return "Erro: Nenhuma chave do Gemini configurada no .env (utilize GEMINI_API_KEYS)."
-
-        current_key, selected_key_number = _select_next_gemini_key(keys)
+        # Seleciona chave Gemini via key_manager (round-robin + cooldown)
+        current_key, selected_key_number, total_keys = next_gemini_key()
         if not current_key:
             return "Erro: Nenhuma chave do Gemini configurada no .env (utilize GEMINI_API_KEYS)."
 
-        logger.info(f"Revezamento: Usando chave do Gemini [{selected_key_number} de {len(keys)}] para esta requisição.")
+        logger.info(f"Gemini: usando chave [{selected_key_number} de {total_keys}] para esta requisição.")
         genai.configure(api_key=current_key)
 
         db = context.get("db")
@@ -962,8 +940,83 @@ class AgentRouter:
             return "Desculpe, não entendi a resposta do meu novo cérebro."
             
         except Exception as e:
+            err_str = str(e).lower()
+            if "429" in err_str or "rate limit" in err_str or "quota" in err_str or "resource exhausted" in err_str:
+                logger.warning(f"Chave Gemini [{selected_key_number}] atingiu rate limit! Cooldown de 60s.")
+                mark_gemini_cooldown(current_key)
+                # Tenta novamente com a próxima chave (recursão segura, no máximo 1 retry)
+                return self._process_with_fallback(text, context)
             logger.error(f"Erro na API do Gemini: {e}")
             return "Tive um problema de comunicação com o meu núcleo neural."
+    def _process_with_fallback(self, text: str, context: Dict[str, Any]) -> str:
+        """Tenta processar com a próxima chave Gemini disponível (após 429)."""
+        current_key, selected_key_number, total_keys = next_gemini_key()
+        if not current_key:
+            return "Todas as chaves do Gemini estão em cooldown. Tente novamente em alguns instantes."
+        logger.info(f"Gemini retry: usando chave [{selected_key_number} de {total_keys}]")
+        # Re-configura e tenta de novo (chama o mesmo fluxo sem passar pelo semantic router / groq)
+        try:
+            genai.configure(api_key=current_key)
+            import time
+            start_time = time.time()
+            db = context.get("db")
+            room_id = context.get("room_id")
+
+            # Reconstrói system prompt (versão simplificada, sem RAG para não atrasar)
+            system_prompt = (
+                "Você é o Alfredo, assistente residencial amigável e natural. "
+                "NUNCA use emojis. Se o usuário te chamar de Alexa, não corrija. "
+                "REGRA CRÍTICA: se existe uma ferramenta para a ação pedida, você DEVE chamá-la."
+            )
+            from datetime import datetime
+            now = datetime.now()
+            system_prompt += f"\n\nHorário: {now.strftime('%d/%m/%Y %H:%M')}"
+            tools = self._get_tools_schema()
+            model = genai.GenerativeModel(
+                model_name='gemini-2.5-flash',
+                tools=tools,
+                system_instruction=system_prompt,
+                generation_config=genai.GenerationConfig(temperature=0.9)
+            )
+            chat = model.start_chat()
+            response = chat.send_message(text)
+            latency_ms = int((time.time() - start_time) * 1000)
+
+            if response.parts:
+                part = response.parts[0]
+                if part.function_call:
+                    function_name = part.function_call.name
+                    arguments = type(part.function_call).to_dict(part.function_call).get("args", {})
+                    skill = self.skills.get(function_name)
+                    if skill:
+                        if hasattr(skill, "execute_tool"):
+                            tool_result_obj = skill.execute_tool(arguments, context)
+                        else:
+                            tool_result_obj = skill.execute(text, context)
+                        if isinstance(tool_result_obj, str):
+                            return tool_result_obj
+                        if isinstance(tool_result_obj, dict) and tool_result_obj.get("direct_response"):
+                            return tool_result_obj["direct_response"]
+                        # Segunda chamada ao Gemini para formatar
+                        tool_response = chat.send_message(
+                            genai.protos.Part(
+                                function_response=genai.protos.FunctionResponse(
+                                    name=function_name,
+                                    response={"result": tool_result_obj}
+                                )
+                            )
+                        )
+                        return tool_response.text.strip()
+                return response.text.strip()
+            return "Desculpe, não consegui processar sua solicitação no momento."
+        except Exception as e2:
+            err2 = str(e2).lower()
+            if "429" in err2 or "rate limit" in err2:
+                mark_gemini_cooldown(current_key)
+                return "Todas as chaves do Gemini estão temporariamente sem disponibilidade. Tente novamente em instantes."
+            logger.error(f"Erro no fallback do Gemini: {e2}")
+            return "Tive um problema de comunicação com o meu núcleo neural."
+
     async def process_stream_async(self, text: str, context: Dict[str, Any]):
         """
         Gera a resposta via stream verdadeiro do Gemini, fazendo yield de frases
@@ -1068,17 +1121,13 @@ class AgentRouter:
                 return
                 
             logger.info("Groq fast path (stream) falhou, caindo para Gemini (stream)")
-        keys = _load_gemini_keys()
-        if not keys:
-            yield "Erro: Nenhuma chave do Gemini configurada."
-            return
-
-        current_key, selected_key_number = _select_next_gemini_key(keys)
+        # Seleciona chave Gemini via key_manager (round-robin + cooldown)
+        current_key, selected_key_number, total_keys = next_gemini_key()
         if not current_key:
             yield "Erro: Nenhuma chave do Gemini configurada."
             return
 
-        logger.info(f"Revezamento: Usando chave do Gemini [{selected_key_number} de {len(keys)}] para este stream.")
+        logger.info(f"Gemini: usando chave [{selected_key_number} de {total_keys}] para este stream.")
 
         # Limpar o cache do SDK para forçar a nova chave de API em clientes assíncronos
         # (só executado agora, quando realmente vamos chamar o Gemini)
@@ -1202,6 +1251,12 @@ class AgentRouter:
                         yield sentence
                     buffer = self._get_remainder(buffer)
         except Exception as e:
+            err_str = str(e).lower()
+            if "429" in err_str or "rate limit" in err_str or "quota" in err_str or "resource exhausted" in err_str:
+                logger.warning(f"Chave Gemini [{selected_key_number}] atingiu rate limit no stream! Cooldown de 60s.")
+                mark_gemini_cooldown(current_key)
+                yield "Um momento, estou trocando de canal de comunicação..."
+                return
             logger.error(f"Erro no stream do Gemini: {e}")
             if not first_chunk:
                 yield "Tive uma pequena falha nos meus circuitos, mas já estou de volta."
