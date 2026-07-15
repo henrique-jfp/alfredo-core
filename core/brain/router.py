@@ -23,6 +23,7 @@ from core.brain.skills.news_skill import NewsSkill
 from core.brain.skills.music_skill import MusicSkill
 from core.brain.skills.tv_skill import TVSkill
 from core.brain.skills.youtube_skill import YouTubeSkill
+from core.brain.skills.routine_skill import RoutineSkill
 from core.services.key_manager import (
     next_gemini_key, next_groq_key,
     mark_gemini_cooldown, mark_groq_cooldown,
@@ -56,7 +57,8 @@ class AgentRouter:
             "translate": TranslateSkill(),
             "get_news": NewsSkill(),
             "manage_tv": TVSkill(),
-            "play_youtube": YouTubeSkill()
+            "play_youtube": YouTubeSkill(),
+            "manage_routine": RoutineSkill()
         }
         # Groq client será criado sob demanda com a chave selecionada
         self._groq_client_cache = {}
@@ -316,6 +318,115 @@ class AgentRouter:
                             },
                             "required": ["action"]
                         }
+                    },
+                    {
+                        "name": "manage_routine",
+                        "description": (
+                            "GERENCIAR ROTINAS DE AUTOMAÇÃO: use esta ferramenta para CRIAR, ATUALIZAR ou DELETAR "
+                            "rotinas que o Alfredo executa automaticamente em horários agendados. "
+                            "EXEMPLOS de frases que você DEVE converter para esta ferramenta:\n"
+                            "- 'Toda segunda-feira às 7h da manhã, acende a luz do quarto e toca notícias'\n"
+                            "- '15 minutos antes do pôr do sol no Rio de Janeiro, acende a luz da varanda'\n"
+                            "- 'Quando a temperatura da sala passar de 30°C, liga o ar-condicionado'\n"
+                            "- 'Cria uma rotina para acender a luz da sala todo dia às 18h'\n"
+                            "- 'Apaga a rotina do café da manhã'\n\n"
+                            "IMPORTANTE: se o usuário pedir algo como 'acende a luz do quarto' sem contexto de "
+                            "recorrência/horário, NÃO invoque esta ferramenta — a ação deve ser tratada como "
+                            "comando único, não como rotina."
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "description": "Ação a realizar: 'create' para criar, 'update' para alterar, 'delete' para remover.",
+                                    "enum": ["create", "update", "delete"]
+                                },
+                                "name": {
+                                    "type": "string",
+                                    "description": "Nome amigável da rotina (ex: 'Bom dia', 'Acender varanda', 'Café da manhã'). "
+                                                   "Se o usuário não der um nome explícito, gere um automaticamente baseado nas ações."
+                                },
+                                "trigger_type": {
+                                    "type": "string",
+                                    "description": (
+                                        "Tipo de gatilho da rotina:\n"
+                                        "- 'time': horário fixo (ex: '07:00', '18:30'). Suportado pelo sistema.\n"
+                                        "- 'sunset_offset': offset do pôr do sol (ex: '-15m' = 15 minutos antes). "
+                                        "ATENÇÃO: este tipo PODE NÃO estar implementado no scheduler. Avise o usuário se não for suportado.\n"
+                                        "- 'temperature_threshold': gatilho por temperatura (ex: '>30C'). "
+                                        "ATENÇÃO: este tipo PODE NÃO estar implementado no scheduler. Avise o usuário se não for suportado.\n"
+                                        "PADRÃO: 'time' se o usuário mencionar horário."
+                                    )
+                                },
+                                "trigger_value": {
+                                    "type": "string",
+                                    "description": (
+                                        "Valor do gatilho:\n"
+                                        "- Para trigger_type='time': horário no formato HH:MM (ex: '07:00', '18:30', '14:15'). "
+                                        "Converta '7h', '7 horas', 'sete da manhã' para '07:00'. 'meio-dia' -> '12:00'.\n"
+                                        "- Para trigger_type='sunset_offset': offset relativo ao pôr do sol "
+                                        "(ex: '-15m' para 15 minutos antes, '+30m' para 30 minutos depois).\n"
+                                        "- Para trigger_type='temperature_threshold': condição (ex: '>30C', '<18C')."
+                                    )
+                                },
+                                "recurrence": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": (
+                                        "Dias da semana em que a rotina deve ser executada. "
+                                        "Use ['monday','tuesday','wednesday','thursday','friday'] para dias úteis, "
+                                        "['saturday','sunday'] para fins de semana, "
+                                        "ou uma lista customizada como ['monday','wednesday','friday']. "
+                                        "Para 'todos os dias', use ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] "
+                                        "ou omita o parâmetro."
+                                    )
+                                },
+                                "actions_list": {
+                                    "type": "array",
+                                    "description": (
+                                        "LISTA DE AÇÕES que a rotina deve executar. "
+                                        "Cada ação é um objeto com 'device_type' e parâmetros específicos. "
+                                        "EXEMPLOS:\n"
+                                        "- Ligar/desligar dispositivo: {\"device_type\": \"light\", \"location\": \"bedroom\", \"state\": \"on\"}\n"
+                                        "- Falar mensagem: {\"device_type\": \"tts\", \"content\": \"Bom dia! Hoje está fazendo sol.\"}\n"
+                                        "- Comando de voz: {\"device_type\": \"command\", \"text\": \"como está o clima\"}\n"
+                                        "Se o usuário pedir ações que não se encaixam em device_type conhecido, "
+                                        "use 'command' com o texto natural."
+                                    ),
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "device_type": {
+                                                "type": "string",
+                                                "description": "Tipo do dispositivo/ação: 'light' (luz), 'tts' (falar), 'command' (comando de voz genérico)."
+                                            },
+                                            "location": {
+                                                "type": "string",
+                                                "description": "Cômodo/local (ex: 'quarto', 'sala', 'varanda', 'cozinha'). Relevante para 'light'."
+                                            },
+                                            "state": {
+                                                "type": "string",
+                                                "description": "Estado do dispositivo: 'on' (ligar), 'off' (desligar). Relevante para 'light'."
+                                            },
+                                            "content": {
+                                                "type": "string",
+                                                "description": "Texto a ser falado. Relevante para device_type='tts'."
+                                            },
+                                            "text": {
+                                                "type": "string",
+                                                "description": "Comando em linguagem natural. Relevante para device_type='command'."
+                                            }
+                                        }
+                                    }
+                                },
+                                "routine_id": {
+                                    "type": "integer",
+                                    "description": "ID da rotina para ação 'update' ou 'delete'. Se não souber o ID, liste as rotinas primeiro buscando na memória."
+                                }
+                            },
+                            "required": ["action"]
+                        }
                     }
                 ]
             }
@@ -390,7 +501,13 @@ class AgentRouter:
             "abre", "abrir", "abri",
             "netflix", "globoplay", "disney", "prime", "hbo", "max", "apple tv",
             "youtube", "yt", "live", "podcast",
-            "claro tv", "claro tv+", "claro"
+            "claro tv", "claro tv+", "claro",
+            "rotina", "automação", "automatizar", "automaticamente",
+            "toda", "todo dia", "todos os dias", "diariamente",
+            "toda segunda", "toda terça", "toda quarta", "toda quinta", "toda sexta",
+            "todo sábado", "todo sabado", "todo domingo",
+            "acende a luz", "acenda a luz", "apaga a luz", "apague a luz",
+            "ligar a luz", "desligar a luz"
         ]
         
         text_lower = text.lower().strip()
