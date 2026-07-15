@@ -588,11 +588,13 @@ class CalendarSkill(Skill):
             for e in events:
                 local_time = to_local(e.start_time)
                 hora_str = local_time.strftime("%H:%M").replace(":00", " horas")
+                dia_str = local_time.strftime("%A").lower()
                 event_list.append({
                     "id": e.id,
                     "title": e.title,
                     "start_time": local_time.isoformat(),
                     "time": hora_str,
+                    "day": dia_str,
                     "source": e.source,
                     "room_id": e.room_id,
                 })
@@ -600,11 +602,11 @@ class CalendarSkill(Skill):
             if len(event_list) > 1:
                 nomes = []
                 for ev in event_list:
-                    nomes.append(f"{ev['title']} às {ev['time']}")
+                    nomes.append(f"{ev['title']} {ev['day']} às {ev['time']}")
                 desc = ", ".join(nomes[:-1]) + " e " + nomes[-1]
             else:
                 ev = event_list[0]
-                desc = f"{ev['title']} às {ev['time']}"
+                desc = f"{ev['title']} {ev['day']} às {ev['time']}"
 
             return {
                 "events": event_list,
