@@ -180,7 +180,7 @@ stream_queue: queue.Queue = queue.Queue(maxsize=20)
 ws_instance = None
 
 # Pre-amp de software controlável
-SOFTWARE_MULTIPLIER = 4.0
+SOFTWARE_MULTIPLIER = 1.5
 
 # Variáveis de calibração do Noise Gate
 is_calibrated = False
@@ -492,7 +492,7 @@ def _audio_callback_impl(indata, frames, time_info, status):
         if calibration_frames >= required_frames:
             avg_noise = calibration_sum / calibration_frames
             # Margem um pouco acima do chiado ambiente para não bloquear voz distante
-            noise_threshold = avg_noise + 200
+            noise_threshold = avg_noise + 500
             print(f"\n🎙️ [CALIBRAÇÃO] Ruído de fundo médio: {avg_noise:.1f}")
             print(f"🎙️ [CALIBRAÇÃO] Noise Threshold dinâmico definido para: {noise_threshold:.1f}\n")
             is_calibrated = True
@@ -534,8 +534,8 @@ def _audio_callback_impl(indata, frames, time_info, status):
                     _vad_speech_frames += 1
                 else:
                     _vad_speech_frames = 0
-            # 3 frames consecutivos = ~0.3s de fala contínua
-            if _vad_speech_frames >= 3:
+            # 8 frames consecutivos = ~0.8s de fala contínua (evita ruídos curtos)
+            if _vad_speech_frames >= 8:
                 print(f"🔊 [VAD] Fala detectada! Gravando...", flush=True)
                 _stop_current_music()
                 _start_recording()
