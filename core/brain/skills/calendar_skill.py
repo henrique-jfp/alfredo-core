@@ -17,6 +17,18 @@ logger = logging.getLogger("alfredo.skills.calendar")
 
 TZ = ZoneInfo("America/Sao_Paulo")
 
+# Mapeamento de meses em português (evita depender de locale do sistema)
+_MESES_PT = {
+    1: "janeiro", 2: "fevereiro", 3: "março", 4: "abril",
+    5: "maio", 6: "junho", 7: "julho", 8: "agosto",
+    9: "setembro", 10: "outubro", 11: "novembro", 12: "dezembro"
+}
+
+def _formatar_data_pt(dt: datetime) -> str:
+    """Retorna 'dia 16 de agosto' em português, sem depender de locale."""
+    mes = _MESES_PT.get(dt.month, "")
+    return f"dia {dt.day} de {mes}"
+
 class CalendarSkill(Skill):
     @property
     def name(self) -> str:
@@ -74,7 +86,7 @@ class CalendarSkill(Skill):
         for e in events:
             local_time = to_local(e.start_time)
             hora_str = local_time.strftime("%H:%M").replace(":00", " horas")
-            dia_str = local_time.strftime("dia %d de %B").lower()
+            dia_str = _formatar_data_pt(local_time)
             itens.append(f"{dia_str} você tem {e.title} às {hora_str}")
 
         if len(itens) > 1:
@@ -588,7 +600,7 @@ class CalendarSkill(Skill):
             for e in events:
                 local_time = to_local(e.start_time)
                 hora_str = local_time.strftime("%H:%M").replace(":00", " horas")
-                dia_str = local_time.strftime("dia %d de %B").lower()
+                dia_str = _formatar_data_pt(local_time)
                 event_list.append({
                     "id": e.id,
                     "title": e.title,
