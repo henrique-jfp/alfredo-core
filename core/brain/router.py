@@ -26,7 +26,8 @@ from core.brain.skills.youtube_skill import YouTubeSkill
 from core.services.key_manager import (
     next_gemini_key, next_groq_key,
     mark_gemini_cooldown, mark_groq_cooldown,
-    get_simple_status, reload_keys
+    get_simple_status, reload_keys,
+    configure_genai
 )
 
 logger = logging.getLogger("alfredo.agent")
@@ -658,7 +659,7 @@ class AgentRouter:
             return "Erro: Nenhuma chave do Gemini configurada no .env (utilize GEMINI_API_KEYS)."
 
         logger.info(f"Gemini: usando chave [{selected_key_number} de {total_keys}] para esta requisição.")
-        genai.configure(api_key=current_key)
+        configure_genai(current_key)
 
         db = context.get("db")
         room_id = context.get("room_id")
@@ -956,7 +957,7 @@ class AgentRouter:
         logger.info(f"Gemini retry: usando chave [{selected_key_number} de {total_keys}]")
         # Re-configura e tenta de novo (chama o mesmo fluxo sem passar pelo semantic router / groq)
         try:
-            genai.configure(api_key=current_key)
+            configure_genai(current_key)
             import time
             start_time = time.time()
             db = context.get("db")
@@ -1129,15 +1130,10 @@ class AgentRouter:
 
         logger.info(f"Gemini: usando chave [{selected_key_number} de {total_keys}] para este stream.")
 
-        # Limpar o cache do SDK para forçar a nova chave de API em clientes assíncronos
-        # (só executado agora, quando realmente vamos chamar o Gemini)
-        try:
-            from google.generativeai.client import _client_manager
-            _client_manager.clients.clear()
-        except Exception:
-            pass
-
-        genai.configure(api_key=current_key)
+        # Pool persistente: só reconfigura quando a chave muda.
+        # Antes limpava _client_manager.clients.clear() em toda chamada,
+        # destruindo o pool gRPC e causando 500ms–2s de overhead.
+        configure_genai(current_key)
 
         # Montar contexto idêntico ao `process`
         db = context.get("db")

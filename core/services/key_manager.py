@@ -18,6 +18,35 @@ from typing import List, Optional, Tuple
 
 logger = logging.getLogger("alfredo.key_manager")
 
+# ──────────────────────────────────────────────────────────────
+# Pool persistente de conexão Gemini
+# Evita destruir o pool gRPC em toda requisição.
+# _configure_genai() só reconfigura o SDK quando a chave muda.
+# ──────────────────────────────────────────────────────────────
+_last_configured_gemini_key: str | None = None
+
+def configure_genai(api_key: str) -> None:
+    """Configura o SDK Gemini apenas se a chave mudou desde a última chamada.
+    
+    A primeira chamada sempre configura. Chamadas subsequentes com a
+    mesma chave são NO-OP — o pool gRPC permanece intacto, economizando
+    500ms–2s de overhead de conexão por requisição.
+    """
+    global _last_configured_gemini_key
+    if api_key != _last_configured_gemini_key:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        _last_configured_gemini_key = api_key
+        logger.debug(f"Gemini SDK reconfigurado para nova chave API")
+    else:
+        logger.debug(f"Gemini SDK já configurado com esta chave — pool preservado")
+
+
+def reset_genai_pool():
+    """Força reconfiguração na próxima chamada (uso interno para testes)."""
+    global _last_configured_gemini_key
+    _last_configured_gemini_key = None
+
 # --------------------------------------------------------------------------- #
 # Estado global
 # --------------------------------------------------------------------------- #

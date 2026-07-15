@@ -2,26 +2,23 @@ import os
 import json
 import math
 import logging
-import google.generativeai as genai
 from typing import List, Optional
-from core.brain.router import _load_gemini_keys, _select_next_gemini_key
+
+from core.services.key_manager import next_gemini_key, configure_genai
 
 logger = logging.getLogger("alfredo.embedding")
 
 def get_embedding(text: str) -> Optional[List[float]]:
     """Gera um embedding (vetor) para o texto fornecido usando o Gemini."""
-    keys = _load_gemini_keys()
-    if not keys:
-        logger.error("Nenhuma chave Gemini encontrada para gerar embedding.")
-        return None
-
-    # Tenta usar a mesma logica de revezamento de chaves
-    current_key, _ = _select_next_gemini_key(keys)
+    current_key, selected_key_number, total_keys = next_gemini_key()
     if not current_key:
+        logger.error("Nenhuma chave Gemini disponível para gerar embedding.")
         return None
 
     try:
-        genai.configure(api_key=current_key)
+        # Pool persistente: só reconfigura se a chave mudou
+        configure_genai(current_key)
+        import google.generativeai as genai
         # Usando text-embedding-004 que é otimizado e mais barato/rápido
         result = genai.embed_content(
             model="models/text-embedding-004",
