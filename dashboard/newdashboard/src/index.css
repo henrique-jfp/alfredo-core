@@ -134,6 +134,28 @@ body {
     background-size: 400% 100%;
     animation: shimmer 1.4s ease-in-out infinite;
   }
+  .bg-weather-sun {
+    background: linear-gradient(135deg, rgba(212, 162, 78, 0.15) 0%, rgba(0, 0, 0, 0) 100%), var(--bg-surface);
+  }
+  .bg-weather-cloud {
+    background: linear-gradient(135deg, rgba(100, 100, 110, 0.15) 0%, rgba(0, 0, 0, 0) 100%), var(--bg-surface);
+  }
+  .bg-weather-rain {
+    background: linear-gradient(135deg, rgba(56, 120, 180, 0.15) 0%, rgba(0, 0, 0, 0) 100%), var(--bg-surface);
+  }
+  .bg-weather-storm {
+    background: linear-gradient(135deg, rgba(80, 70, 90, 0.15) 0%, rgba(200, 180, 50, 0.05) 100%), var(--bg-surface);
+  }
+  .bg-weather-snow {
+    background: linear-gradient(135deg, rgba(180, 200, 220, 0.15) 0%, rgba(0, 0, 0, 0) 100%), var(--bg-surface);
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
 }
 
 @keyframes fadeUp {

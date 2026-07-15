@@ -120,6 +120,7 @@ export interface ForecastDaily {
   weather_code: number;
   description: string;
   pop: number;
+  moon_phase?: number;
 }
 
 export interface ForecastCurrent {
@@ -137,6 +138,19 @@ export interface ForecastCurrent {
   visibility: number;
   sunrise: number;
   sunset: number;
+  uvi?: number;
+  dew_point?: number;
+  wind_gust?: number;
+  rain?: { "1h": number };
+}
+
+export interface WeatherAlert {
+  sender_name: string;
+  event: string;
+  start: number;
+  end: number;
+  description: string;
+  tags?: string[];
 }
 
 export interface ForecastData {
@@ -144,4 +158,6 @@ export interface ForecastData {
   current: ForecastCurrent;
   hourly: ForecastHourly[];
   daily: ForecastDaily[];
+  aqi?: number;
+  alerts?: WeatherAlert[];
 }
