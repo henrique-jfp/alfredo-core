@@ -107,7 +107,7 @@ class TTSEngine:
         
         # Gera via Edge-TTS
         mp3_chunks = []
-        communicate = edge_tts.Communicate(clean_text, self.current_voice_name, rate='+25%')
+        communicate = edge_tts.Communicate(clean_text, self.current_voice_name, rate='+10%')
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 mp3_chunks.append(chunk["data"])
@@ -165,7 +165,7 @@ class TTSEngine:
                 tmp_mp3 = os.path.join(temp_dir, f"tmp_{session_id}_{idx}.mp3")
                 tmp_wav = os.path.join(temp_dir, f"tmp_{session_id}_{idx}.wav")
 
-                communicate = edge_tts.Communicate(segment_text, voice, rate='+25%')
+                communicate = edge_tts.Communicate(segment_text, voice, rate='+10%')
                 await communicate.save(tmp_mp3)
 
                 cmd = ["ffmpeg", "-y", "-i", tmp_mp3, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", tmp_wav]
@@ -225,7 +225,7 @@ class TTSEngine:
             parsed_segments = [(self.current_voice_name, clean_text)]
 
         for voice, segment_text in parsed_segments:
-            communicate = edge_tts.Communicate(segment_text, voice, rate='+25%')
+            communicate = edge_tts.Communicate(segment_text, voice, rate='+10%')
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     yield chunk["data"]
@@ -259,7 +259,7 @@ class TTSEngine:
                 if cached:
                     yield cached
                 else:
-                    communicate = edge_tts.Communicate(segment_text, voice, rate='+25%')
+                    communicate = edge_tts.Communicate(segment_text, voice, rate='+10%')
                     async for chunk in communicate.stream():
                         if chunk["type"] == "audio":
                             yield chunk["data"]
