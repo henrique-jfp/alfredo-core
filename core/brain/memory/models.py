@@ -88,7 +88,8 @@ class Event(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, nullable=False)
     start_time = Column(DateTime(timezone=True), nullable=False, index=True)
-    room_id = Column(String, nullable=False, index=True)
+    room_id = Column(String, nullable=True, index=True) # Sala física (None para eventos globais como Google)
+    source = Column(String, default="LOCAL", nullable=False) # Origem: LOCAL, GOOGLE, OUTLOOK, CALDAV
     reminders = Column(String, default="60") # Minutos, separados por vírgula. Ex: "60,15,5"
     notified = Column(String, default="") # Minutos já notificados. Ex: "60"
     google_event_id = Column(String, nullable=True, index=True) # ID do evento no Google Calendar

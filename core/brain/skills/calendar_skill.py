@@ -4,8 +4,14 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Optional, Tuple
 import dateparser
+from sqlalchemy import or_
+
 from core.brain.skills.base import Skill
 from core.brain.memory import models
+from core.services.calendar_service import (
+    ensure_utc, to_local, now_utc, now_local,
+    get_events_for_room, create_event
+)
 
 logger = logging.getLogger("alfredo.skills.calendar")
 
@@ -45,7 +51,7 @@ class CalendarSkill(Skill):
             return self._read_events(db, room_id, text_lower)
 
     def _read_events(self, db, room_id, text_lower) -> str:
-        now = datetime.now(TZ)
+        now = now_local()
         time_range = self._resolve_date_range(text_lower)
 
         if not time_range:
@@ -55,22 +61,18 @@ class CalendarSkill(Skill):
                 "label": "hoje"
             }
 
-        start_of_day = time_range["start"].astimezone(timezone.utc)
-        end_of_day = time_range["end"].astimezone(timezone.utc)
+        start_of_day = ensure_utc(time_range["start"])
+        end_of_day = ensure_utc(time_range["end"])
         day_str = time_range["label"]
 
-        events = db.query(models.Event).filter(
-            models.Event.room_id == room_id,
-            models.Event.start_time >= start_of_day,
-            models.Event.start_time <= end_of_day
-        ).order_by(models.Event.start_time.asc()).all()
+        events = get_events_for_room(db, room_id, start_of_day, end_of_day)
 
         if not events:
             return f"Você não tem nenhum compromisso marcado para {day_str}."
 
         itens = []
         for e in events:
-            local_time = e.start_time.astimezone(TZ)
+            local_time = to_local(e.start_time)
             hora_str = local_time.strftime("%H:%M").replace(":00", " horas")
             dia_str = local_time.strftime("%A").lower()
             itens.append(f"{e.title} {dia_str} às {hora_str}")
@@ -259,7 +261,7 @@ class CalendarSkill(Skill):
         target_hour = int(match_time.group(1))
         target_minute = int(match_time.group(2)) if match_time.group(2) else 0
 
-        now = datetime.now(TZ)
+        now = now_local()
         resolved = self._resolve_date(text_lower)
         if resolved:
             target_date, day_str = resolved
@@ -290,7 +292,7 @@ class CalendarSkill(Skill):
         if not title:
             return "Não entendi o nome do compromisso."
 
-        start_utc = target_time.astimezone(timezone.utc)
+        start_utc = ensure_utc(target_time)
 
         # Conflito de agenda
         conflicts = self._check_conflict(db, room_id, start_utc)
@@ -304,14 +306,14 @@ class CalendarSkill(Skill):
                 msg = f"Você já tem compromissos neste horário: {', '.join(lista[:-1])} e {lista[-1]}. Deseja substituir, manter todos ou alterar o horário?"
             return msg
 
-        new_event = models.Event(
+        new_event = create_event(
+            db=db,
             title=title,
             start_time=start_utc,
             room_id=room_id,
-            reminders=reminders_str
+            source="LOCAL",
+            reminders=reminders_str,
         )
-        db.add(new_event)
-        db.commit()
 
         try:
             from core.services.google_calendar import push_event
@@ -329,21 +331,19 @@ class CalendarSkill(Skill):
     @staticmethod
     def _check_conflict(db, room_id: str, start_utc: datetime, exclude_title: str = "") -> List[Dict]:
         """Busca eventos num raio de 60min do horário proposto.
+        Usa get_events_for_room para incluir eventos globais (Google).
         Retorna lista de dicts com {title, start_time} dos conflitos."""
         window_start = start_utc - timedelta(minutes=60)
         window_end = start_utc + timedelta(minutes=60)
 
-        conflicts = db.query(models.Event).filter(
-            models.Event.room_id == room_id,
-            models.Event.start_time >= window_start,
-            models.Event.start_time <= window_end,
-        ).order_by(models.Event.start_time.asc()).all()
+        from core.services.calendar_service import get_events_for_room
+        conflicts = get_events_for_room(db, room_id, window_start, window_end)
 
         result = []
         for ev in conflicts:
             if exclude_title and ev.title.lower() == exclude_title.lower():
                 continue
-            local = ev.start_time.astimezone(TZ)
+            local = to_local(ev.start_time)
             result.append({
                 "title": ev.title,
                 "start_time": local.strftime("%H:%M"),
@@ -381,9 +381,14 @@ class CalendarSkill(Skill):
         return results
 
     def _remove_event(self, db, room_id, text_lower) -> str:
+        from sqlalchemy import or_
+        now = now_utc()
         events = db.query(models.Event).filter(
-            models.Event.room_id == room_id,
-            models.Event.start_time >= datetime.now(timezone.utc)
+            models.Event.start_time >= now,
+            or_(
+                models.Event.room_id == room_id,
+                models.Event.source != "LOCAL",
+            )
         ).order_by(models.Event.start_time.asc()).all()
 
         if not events:
@@ -418,7 +423,7 @@ class CalendarSkill(Skill):
         if len(candidates) > 1:
             lista = []
             for e in candidates:
-                local = e.start_time.astimezone(TZ)
+                local = to_local(e.start_time)
                 lista.append(f"'{e.title}' ({local.strftime('%d/%m %H:%M')})")
             if len(lista) <= 3:
                 return f"Encontrei {len(candidates)} compromissos: {', '.join(lista[:-1])} e {lista[-1]}. Qual deles você deseja cancelar?"
@@ -446,9 +451,14 @@ class CalendarSkill(Skill):
         search = re.sub(r'\b(?:hoje|amanh[ãa]|depois|quint[ao]|ter[cç][ao]|segund[ao]|quart[ao]|sext[ao]|s[aá]bad[ao]|doming[ao]|semana|m[eê]s|dia\w*)\b', '', search)
         search = re.sub(r'\s+', ' ', search).strip()
 
+        from sqlalchemy import or_
+        now = now_utc()
         events = db.query(models.Event).filter(
-            models.Event.room_id == room_id,
-            models.Event.start_time >= datetime.now(timezone.utc)
+            models.Event.start_time >= now,
+            or_(
+                models.Event.room_id == room_id,
+                models.Event.source != "LOCAL",
+            )
         ).order_by(models.Event.start_time.asc()).all()
 
         if not events:
@@ -470,7 +480,7 @@ class CalendarSkill(Skill):
             return f"Encontrei {len(candidates)} compromissos: {', '.join(lista[:-1])} e {lista[-1]}. Qual deles você deseja remarcar?"
 
         found = candidates[0]
-        old_local = found.start_time.astimezone(TZ)
+        old_local = to_local(found.start_time)
 
         # Detecta offset relativo: "adia em 30 minutos", "adianta 1 hora"
         offset_match = re.search(r'(?:em\s+)?(\d+)\s*(?:min(?:uto)?s?|h(?:ora)?s?)', text_lower)
@@ -514,7 +524,7 @@ class CalendarSkill(Skill):
             if new_local <= old_local and new_date.date() == old_local.date():
                 new_local += timedelta(days=1)
 
-        new_utc = new_local.astimezone(timezone.utc)
+        new_utc = ensure_utc(new_local)
 
         # Verifica conflito no novo horário
         conflicts = self._check_conflict(db, room_id, new_utc, exclude_title=found.title)
@@ -555,22 +565,18 @@ class CalendarSkill(Skill):
             if not time_range:
                 time_range = self._resolve_date_range(date_ref)
             if not time_range:
-                now = datetime.now(TZ)
+                now = now_local()
                 time_range = {
                     "start": now.replace(hour=0, minute=0, second=0, microsecond=0),
                     "end": now.replace(hour=23, minute=59, second=59, microsecond=999999),
                     "label": "hoje"
                 }
 
-            start_of_day = time_range["start"].astimezone(timezone.utc)
-            end_of_day = time_range["end"].astimezone(timezone.utc)
+            start_of_day = ensure_utc(time_range["start"])
+            end_of_day = ensure_utc(time_range["end"])
             day_str = time_range["label"]
 
-            events = db.query(models.Event).filter(
-                models.Event.room_id == room_id,
-                models.Event.start_time >= start_of_day,
-                models.Event.start_time <= end_of_day
-            ).order_by(models.Event.start_time.asc()).all()
+            events = get_events_for_room(db, room_id, start_of_day, end_of_day)
 
             if not events:
                 return {
@@ -580,13 +586,15 @@ class CalendarSkill(Skill):
 
             event_list = []
             for e in events:
-                local_time = e.start_time.astimezone(TZ)
+                local_time = to_local(e.start_time)
                 hora_str = local_time.strftime("%H:%M").replace(":00", " horas")
                 event_list.append({
                     "id": e.id,
                     "title": e.title,
                     "start_time": local_time.isoformat(),
-                    "time": hora_str
+                    "time": hora_str,
+                    "source": e.source,
+                    "room_id": e.room_id,
                 })
 
             if len(event_list) > 1:
@@ -616,17 +624,16 @@ class CalendarSkill(Skill):
                     start_dt = datetime.fromisoformat(start_iso)
                     if start_dt.tzinfo is None:
                         start_dt = start_dt.replace(tzinfo=TZ)
-                    start_utc = start_dt.astimezone(timezone.utc)
+                    start_utc = ensure_utc(start_dt)
                 except ValueError:
                     return {"error": f"Formato de data inválido: {start_iso}"}
             else:
-                now = datetime.now(TZ)
-                start_utc = now.astimezone(timezone.utc)
+                start_utc = now_utc()
 
             # Conflito de agenda
             conflicts = self._check_conflict(db, room_id, start_utc, exclude_title=title)
             if conflicts:
-                evento_atual = {"title": title, "start_time": start_utc.astimezone(TZ).strftime("%H:%M")}
+                evento_atual = {"title": title, "start_time": to_local(start_utc).strftime("%H:%M")}
                 todos_conflitos = [{"title": c["title"], "start_time": c["start_time"]} for c in conflicts]
                 if len(conflicts) == 1:
                     msg = f"Você já tem '{conflicts[0]['title']}' às {conflicts[0]['start_time']} neste horário. Deseja substituir, manter ambos ou alterar o horário?"
@@ -643,14 +650,14 @@ class CalendarSkill(Skill):
             valid_reminders = [str(max(1, int(r))) for r in reminders_minutes if isinstance(r, (int, float, str)) and str(r).strip().isdigit()]
             reminders_str = ",".join(sorted(set(valid_reminders), key=lambda x: int(x), reverse=True)) if valid_reminders else "60"
 
-            new_event = models.Event(
+            new_event = create_event(
+                db=db,
                 title=title,
                 start_time=start_utc,
                 room_id=room_id,
-                reminders=reminders_str
+                source="LOCAL",
+                reminders=reminders_str,
             )
-            db.add(new_event)
-            db.commit()
 
             try:
                 from core.services.google_calendar import push_event
@@ -661,7 +668,7 @@ class CalendarSkill(Skill):
             from core.services.scheduler import wakeup_scheduler
             wakeup_scheduler()
 
-            local_time = start_utc.astimezone(TZ)
+            local_time = to_local(start_utc)
             reminders_desc = self._format_reminders_desc(reminders_str)
             return {
                 "status": "success",
@@ -673,9 +680,14 @@ class CalendarSkill(Skill):
             event_id = kwargs.get("event_id")
             title_search = kwargs.get("title", "").strip().lower()
 
+            from sqlalchemy import or_
+            now = now_utc()
             events = db.query(models.Event).filter(
-                models.Event.room_id == room_id,
-                models.Event.start_time >= datetime.now(timezone.utc)
+                models.Event.start_time >= now,
+                or_(
+                    models.Event.room_id == room_id,
+                    models.Event.source != "LOCAL",
+                )
             ).order_by(models.Event.start_time.asc()).all()
 
             found = None
@@ -689,7 +701,7 @@ class CalendarSkill(Skill):
                 if len(candidates) == 1:
                     found = candidates[0]
                 elif len(candidates) > 1:
-                    lista = [{"title": e.title, "start_time": e.start_time.astimezone(TZ).isoformat()} for e in candidates]
+                    lista = [{"title": e.title, "start_time": to_local(e.start_time).isoformat()} for e in candidates]
                     return {
                         "status": "multiple_found",
                         "candidates": lista,
@@ -722,9 +734,14 @@ class CalendarSkill(Skill):
             if not title_search and event_id is None:
                 return {"error": "Informe o título ou ID do evento.", "status": "fail"}
 
+            from sqlalchemy import or_
+            now = now_utc()
             events = db.query(models.Event).filter(
-                models.Event.room_id == room_id,
-                models.Event.start_time >= datetime.now(timezone.utc)
+                models.Event.start_time >= now,
+                or_(
+                    models.Event.room_id == room_id,
+                    models.Event.source != "LOCAL",
+                )
             ).order_by(models.Event.start_time.asc()).all()
 
             found = None
@@ -738,7 +755,7 @@ class CalendarSkill(Skill):
                 if len(candidates) == 1:
                     found = candidates[0]
                 elif len(candidates) > 1:
-                    lista = [{"title": e.title, "start_time": e.start_time.astimezone(TZ).isoformat()} for e in candidates]
+                    lista = [{"title": e.title, "start_time": to_local(e.start_time).isoformat()} for e in candidates]
                     return {
                         "status": "multiple_found",
                         "candidates": lista,
@@ -748,7 +765,7 @@ class CalendarSkill(Skill):
             if not found:
                 return {"error": "Compromisso não encontrado.", "status": "fail"}
 
-            old_local = found.start_time.astimezone(TZ)
+            old_local = to_local(found.start_time)
 
             if offset_minutes is not None:
                 try:
@@ -767,7 +784,7 @@ class CalendarSkill(Skill):
             else:
                 return {"error": "Informe new_start_time ou offset_minutes.", "status": "fail"}
 
-            new_utc = new_local.astimezone(timezone.utc)
+            new_utc = ensure_utc(new_local)
 
             conflicts = self._check_conflict(db, room_id, new_utc, exclude_title=found.title)
             if conflicts:

@@ -9,6 +9,7 @@ from core.brain.memory import models
 from core.brain.memory.database import SessionLocal
 from core.brain.router import get_router
 from core.voice.tts.engine import get_tts_engine
+from core.services.calendar_service import ensure_utc, to_local, now_utc, now_local
 
 logger = logging.getLogger("alfredo.scheduler")
 TZ = ZoneInfo("America/Sao_Paulo")
@@ -31,19 +32,19 @@ class SchedulerManager:
     async def _sync_next_timestamps(self):
         db: Session = SessionLocal()
         try:
-            now = datetime.now(timezone.utc)
+            now = now_utc()
             # Próximo timer ativo
             next_timer = db.query(models.Timer).filter(models.Timer.is_active == True).order_by(models.Timer.expires_at.asc()).first()
             
             # Próximo evento não notificado completamente
-            window_end = now + timedelta(days=365) # Procura no horizonte longo
-            upcoming_events = db.query(models.Event).filter(
-                models.Event.start_time >= now,
-                models.Event.start_time <= window_end
-            ).all()
+            from core.services.calendar_service import get_events_for_scheduler
+            upcoming_events = get_events_for_scheduler(db, now)
             
             next_event_wakeup = None
             for e in upcoming_events:
+                # Pula eventos Google (eles gerenciam próprias notificações)
+                if e.source != "LOCAL":
+                    continue
                 reminders_str = e.reminders or "60"
                 notified_str = e.notified or ""
                 
@@ -52,7 +53,7 @@ class SchedulerManager:
                 
                 for r in reminders_list:
                     if r not in notified_list:
-                        wake_time = e.start_time.astimezone(timezone.utc) - timedelta(minutes=r)
+                        wake_time = ensure_utc(e.start_time) - timedelta(minutes=r)
                         if next_event_wakeup is None or wake_time < next_event_wakeup:
                             next_event_wakeup = wake_time
             
@@ -225,7 +226,7 @@ class SchedulerManager:
     async def _check_events(self):
         db: Session = SessionLocal()
         try:
-            now = datetime.now(timezone.utc)
+            now = now_utc()
             window_end = now + timedelta(days=365)
 
             upcoming_events = db.query(models.Event).filter(
@@ -234,17 +235,18 @@ class SchedulerManager:
             ).order_by(models.Event.start_time.asc()).all()
 
             for event in upcoming_events:
-                if not event.room_id:
+                # Eventos não-LOCAIS (Google, Outlook etc.) já gerenciam próprias notificações
+                if event.source != "LOCAL":
+                    if event.notified != "all":
+                        event.notified = "all"
+                        db.commit()
                     continue
-                # Migra eventos do Google Calendar que foram puxados antes
-                # da correção de timezone (não tinham room_id nem notified).
-                # Google já gerencia suas próprias notificações.
-                if event.google_event_id and event.notified != "all":
-                    event.notified = "all"
-                    db.commit()
+
+                if not event.room_id:
                     continue
                 if event.notified == "all":
                     continue
+
                 reminders_str = event.reminders or "60"
                 notified_str = event.notified or ""
 
@@ -254,7 +256,7 @@ class SchedulerManager:
                 )
                 notified_list = [int(n.strip()) for n in notified_str.split(",") if n.strip().isdigit()]
 
-                local_time = event.start_time.astimezone(TZ)
+                local_time = to_local(event.start_time)
                 hora_str = local_time.strftime("%H:%M").replace(":00", " horas")
                 any_notified = False
 
@@ -263,7 +265,7 @@ class SchedulerManager:
                         any_notified = True
                         continue
 
-                    reminder_time = event.start_time.astimezone(timezone.utc) - timedelta(minutes=r)
+                    reminder_time = ensure_utc(event.start_time) - timedelta(minutes=r)
                     if now < reminder_time:
                         continue
 

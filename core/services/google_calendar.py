@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from core.brain.memory import models
 from core.brain.memory.database import SessionLocal
+from core.services.calendar_service import ensure_utc, to_local, now_utc
 
 logger = logging.getLogger("alfredo.google_calendar")
 TZ = ZoneInfo("America/Sao_Paulo")
@@ -217,7 +218,11 @@ def delete_event(db: Session, event: models.Event) -> bool:
         return False
 
 def push_pending_events(db: Session, room_id: Optional[str] = None) -> int:
-    query = db.query(models.Event).filter(models.Event.google_event_id.is_(None))
+    """Empurra eventos LOCAIS que ainda não foram sincronizados com o Google."""
+    query = db.query(models.Event).filter(
+        models.Event.google_event_id.is_(None),
+        models.Event.source == "LOCAL"
+    )
     if room_id:
         query = query.filter(models.Event.room_id == room_id)
     pending = query.all()
@@ -233,9 +238,9 @@ def pull_events(db: Session) -> int:
         return 0
     try:
         service = get_calendar_service(creds)
-        now_utc = datetime.now(timezone.utc)
-        time_min = (now_utc - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        time_max = (now_utc + timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now = now_utc()
+        time_min = (now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        time_max = (now + timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         events_result = service.events().list(
             calendarId="primary",
@@ -260,7 +265,7 @@ def pull_events(db: Session) -> int:
                 start_dt = datetime.fromisoformat(start_str)
                 if start_dt.tzinfo is None:
                     start_dt = start_dt.replace(tzinfo=TZ)
-                start_dt = start_dt.astimezone(timezone.utc)
+                start_dt = ensure_utc(start_dt)
             except Exception:
                 continue
 
@@ -289,16 +294,18 @@ def pull_events(db: Session) -> int:
                     existing.reminders = stored_reminders
                     existing.notified = stored_notified
                     existing.google_updated = g_updated
+                    existing.source = "GOOGLE"
+                    if existing.room_id == "google_sync":
+                        existing.room_id = None
                     db.commit()
                     count += 1
             else:
-                room = db.query(models.Device.room_id).filter(
-                    models.Device.room_id.isnot(None)
-                ).first()
+                # Eventos do Google são globais (room_id=None, source="GOOGLE")
                 new_event = models.Event(
                     title=title,
                     start_time=start_dt,
-                    room_id=room[0] if room else None,
+                    room_id=None,
+                    source="GOOGLE",
                     google_event_id=gevent_id,
                     google_updated=item.get("updated", ""),
                     reminders=stored_reminders,
@@ -324,7 +331,10 @@ def get_sync_status(db: Session) -> dict:
     synced = db.query(models.Event).filter(
         models.Event.google_event_id.isnot(None)
     ).count()
-    pending = total - synced
+    local_pending = db.query(models.Event).filter(
+        models.Event.google_event_id.is_(None),
+        models.Event.source == "LOCAL"
+    ).count()
     integ = db.query(models.AppIntegration).filter(
         models.AppIntegration.app_name == "google_calendar"
     ).first()
@@ -333,5 +343,5 @@ def get_sync_status(db: Session) -> dict:
         "is_connected": is_connected,
         "total_events": total,
         "synced_events": synced,
-        "pending_events": pending,
+        "pending_events": local_pending,
     }

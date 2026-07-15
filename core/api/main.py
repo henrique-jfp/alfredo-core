@@ -58,9 +58,29 @@ try:
             conn.execute(text("ALTER TABLE memory_facts ADD COLUMN embedding VARCHAR"))
         except Exception:
             pass
+        try:
+            conn.execute(text("ALTER TABLE events ADD COLUMN source VARCHAR DEFAULT 'LOCAL' NOT NULL"))
+        except Exception:
+            pass
         conn.commit()
 except Exception as e:
     logging.getLogger("alfredo.startup").error(f"Erro na migração do banco: {e}")
+
+# Migração de dados legados (room_id='google_sync' → source='GOOGLE', room_id=None)
+try:
+    db_session = next(get_db())
+    try:
+        from core.services.calendar_service import migrate_legacy_events
+        count = migrate_legacy_events(db_session)
+        if count:
+            logger = logging.getLogger("alfredo.startup")
+            logger.info(f"Migração legada concluída: {count} eventos corrigidos")
+    except Exception as e:
+        logging.getLogger("alfredo.startup").error(f"Erro na migração de dados legados: {e}")
+    finally:
+        db_session.close()
+except Exception as e:
+    logging.getLogger("alfredo.startup").error(f"Erro ao abrir sessão para migração: {e}")
 
 # Sincroniza .env → DB (para quem já configurou pelo .env)
 from core.services.env_manager import sync_env_to_db

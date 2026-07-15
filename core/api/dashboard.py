@@ -12,6 +12,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from core.services.calendar_service import ensure_utc, to_local, now_utc, now_local
+
 TZ = ZoneInfo("America/Sao_Paulo")
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
@@ -503,24 +505,25 @@ class DateRangePayload(BaseModel):
 @router.get("/events")
 def get_events(start: str = "", end: str = "", db: Session = Depends(get_db)):
     """Retorna eventos do calendário em um intervalo de datas."""
-    now = datetime.now(TZ)
+    now = now_local()
     if start:
         start_dt = datetime.fromisoformat(start)
         if start_dt.tzinfo is None:
             start_dt = start_dt.replace(tzinfo=TZ)
+        start_utc = ensure_utc(start_dt)
     else:
         start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_utc = ensure_utc(start_dt)
 
     if end:
         end_dt = datetime.fromisoformat(end)
         if end_dt.tzinfo is None:
             end_dt = end_dt.replace(tzinfo=TZ)
+        end_utc = ensure_utc(end_dt)
     else:
         end_dt = start_dt + timedelta(days=6)
         end_dt = end_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
-
-    start_utc = start_dt.astimezone(timezone.utc)
-    end_utc = end_dt.astimezone(timezone.utc)
+        end_utc = ensure_utc(end_dt)
 
     events = db.query(models.Event).filter(
         models.Event.start_time >= start_utc,
@@ -529,7 +532,7 @@ def get_events(start: str = "", end: str = "", db: Session = Depends(get_db)):
 
     result = []
     for e in events:
-        local = e.start_time.astimezone(TZ)
+        local = to_local(e.start_time)
         hora_str = local.strftime("%H:%M").replace(":00", " horas")
         result.append({
             "id": e.id,
@@ -539,6 +542,7 @@ def get_events(start: str = "", end: str = "", db: Session = Depends(get_db)):
             "date": local.strftime("%Y-%m-%d"),
             "day_name": local.strftime("%A").capitalize(),
             "room_id": e.room_id,
+            "source": e.source,
         })
 
     return {"events": result, "start": start_dt.isoformat(), "end": end_dt.isoformat()}
@@ -553,18 +557,19 @@ class EventCreatePayload(BaseModel):
 def create_event(payload: EventCreatePayload, db: Session = Depends(get_db)):
     """Cria um novo evento no calendário."""
     try:
+        from core.services.calendar_service import ensure_utc, create_event as ce
         start_dt = datetime.fromisoformat(payload.start_time)
         if start_dt.tzinfo is None:
             start_dt = start_dt.replace(tzinfo=TZ)
-        start_utc = start_dt.astimezone(timezone.utc)
-        event = models.Event(
+        start_utc = ensure_utc(start_dt)
+        event = ce(
+            db=db,
             title=payload.title,
             start_time=start_utc,
             room_id=payload.room_id,
+            source="LOCAL",
             reminders=payload.reminders,
         )
-        db.add(event)
-        db.commit()
         return {"status": "created", "id": event.id}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
