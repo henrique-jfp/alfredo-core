@@ -121,6 +121,8 @@ export interface ForecastDaily {
   description: string;
   pop: number;
   moon_phase?: number;
+  sunrise?: number;
+  sunset?: number;
 }
 
 export interface ForecastCurrent {

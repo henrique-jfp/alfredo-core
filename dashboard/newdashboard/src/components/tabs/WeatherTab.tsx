@@ -5,7 +5,7 @@ import { SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
 import {
   Droplets, Wind, Eye, Gauge, Sun, Moon,
   ArrowUp, ArrowDown, MapPin, AlertTriangle, CloudRain,
-  Activity, CloudFog
+  Activity, CloudFog, Sunrise, Sunset
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -47,51 +47,66 @@ function getWindDir(deg: number) {
 
 const WeatherIcon = ({ code, size = 'md' }: { code: number; size?: 'sm' | 'md' | 'lg' }) => {
   const kind = getWeatherKind(code);
-  const s = size === 'lg' ? 'w-20 h-20' : size === 'md' ? 'w-12 h-12' : 'w-8 h-8';
-  const sInner = size === 'lg' ? 'w-12 h-12' : size === 'md' ? 'w-7 h-7' : 'w-4 h-4';
+  const s = size === 'lg' ? 'w-24 h-24' : size === 'md' ? 'w-14 h-14' : 'w-8 h-8';
 
   if (kind === 'sun') return (
-    <div className={cn('relative flex items-center justify-center shrink-0', s)}>
-      <div className={cn('absolute inset-0 rounded-full bg-amber-400/20 animate-pulse')} />
-      <div className={cn('rounded-full bg-amber-400', sInner)} />
-    </div>
+    <svg viewBox="0 0 100 100" className={cn("shrink-0", s)}>
+      <circle cx="50" cy="50" r="22" className="text-amber-400 fill-amber-400/20" stroke="currentColor" strokeWidth="2" style={{ animation: 'sunPulse 3s infinite' }} />
+      <g className="text-amber-400/60" style={{ animation: 'rayRotate 20s linear infinite', transformOrigin: '50% 50%' }}>
+        <circle cx="50" cy="50" r="32" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="4 8" />
+        <path d="M50 8 L50 15 M50 85 L50 92 M8 50 L15 50 M85 50 L92 50 M20 20 L25 25 M75 75 L80 80 M20 80 L25 75 M75 20 L80 25" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </g>
+    </svg>
   );
   if (kind === 'rain') return (
-    <div className={cn('relative flex items-center justify-center shrink-0', s)}>
-      <div className={cn('rounded-full bg-sky-400', sInner)} />
-      <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 flex gap-0.5">
-        <div className="w-0.5 h-1.5 bg-sky-400/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-        <div className="w-0.5 h-2 bg-sky-400/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-        <div className="w-0.5 h-1.5 bg-sky-400/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-      </div>
-    </div>
+    <svg viewBox="0 0 100 100" className={cn("shrink-0", s)}>
+      <g style={{ animation: 'cloudPulse 4s infinite' }}>
+        <path d="M25 60 Q10 60 10 45 Q10 30 30 30 Q40 10 60 10 Q80 10 85 30 Q100 30 100 45 Q100 60 85 60 Z" className="text-sky-300 fill-sky-900/40" stroke="currentColor" strokeWidth="2" />
+      </g>
+      <g className="text-sky-400">
+        <line x1="40" y1="65" x2="30" y2="90" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ animation: 'rainDrop 1s infinite' }} />
+        <line x1="60" y1="65" x2="50" y2="90" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ animation: 'rainDrop 1s infinite 0.3s' }} />
+        <line x1="80" y1="65" x2="70" y2="90" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ animation: 'rainDrop 1s infinite 0.6s' }} />
+      </g>
+    </svg>
   );
   if (kind === 'storm') return (
-    <div className={cn('relative flex items-center justify-center shrink-0', s)}>
-      <div className={cn('rounded-full bg-zinc-500', sInner)} />
-      <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-yellow-300 text-xs font-bold">⚡</div>
-    </div>
+    <svg viewBox="0 0 100 100" className={cn("shrink-0", s)}>
+      <g style={{ animation: 'cloudPulse 3s infinite' }}>
+        <path d="M25 60 Q10 60 10 45 Q10 30 30 30 Q40 10 60 10 Q80 10 85 30 Q100 30 100 45 Q100 60 85 60 Z" className="text-zinc-400 fill-zinc-800/80" stroke="currentColor" strokeWidth="2" />
+      </g>
+      <g className="text-yellow-400" style={{ animation: 'lightningFlash 4s infinite' }}>
+        <path d="M60 45 L45 70 L55 70 L40 95 L70 60 L55 60 Z" fill="currentColor" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" />
+      </g>
+    </svg>
   );
   if (kind === 'snow') return (
-    <div className={cn('relative flex items-center justify-center shrink-0', s)}>
-      <div className={cn('rounded-full bg-blue-200', sInner)} />
-      <div className="absolute -top-0.5 left-1/2 -translate-x-1/2 text-[10px] text-blue-200">✦</div>
-    </div>
+    <svg viewBox="0 0 100 100" className={cn("shrink-0", s)}>
+      <g style={{ animation: 'cloudPulse 4s infinite' }}>
+        <path d="M25 60 Q10 60 10 45 Q10 30 30 30 Q40 10 60 10 Q80 10 85 30 Q100 30 100 45 Q100 60 85 60 Z" className="text-blue-200 fill-blue-900/30" stroke="currentColor" strokeWidth="2" />
+      </g>
+      <g className="text-blue-100">
+        <path d="M40 70 L40 80 M35 75 L45 75 M37 72 L43 78 M37 78 L43 72" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" style={{ animation: 'snowFall 3s infinite linear', transformOrigin: '40px 75px' }} />
+        <path d="M70 65 L70 75 M65 70 L75 70 M67 67 L73 73 M67 73 L73 67" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" style={{ animation: 'snowFall 2.5s infinite linear 1s', transformOrigin: '70px 70px' }} />
+      </g>
+    </svg>
   );
+  
+  // Cloud
   return (
-    <div className={cn('relative flex items-center justify-center shrink-0', s)}>
-      <div className={cn('rounded-full bg-zinc-400', sInner)} />
-    </div>
+    <svg viewBox="0 0 100 100" className={cn("shrink-0", s)}>
+      <path d="M30 65 Q20 65 20 55 Q20 45 35 45 Q40 30 55 30 Q70 30 75 45 Q85 45 85 55 Q85 65 75 65 Z" className="text-zinc-500 fill-zinc-500/10" stroke="currentColor" strokeWidth="2" style={{ animation: 'cloudDrift2 8s infinite ease-in-out', transformOrigin: '50% 50%' }} />
+      <path d="M25 70 Q10 70 10 55 Q10 40 30 40 Q40 20 60 20 Q80 20 85 40 Q100 40 100 55 Q100 70 85 70 Z" className="text-zinc-300 fill-zinc-300/20" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'cloudDrift 10s infinite ease-in-out', transformOrigin: '50% 50%' }} />
+    </svg>
   );
 };
 
-// Componente de Banner Tático
 const TacticalAlertBanner = ({ alerts }: { alerts: WeatherAlert[] }) => {
   if (!alerts || alerts.length === 0) return null;
-  const alert = alerts[0]; // Mostrar o mais importante
+  const alert = alerts[0]; 
   
   return (
-    <div className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 md:p-4 backdrop-blur-md shadow-[0_0_15px_rgba(244,63,94,0.15)] flex flex-col md:flex-row gap-3 md:items-center">
+    <div className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 md:p-4 backdrop-blur-md shadow-[0_0_15px_rgba(244,63,94,0.15)] flex flex-col md:flex-row gap-3 md:items-center cursor-pointer">
       <div className="flex items-center gap-2 text-rose-400 font-bold shrink-0">
         <AlertTriangle className="h-5 w-5 animate-pulse" />
         <span className="uppercase tracking-wider text-sm">Alerta Tático</span>
@@ -108,26 +123,23 @@ const TacticalAlertBanner = ({ alerts }: { alerts: WeatherAlert[] }) => {
   );
 };
 
-// Componente de Gauge UV em SVG
 const UvGauge = ({ uvi }: { uvi: number }) => {
   const radius = 16;
-  const circumference = Math.PI * radius; // Half circle
+  const circumference = Math.PI * radius; 
   const maxUv = 11;
   const percent = Math.min(uvi / maxUv, 1);
   const strokeDashoffset = circumference - percent * circumference;
   
-  let color = '#a3e635'; // Low (Green)
-  if (uvi >= 3) color = '#facc15'; // Moderate (Yellow)
-  if (uvi >= 6) color = '#fb923c'; // High (Orange)
-  if (uvi >= 8) color = '#ef4444'; // Very High (Red)
-  if (uvi >= 11) color = '#a855f7'; // Extreme (Purple)
+  let color = '#a3e635'; 
+  if (uvi >= 3) color = '#facc15'; 
+  if (uvi >= 6) color = '#fb923c'; 
+  if (uvi >= 8) color = '#ef4444'; 
+  if (uvi >= 11) color = '#a855f7'; 
 
   return (
     <div className="relative w-12 h-6 flex items-end justify-center">
       <svg className="w-12 h-6" viewBox="0 0 40 20">
-        {/* Track */}
         <path d="M 4 20 A 16 16 0 0 1 36 20" fill="none" stroke="currentColor" strokeWidth="4" className="text-white/10" />
-        {/* Fill */}
         <path 
           d="M 4 20 A 16 16 0 0 1 36 20" 
           fill="none" 
@@ -144,33 +156,31 @@ const UvGauge = ({ uvi }: { uvi: number }) => {
   );
 };
 
-// Componente de Fase da Lua
-const MoonPhaseIcon = ({ phase }: { phase: number }) => {
-  // Phase 0 and 1 are new moon, 0.5 is full moon
+const MoonPhaseIcon = ({ phase, size = 'md' }: { phase: number, size?: 'sm'|'md' }) => {
   let iconName = 'Nova';
   if (phase > 0 && phase < 0.25) iconName = 'Cresc.';
-  else if (phase === 0.25) iconName = 'Quart. Cresc.';
-  else if (phase > 0.25 && phase < 0.5) iconName = 'Gibosa Cresc.';
+  else if (phase === 0.25) iconName = 'Q. Cresc.';
+  else if (phase > 0.25 && phase < 0.5) iconName = 'Gib. Cresc.';
   else if (phase === 0.5) iconName = 'Cheia';
-  else if (phase > 0.5 && phase < 0.75) iconName = 'Gibosa Ming.';
-  else if (phase === 0.75) iconName = 'Quart. Ming.';
+  else if (phase > 0.5 && phase < 0.75) iconName = 'Gib. Ming.';
+  else if (phase === 0.75) iconName = 'Q. Ming.';
   else if (phase > 0.75 && phase < 1) iconName = 'Ming.';
 
   const isFullish = phase > 0.3 && phase < 0.7;
+  const s = size === 'sm' ? 'w-5 h-5 text-[8px]' : 'w-8 h-8 text-[9px]';
 
   return (
     <div className="flex flex-col items-center gap-1">
-      <div className={cn("w-8 h-8 rounded-full border border-white/10 shadow-[inset_-6px_0_0_rgba(255,255,255,0.1)] flex items-center justify-center", 
+      <div className={cn("rounded-full border border-white/10 shadow-[inset_-6px_0_0_rgba(255,255,255,0.1)] flex items-center justify-center", s,
         isFullish ? "bg-zinc-200" : "bg-zinc-800"
       )}>
-        {isFullish && <div className="w-3 h-3 rounded-full bg-zinc-300 absolute ml-2 mt-2 opacity-50" />}
+        {isFullish && <div className="w-1/3 h-1/3 rounded-full bg-zinc-300 absolute ml-2 mt-2 opacity-50" />}
       </div>
-      <span className="text-[9px] text-[color:var(--text-tertiary)] uppercase font-semibold">{iconName}</span>
+      <span className={cn("text-[color:var(--text-tertiary)] uppercase font-semibold", size === 'sm' ? "text-[8px]" : "text-[9px]")}>{iconName}</span>
     </div>
   );
 };
 
-// Componente Arco do Sol
 const SunArc = ({ sunrise, sunset, current }: { sunrise: number, sunset: number, current: number }) => {
   const totalDuration = sunset - sunrise;
   const elapsed = current - sunrise;
@@ -182,21 +192,18 @@ const SunArc = ({ sunrise, sunset, current }: { sunrise: number, sunset: number,
     percent = 1;
   }
 
-  const cx = 10 + (percent * 80); // X pos from 10 to 90
-  const cy = 40 - Math.sin(percent * Math.PI) * 30; // Y pos from 40 up to 10 back to 40
+  const cx = 10 + (percent * 80); 
+  const cy = 40 - Math.sin(percent * Math.PI) * 30;
 
   return (
     <div className="relative w-full h-12 flex items-center justify-center">
       <svg className="w-full h-12 overflow-visible" viewBox="0 0 100 45" preserveAspectRatio="none">
-        {/* Arc Track */}
-        <path d="M 10 40 Q 50 -10 90 40" fill="none" stroke="currentColor" strokeWidth="1" className="text-white/10" strokeDasharray="2 4" />
-        
-        {/* Sun Dot */}
+        <path d="M 10 40 Q 50 -10 90 40" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/10" strokeDasharray="3 4" />
         {(current > sunrise && current < sunset) && (
-          <circle cx={cx} cy={cy} r="4" fill="#fbbf24" className="shadow-[0_0_10px_#fbbf24] animate-pulse" />
+          <circle cx={cx} cy={cy} r="4" fill="#fbbf24" className="shadow-[0_0_12px_#fbbf24] animate-pulse" />
         )}
       </svg>
-      <div className="absolute bottom-0 left-0 text-[10px] text-[color:var(--text-tertiary)] flex justify-between w-full px-2">
+      <div className="absolute bottom-0 left-0 text-[10px] text-[color:var(--text-tertiary)] flex justify-between w-full px-1 font-mono">
         <span>{formatUnixTime(sunrise)}</span>
         <span>{formatUnixTime(sunset)}</span>
       </div>
@@ -206,13 +213,13 @@ const SunArc = ({ sunrise, sunset, current }: { sunrise: number, sunset: number,
 
 const MetricCard = ({ icon: Icon, label, value, sub, children }: { icon: any; label: string; value?: React.ReactNode; sub?: string; children?: React.ReactNode }) => (
   <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3 hover:bg-white/[0.04] transition-colors flex items-center gap-3">
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brass-500/10">
-      <Icon className="h-4 w-4 text-brass-300" />
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brass-500/10 border border-brass-500/20 shadow-[0_0_10px_rgba(201,162,75,0.05)]">
+      <Icon className="h-4 w-4 text-brass-400" />
     </div>
     <div className="min-w-0 flex-1">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--text-tertiary)]">{label}</div>
-      {value && <div className="text-[14px] font-bold text-[color:var(--text-primary)] mt-0.5 leading-none">{value}</div>}
-      {sub && <div className="text-[10px] text-[color:var(--text-tertiary)] mt-0.5">{sub}</div>}
+      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[color:var(--text-tertiary)]">{label}</div>
+      {value && <div className="text-[14px] font-bold text-[color:var(--text-primary)] mt-0.5 leading-none tabular-nums">{value}</div>}
+      {sub && <div className="text-[10px] text-[color:var(--text-tertiary)] mt-0.5 font-mono">{sub}</div>}
       {children && <div className="mt-1">{children}</div>}
     </div>
   </div>
@@ -224,10 +231,11 @@ export function WeatherTab() {
   const [unit, setUnit] = useState<'C' | 'F'>('C');
   const scrollRef = useRef<HTMLDivElement>(null);
   
-  // Drag to scroll logic for desktop
   const [isDragging, setIsDragging] = useState(false);
   const [startX, setStartX] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
+
+  const [expandedDay, setExpandedDay] = useState<number | null>(null);
 
   useEffect(() => {
     api.getForecast().then(setData).catch(() => setError('Indisponível'));
@@ -273,14 +281,13 @@ export function WeatherTab() {
   const weatherKind = getWeatherKind(current.weather_code);
   const bgClass = `bg-weather-${weatherKind}`;
   
-  // AQI color mapping
   let aqiColor = 'bg-zinc-500';
   let aqiText = 'Desconhecido';
-  if (aqi === 1) { aqiColor = 'bg-green-500'; aqiText = 'Bom'; }
-  else if (aqi === 2) { aqiColor = 'bg-yellow-400'; aqiText = 'Razoável'; }
-  else if (aqi === 3) { aqiColor = 'bg-orange-500'; aqiText = 'Moderado'; }
-  else if (aqi === 4) { aqiColor = 'bg-red-500'; aqiText = 'Ruim'; }
-  else if (aqi === 5) { aqiColor = 'bg-purple-600'; aqiText = 'Péssimo'; }
+  if (aqi === 1) { aqiColor = 'bg-green-500 shadow-[0_0_8px_#22c55e]'; aqiText = 'Bom'; }
+  else if (aqi === 2) { aqiColor = 'bg-yellow-400 shadow-[0_0_8px_#facc15]'; aqiText = 'Razoável'; }
+  else if (aqi === 3) { aqiColor = 'bg-orange-500 shadow-[0_0_8px_#f97316]'; aqiText = 'Moderado'; }
+  else if (aqi === 4) { aqiColor = 'bg-red-500 shadow-[0_0_8px_#ef4444]'; aqiText = 'Ruim'; }
+  else if (aqi === 5) { aqiColor = 'bg-purple-600 shadow-[0_0_8px_#9333ea]'; aqiText = 'Péssimo'; }
 
   const nowUnix = Math.floor(Date.now() / 1000);
 
@@ -300,27 +307,28 @@ export function WeatherTab() {
         }
       />
 
-      {/* Banner Tático */}
       {alerts && <TacticalAlertBanner alerts={alerts} />}
 
       <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
         <div className="flex flex-col gap-4">
           {/* Card Principal Dinâmico */}
-          <div className={cn("alfredo-card p-5 md:p-6 overflow-hidden relative", bgClass)}>
+          <div className={cn("alfredo-card p-5 md:p-6 overflow-hidden relative border-t-2", bgClass)} style={{ borderTopColor: 'var(--color-brass-500)' }}>
             <div className="relative z-10 flex flex-col md:flex-row md:items-start justify-between gap-4">
               <div>
-                <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-primary)] opacity-80 mb-2 font-mono">
-                  <MapPin className="h-3 w-3" />
+                <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-primary)] opacity-80 mb-2 font-mono uppercase tracking-wider">
+                  <MapPin className="h-3 w-3 text-brass-400" />
                   {city}
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-7xl font-bold tracking-tighter text-white tabular-nums leading-none">
+                <div className="flex items-center gap-4">
+                  <span className="text-7xl font-bold tracking-tighter text-white tabular-nums leading-none drop-shadow-md">
                     {ct(current.temperature)}
                   </span>
-                  <div className="flex flex-col">
-                    <WeatherIcon code={current.weather_code} size="md" />
-                    <span className="text-[13px] font-medium text-white/90 capitalize mt-1">{current.description}</span>
+                  <div className="flex flex-col items-center">
+                    <WeatherIcon code={current.weather_code} size="lg" />
                   </div>
+                </div>
+                <div className="flex flex-col mt-2">
+                    <span className="text-[14px] font-medium text-white/90 capitalize tracking-wide">{current.description}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-4 text-[12px] text-white/70 font-mono">
                   <span>SENS. {ct(current.feels_like)}</span>
@@ -333,24 +341,24 @@ export function WeatherTab() {
 
           {/* Grid de Dados Atmosféricos */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <MetricCard icon={CloudRain} label="Volume Chuva" value={`${current.rain?.["1h"] || 0} mm/h`} sub="Última hora" />
-            <MetricCard icon={Wind} label="Vento" value={`${current.wind_speed} m/s`} sub={`Rajada: ${current.wind_gust || 0} m/s • ${getWindDir(current.wind_deg)}`} />
-            <MetricCard icon={Activity} label="Qualidade do Ar" sub={aqiText}>
+            <MetricCard icon={CloudRain} label="Precipitação" value={`${current.rain?.["1h"] || 0} mm/h`} sub="Última hora" />
+            <MetricCard icon={Wind} label="Vel. Vento" value={`${current.wind_speed} m/s`} sub={`Rajada: ${current.wind_gust || 0} m/s • ${getWindDir(current.wind_deg)}`} />
+            <MetricCard icon={Activity} label="Qualidade Ar" sub={aqiText}>
               <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden mt-1">
-                <div className={cn("h-full", aqiColor)} style={{ width: `${(aqi || 1) * 20}%` }} />
+                <div className={cn("h-full transition-all duration-1000", aqiColor)} style={{ width: `${(aqi || 1) * 20}%` }} />
               </div>
             </MetricCard>
             <MetricCard icon={Sun} label="Índice UV">
               <UvGauge uvi={current.uvi || 0} />
             </MetricCard>
-            <MetricCard icon={Droplets} label="Ponto Orvalho" value={ct((current.dew_point || 0).toString())} sub={`Umid: ${current.humidity}%`} />
-            <MetricCard icon={Gauge} label="Pressão" value={`${current.pressure} hPa`} sub={`Visibilidade: ${visKm} km`} />
+            <MetricCard icon={Droplets} label="Pt. Orvalho" value={ct((current.dew_point || 0).toString())} sub={`Umid: ${current.humidity}%`} />
+            <MetricCard icon={Gauge} label="Pressão" value={`${current.pressure} hPa`} sub={`Visão: ${visKm} km`} />
           </div>
 
           {/* Carrossel de Previsão por Hora */}
           <div className="alfredo-card p-4">
             <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[color:var(--text-tertiary)] mb-3 flex items-center gap-2">
-              <CloudFog className="h-3 w-3" /> Linha do Tempo (Próx. 24h)
+              <CloudFog className="h-3 w-3 text-brass-400" /> Previsão 24h
             </h4>
             <div 
               ref={scrollRef}
@@ -361,12 +369,12 @@ export function WeatherTab() {
               onMouseMove={handleMouseMove}
             >
               {hourly.slice(0, 24).map((h, i) => (
-                <div key={i} className="flex shrink-0 flex-col items-center gap-1.5 rounded-xl border border-white/5 bg-white/[0.015] px-3 py-2 min-w-[64px] snap-start hover:bg-white/[0.03] transition-colors select-none">
-                  <span className="text-[10px] font-semibold text-[color:var(--text-tertiary)]">{i === 0 ? 'Agora' : h.time}</span>
+                <div key={i} className="flex shrink-0 flex-col items-center gap-1.5 rounded-xl border border-white/5 bg-white/[0.015] px-3 py-2 min-w-[64px] snap-start hover:bg-white/[0.04] transition-colors select-none">
+                  <span className="text-[10px] font-mono font-semibold text-[color:var(--text-tertiary)]">{i === 0 ? 'AGORA' : h.time}</span>
                   <WeatherIcon code={h.weather_code} size="sm" />
-                  <span className="text-[13px] font-bold text-[color:var(--text-primary)] tabular-nums">{h.temp}°</span>
-                  <div className="flex items-center gap-0.5 text-[9px] text-sky-400/80 font-mono">
-                    <Droplets className="h-2 w-2" /> {h.pop}%
+                  <span className="text-[14px] font-bold text-[color:var(--text-primary)] tabular-nums">{h.temp}°</span>
+                  <div className="flex items-center gap-0.5 text-[10px] text-sky-400/80 font-mono">
+                    <Droplets className="h-2.5 w-2.5" /> {h.pop}%
                   </div>
                 </div>
               ))}
@@ -375,10 +383,10 @@ export function WeatherTab() {
         </div>
 
         <div className="flex flex-col gap-4">
-          {/* Ciclos Celestes */}
+          {/* Ciclos Celestes Hoje */}
           <div className="alfredo-card p-4">
              <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[color:var(--text-tertiary)] mb-4 flex items-center gap-2">
-              <Moon className="h-3 w-3" /> Ciclos Celestes
+              <Moon className="h-3 w-3 text-brass-400" /> Ciclos Celestes (Hoje)
             </h4>
             <div className="flex items-end gap-6 mb-2">
               <div className="flex-1">
@@ -390,27 +398,57 @@ export function WeatherTab() {
             </div>
           </div>
 
-          {/* Previsão Diária */}
+          {/* Previsão Diária Accordion */}
           <div className="alfredo-card p-4 flex-1">
             <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[color:var(--text-tertiary)] mb-3">
               Projeção 7 Dias
             </h4>
-            <div className="space-y-1.5">
-              {daily.slice(0, 7).map((d, i) => (
-                <div key={i} className="flex items-center gap-3 rounded-xl border border-transparent hover:border-white/5 hover:bg-white/[0.02] px-2 py-2 transition-colors">
-                  <span className="w-[4.5rem] text-[11px] font-medium text-[color:var(--text-primary)] uppercase tracking-wider">
-                    {formatDayName(d.date)}
-                  </span>
-                  <WeatherIcon code={d.weather_code} size="sm" />
-                  <span className="flex-1 text-[11px] text-[color:var(--text-secondary)] truncate pl-2">{d.description}</span>
-                  {d.pop > 0 && (
-                     <span className="text-[10px] text-sky-400/80 font-mono shrink-0 w-8 text-right">{d.pop}%</span>
-                  )}
-                  <span className="text-[12px] font-semibold text-[color:var(--text-primary)] tabular-nums shrink-0 w-16 text-right">
-                    {d.max_temp}° <span className="text-[color:var(--text-tertiary)] font-normal">{d.min_temp}°</span>
-                  </span>
-                </div>
-              ))}
+            <div className="space-y-2">
+              {daily.slice(0, 7).map((d, i) => {
+                const isExpanded = expandedDay === i;
+                let durationStr = '--h --m';
+                if (d.sunrise && d.sunset) {
+                  const diff = d.sunset - d.sunrise;
+                  durationStr = `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`;
+                }
+
+                return (
+                  <div key={i} className="flex flex-col rounded-xl border border-white/5 bg-white/[0.015] hover:border-white/10 hover:bg-white/[0.03] transition-all cursor-pointer" onClick={() => setExpandedDay(isExpanded ? null : i)}>
+                    <div className="flex items-center gap-3 px-3 py-2.5">
+                      <span className="w-[4.5rem] text-[11px] font-medium text-[color:var(--text-primary)] uppercase tracking-wider">
+                        {formatDayName(d.date)}
+                      </span>
+                      <WeatherIcon code={d.weather_code} size="sm" />
+                      <span className="flex-1 text-[11px] text-[color:var(--text-secondary)] truncate pl-2 font-mono">{d.description}</span>
+                      {d.pop > 0 && (
+                        <span className="text-[10px] text-sky-400/80 font-mono shrink-0 w-8 text-right flex items-center justify-end gap-0.5"><Droplets className="w-2.5 h-2.5"/> {d.pop}%</span>
+                      )}
+                      <span className="text-[13px] font-bold text-[color:var(--text-primary)] tabular-nums shrink-0 w-16 text-right flex items-center justify-end gap-1.5">
+                        {d.max_temp}° <span className="text-[color:var(--text-tertiary)] font-normal text-[10px]">{d.min_temp}°</span>
+                      </span>
+                    </div>
+                    
+                    {/* Expanded details */}
+                    {isExpanded && (
+                      <div className="px-4 pb-3 pt-2 border-t border-white/5 grid grid-cols-3 gap-2 fade-up">
+                        <div className="flex flex-col">
+                          <span className="text-[9px] uppercase tracking-[0.15em] text-[color:var(--text-tertiary)] flex items-center gap-1"><Sun className="w-2.5 h-2.5 text-brass-400"/> LUZ SOLAR</span>
+                          <span className="text-[12px] font-mono font-medium text-amber-400/90 mt-1">{durationStr}</span>
+                        </div>
+                        <div className="flex flex-col col-span-1">
+                          <span className="text-[9px] uppercase tracking-[0.15em] text-[color:var(--text-tertiary)] text-center">NASCER / PÔR</span>
+                          <span className="text-[11px] font-mono font-medium text-[color:var(--text-secondary)] mt-1 flex items-center justify-center gap-1.5">
+                            {d.sunrise ? formatUnixTime(d.sunrise) : '--:--'} <ArrowDown className="w-2.5 h-2.5 text-zinc-500" /> {d.sunset ? formatUnixTime(d.sunset) : '--:--'}
+                          </span>
+                        </div>
+                        <div className="flex flex-col items-end justify-center">
+                          <MoonPhaseIcon phase={d.moon_phase || 0} size="sm" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
