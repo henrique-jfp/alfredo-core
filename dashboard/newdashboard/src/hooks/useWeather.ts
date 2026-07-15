@@ -24,6 +24,14 @@ function parseIsoToUnix(isoString: string) {
   return Math.floor(new Date(isoString).getTime() / 1000);
 }
 
+function getMoonPhase(date: Date): number {
+  const lp = 2551442.8; // 29.530588 dias em segundos
+  const newMoon = new Date('2024-01-11T11:57:00Z').getTime() / 1000;
+  const now = date.getTime() / 1000;
+  const phase = ((now - newMoon) % lp) / lp;
+  return phase < 0 ? phase + 1 : phase;
+}
+
 const CACHE_KEY = 'alfredo_weather_cache';
 const CACHE_TIME = 15 * 60 * 1000; // 15 mins
 
@@ -37,7 +45,7 @@ export function useWeather() {
 
     async function fetchData(lat: string, lon: string, city: string) {
       try {
-        const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,dew_point_2m,uv_index&hourly=temperature_2m,precipitation_probability,weather_code,dew_point_2m,uv_index,visibility&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,moonrise,moonset,moon_phase,uv_index_max,precipitation_probability_max,sunshine_duration,precipitation_sum&timezone=auto&forecast_days=7`;
+        const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,dew_point_2m,uv_index&hourly=temperature_2m,precipitation_probability,weather_code,dew_point_2m,uv_index,visibility&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max,sunshine_duration,precipitation_sum&timezone=auto&forecast_days=7`;
         const aqiUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=us_aqi,pm2_5,pm10,ozone`;
 
         const [resForecast, resAqi] = await Promise.all([
@@ -45,8 +53,13 @@ export function useWeather() {
           fetch(aqiUrl)
         ]);
 
-        if (!resForecast.ok || !resAqi.ok) {
-          throw new Error('Falha ao buscar dados da API');
+        if (!resForecast.ok) {
+          const txt = await resForecast.text();
+          throw new Error(`Open-Meteo Forecast Erro ${resForecast.status}: ${txt}`);
+        }
+        if (!resAqi.ok) {
+          const txt = await resAqi.text();
+          throw new Error(`Open-Meteo AQI Erro ${resAqi.status}: ${txt}`);
         }
 
         const fc = await resForecast.json();
@@ -99,11 +112,11 @@ export function useWeather() {
             weather_code: fc.daily.weather_code[i],
             description: getWmoDesc(fc.daily.weather_code[i]),
             pop: fc.daily.precipitation_probability_max[i] || 0,
-            moon_phase: fc.daily.moon_phase[i],
+            moon_phase: getMoonPhase(new Date(t + 'T12:00:00')),
             sunrise: parseIsoToUnix(fc.daily.sunrise[i]),
             sunset: parseIsoToUnix(fc.daily.sunset[i]),
-            moonrise: fc.daily.moonrise[i] ? parseIsoToUnix(fc.daily.moonrise[i]) : undefined,
-            moonset: fc.daily.moonset[i] ? parseIsoToUnix(fc.daily.moonset[i]) : undefined,
+            moonrise: undefined,
+            moonset: undefined,
             sunshine_duration: fc.daily.sunshine_duration[i]
           }))
         };
@@ -140,17 +153,29 @@ export function useWeather() {
     }
 
     // Use Geolocation or Fallback
+    let locationResolved = false;
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
+          if (locationResolved) return;
+          locationResolved = true;
           fetchData(pos.coords.latitude.toString(), pos.coords.longitude.toString(), "Localização Atual");
         },
         (err) => {
-          // Fallback Rio de Janeiro
+          if (locationResolved) return;
+          locationResolved = true;
           fetchData("-22.9068", "-43.1729", "Rio de Janeiro");
         },
-        { timeout: 5000 }
+        { timeout: 3000, maximumAge: 300000 }
       );
+      
+      // Fallback manual para caso o navegador ignore o timeout do GPS (comum no Windows s/ sensor)
+      setTimeout(() => {
+        if (!locationResolved) {
+          locationResolved = true;
+          fetchData("-22.9068", "-43.1729", "Rio de Janeiro (Fallback Timeout)");
+        }
+      }, 3500);
     } else {
       fetchData("-22.9068", "-43.1729", "Rio de Janeiro");
     }
