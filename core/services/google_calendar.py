@@ -296,15 +296,15 @@ def pull_events(db: Session) -> int:
                     existing.google_updated = g_updated
                     existing.source = "GOOGLE"
                     if existing.room_id == "google_sync":
-                        existing.room_id = None
+                        existing.room_id = ""
                     db.commit()
                     count += 1
             else:
-                # Eventos do Google são globais (room_id=None, source="GOOGLE")
+                # Eventos do Google são globais (room_id="", source="GOOGLE")
                 new_event = models.Event(
                     title=title,
                     start_time=start_dt,
-                    room_id=None,
+                    room_id="",
                     source="GOOGLE",
                     google_event_id=gevent_id,
                     google_updated=item.get("updated", ""),

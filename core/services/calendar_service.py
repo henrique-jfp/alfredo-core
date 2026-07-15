@@ -58,11 +58,11 @@ def migrate_legacy_events(db: Session) -> int:
     """
     count = 0
     # Corrige eventos com room_id='google_sync' (modelo antigo)
+    # NOTA: room_id tem NOT NULL no DB, então mantemos o valor original
     old_google = db.query(models.Event).filter(
         models.Event.room_id == "google_sync"
     ).all()
     for ev in old_google:
-        ev.room_id = None
         ev.source = "GOOGLE"
         if ev.google_event_id is None:
             ev.google_event_id = "legacy"
@@ -75,13 +75,11 @@ def migrate_legacy_events(db: Session) -> int:
     ).all()
     for ev in old_synced:
         ev.source = "GOOGLE"
-        if ev.room_id == "google_sync":
-            ev.room_id = None
         count += 1
 
     if count > 0:
         db.commit()
-        logger.info(f"Migração legada: {count} eventos corrigidos (source, room_id)")
+        logger.info(f"Migração legada: {count} eventos corrigidos (source)")
     return count
 
 

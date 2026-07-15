@@ -116,7 +116,6 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
     if not _has_wake_word(transcribed_text):
         session_active = db.query(models.SessionState).filter(
             models.SessionState.room_id == room_id,
-            models.SessionState.is_active == True
         ).first()
         if not session_active:
             logger.info(f"Ignorando '{transcribed_text}': sem wake word e sem sessão ativa.")
