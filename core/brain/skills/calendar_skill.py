@@ -74,15 +74,15 @@ class CalendarSkill(Skill):
         for e in events:
             local_time = to_local(e.start_time)
             hora_str = local_time.strftime("%H:%M").replace(":00", " horas")
-            dia_str = local_time.strftime("%A").lower()
-            itens.append(f"{e.title} {dia_str} às {hora_str}")
+            dia_str = local_time.strftime("dia %d de %B").lower()
+            itens.append(f"{dia_str} você tem {e.title} às {hora_str}")
 
         if len(itens) > 1:
-            texto = ", ".join(itens[:-1]) + " e " + itens[-1]
+            texto = ". ".join(itens)
         else:
             texto = itens[0]
 
-        return f"Para {day_str} você tem: {texto}."
+        return f"Para {day_str} seus compromissos são: {texto}."
 
     @staticmethod
     def _resolve_date(text: str) -> Optional[Tuple[datetime, str]]:
@@ -588,7 +588,7 @@ class CalendarSkill(Skill):
             for e in events:
                 local_time = to_local(e.start_time)
                 hora_str = local_time.strftime("%H:%M").replace(":00", " horas")
-                dia_str = local_time.strftime("%A").lower()
+                dia_str = local_time.strftime("dia %d de %B").lower()
                 event_list.append({
                     "id": e.id,
                     "title": e.title,
@@ -600,17 +600,17 @@ class CalendarSkill(Skill):
                 })
 
             if len(event_list) > 1:
-                nomes = []
+                frases = []
                 for ev in event_list:
-                    nomes.append(f"{ev['title']} {ev['day']} às {ev['time']}")
-                desc = ", ".join(nomes[:-1]) + " e " + nomes[-1]
+                    frases.append(f"{ev['day']} você tem {ev['title']} às {ev['time']}")
+                desc = ". ".join(frases)
             else:
                 ev = event_list[0]
-                desc = f"{ev['title']} {ev['day']} às {ev['time']}"
+                desc = f"{ev['day']} você tem {ev['title']} às {ev['time']}"
 
             return {
                 "events": event_list,
-                "direct_response": f"Para {day_str} você tem: {desc}."
+                "direct_response": f"Para {day_str} seus compromissos são: {desc}."
             }
 
         elif action == "add":
