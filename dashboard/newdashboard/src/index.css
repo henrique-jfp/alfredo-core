@@ -137,6 +137,15 @@ body {
   .bg-weather-sun {
     background: linear-gradient(135deg, rgba(212, 162, 78, 0.15) 0%, rgba(0, 0, 0, 0) 100%), var(--bg-surface);
   }
+  .bg-weather-day {
+    background: linear-gradient(180deg, rgba(56, 189, 248, 0.2) 0%, rgba(14, 165, 233, 0.05) 100%), var(--bg-surface);
+  }
+  .bg-weather-sunset {
+    background: linear-gradient(180deg, rgba(249, 115, 22, 0.25) 0%, rgba(217, 70, 239, 0.05) 100%), var(--bg-surface);
+  }
+  .bg-weather-night {
+    background: linear-gradient(180deg, rgba(30, 27, 75, 0.4) 0%, rgba(15, 23, 42, 0.1) 100%), var(--bg-surface);
+  }
   .bg-weather-cloud {
     background: linear-gradient(135deg, rgba(100, 100, 110, 0.15) 0%, rgba(0, 0, 0, 0) 100%), var(--bg-surface);
   }
@@ -148,6 +157,21 @@ body {
   }
   .bg-weather-snow {
     background: linear-gradient(135deg, rgba(180, 200, 220, 0.15) 0%, rgba(0, 0, 0, 0) 100%), var(--bg-surface);
+  }
+  .parallax-stars {
+    background-image: 
+      radial-gradient(1px 1px at 20px 30px, #fff, transparent),
+      radial-gradient(1px 1px at 40px 70px, #fff, transparent),
+      radial-gradient(1.5px 1.5px at 50px 160px, #fff, transparent),
+      radial-gradient(1px 1px at 90px 40px, #fff, transparent),
+      radial-gradient(2px 2px at 130px 80px, #fff, transparent);
+    background-size: 200px 200px;
+    animation: cloudDrift 60s linear infinite;
+  }
+  .parallax-clouds {
+    background-image: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.03) 0%, transparent 50%);
+    background-size: 200px 200px;
+    animation: cloudDrift2 40s linear infinite;
   }
   .hide-scrollbar::-webkit-scrollbar {
     display: none;

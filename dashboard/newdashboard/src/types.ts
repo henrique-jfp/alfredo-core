@@ -123,6 +123,9 @@ export interface ForecastDaily {
   moon_phase?: number;
   sunrise?: number;
   sunset?: number;
+  moonrise?: number;
+  moonset?: number;
+  sunshine_duration?: number;
 }
 
 export interface ForecastCurrent {
@@ -144,6 +147,7 @@ export interface ForecastCurrent {
   dew_point?: number;
   wind_gust?: number;
   rain?: { "1h": number };
+  is_day?: number;
 }
 
 export interface WeatherAlert {

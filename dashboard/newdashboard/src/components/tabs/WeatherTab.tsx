@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { api } from '../../lib/api';
 import { ForecastData, WeatherAlert } from '../../types';
 import { SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
 import {
   Droplets, Wind, Eye, Gauge, Sun, Moon,
   ArrowUp, ArrowDown, MapPin, AlertTriangle, CloudRain,
-  Activity, CloudFog, Sunrise, Sunset
+  Activity, CloudFog
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useWeather } from '../../hooks/useWeather';
 
 function getWeatherKind(code: number) {
   if (code <= 1) return 'sun';
@@ -16,13 +16,6 @@ function getWeatherKind(code: number) {
   if (code >= 71 && code <= 77) return 'snow';
   if (code >= 95) return 'storm';
   return 'cloud';
-}
-
-function uvFromCode(code: number) {
-  const kind = getWeatherKind(code);
-  if (kind === 'sun') return { level: 'Alto', color: 'text-amber-400' };
-  if (kind === 'cloud') return { level: 'Moderado', color: 'text-yellow-400' };
-  return { level: 'Baixo', color: 'text-zinc-400' };
 }
 
 function formatUnixTime(ts: number): string {
@@ -45,19 +38,56 @@ function getWindDir(deg: number) {
   return dirs[Math.round(deg / 22.5) % 16];
 }
 
-const WeatherIcon = ({ code, size = 'md' }: { code: number; size?: 'sm' | 'md' | 'lg' }) => {
+const CountUp = ({ value, duration = 600 }: { value: number, duration?: number }) => {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let startTime: number;
+    let animationFrame: number;
+
+    const updateCount = (timestamp: number) => {
+      if (!startTime) startTime = timestamp;
+      const progress = timestamp - startTime;
+      
+      if (progress < duration) {
+        setCount(Math.round((progress / duration) * value));
+        animationFrame = requestAnimationFrame(updateCount);
+      } else {
+        setCount(value);
+      }
+    };
+
+    animationFrame = requestAnimationFrame(updateCount);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [value, duration]);
+
+  return <span>{count}</span>;
+};
+
+const WeatherIcon = ({ code, size = 'md', isNight = false }: { code: number; size?: 'sm' | 'md' | 'lg', isNight?: boolean }) => {
   const kind = getWeatherKind(code);
   const s = size === 'lg' ? 'w-24 h-24' : size === 'md' ? 'w-14 h-14' : 'w-8 h-8';
 
-  if (kind === 'sun') return (
-    <svg viewBox="0 0 100 100" className={cn("shrink-0", s)}>
-      <circle cx="50" cy="50" r="22" className="text-amber-400 fill-amber-400/20" stroke="currentColor" strokeWidth="2" style={{ animation: 'sunPulse 3s infinite' }} />
-      <g className="text-amber-400/60" style={{ animation: 'rayRotate 20s linear infinite', transformOrigin: '50% 50%' }}>
-        <circle cx="50" cy="50" r="32" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="4 8" />
-        <path d="M50 8 L50 15 M50 85 L50 92 M8 50 L15 50 M85 50 L92 50 M20 20 L25 25 M75 75 L80 80 M20 80 L25 75 M75 20 L80 25" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      </g>
-    </svg>
-  );
+  if (kind === 'sun') {
+    if (isNight) {
+      return (
+        <svg viewBox="0 0 100 100" className={cn("shrink-0", s)}>
+          <circle cx="50" cy="50" r="22" className="text-zinc-300 fill-zinc-300/20" stroke="currentColor" strokeWidth="2" style={{ animation: 'sunPulse 4s infinite' }} />
+          <path d="M70 40 A 25 25 0 0 0 50 25 A 25 25 0 0 1 50 75 A 25 25 0 0 0 70 60 Z" className="text-zinc-200 fill-zinc-200/50" />
+        </svg>
+      );
+    }
+    return (
+      <svg viewBox="0 0 100 100" className={cn("shrink-0", s)}>
+        <circle cx="50" cy="50" r="22" className="text-amber-400 fill-amber-400/20" stroke="currentColor" strokeWidth="2" style={{ animation: 'sunPulse 3s infinite' }} />
+        <g className="text-amber-400/60" style={{ animation: 'rayRotate 20s linear infinite', transformOrigin: '50% 50%' }}>
+          <circle cx="50" cy="50" r="32" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="4 8" />
+          <path d="M50 8 L50 15 M50 85 L50 92 M8 50 L15 50 M85 50 L92 50 M20 20 L25 25 M75 75 L80 80 M20 80 L25 75 M75 20 L80 25" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </g>
+      </svg>
+    );
+  }
+  
   if (kind === 'rain') return (
     <svg viewBox="0 0 100 100" className={cn("shrink-0", s)}>
       <g style={{ animation: 'cloudPulse 4s infinite' }}>
@@ -95,6 +125,7 @@ const WeatherIcon = ({ code, size = 'md' }: { code: number; size?: 'sm' | 'md' |
   // Cloud
   return (
     <svg viewBox="0 0 100 100" className={cn("shrink-0", s)}>
+      {isNight && <circle cx="45" cy="40" r="15" className="text-zinc-300 fill-zinc-300/20" stroke="currentColor" strokeWidth="1" />}
       <path d="M30 65 Q20 65 20 55 Q20 45 35 45 Q40 30 55 30 Q70 30 75 45 Q85 45 85 55 Q85 65 75 65 Z" className="text-zinc-500 fill-zinc-500/10" stroke="currentColor" strokeWidth="2" style={{ animation: 'cloudDrift2 8s infinite ease-in-out', transformOrigin: '50% 50%' }} />
       <path d="M25 70 Q10 70 10 55 Q10 40 30 40 Q40 20 60 20 Q80 20 85 40 Q100 40 100 55 Q100 70 85 70 Z" className="text-zinc-300 fill-zinc-300/20" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'cloudDrift 10s infinite ease-in-out', transformOrigin: '50% 50%' }} />
     </svg>
@@ -106,7 +137,7 @@ const TacticalAlertBanner = ({ alerts }: { alerts: WeatherAlert[] }) => {
   const alert = alerts[0]; 
   
   return (
-    <div className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 md:p-4 backdrop-blur-md shadow-[0_0_15px_rgba(244,63,94,0.15)] flex flex-col md:flex-row gap-3 md:items-center cursor-pointer">
+    <div className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 md:p-4 backdrop-blur-md shadow-[0_0_15px_rgba(244,63,94,0.15)] flex flex-col md:flex-row gap-3 md:items-center cursor-pointer hover:-translate-y-0.5 transition-transform">
       <div className="flex items-center gap-2 text-rose-400 font-bold shrink-0">
         <AlertTriangle className="h-5 w-5 animate-pulse" />
         <span className="uppercase tracking-wider text-sm">Alerta Tático</span>
@@ -171,24 +202,43 @@ const MoonPhaseIcon = ({ phase, size = 'md' }: { phase: number, size?: 'sm'|'md'
 
   return (
     <div className="flex flex-col items-center gap-1">
-      <div className={cn("rounded-full border border-white/10 shadow-[inset_-6px_0_0_rgba(255,255,255,0.1)] flex items-center justify-center", s,
+      <div className={cn("rounded-full border border-white/10 shadow-[inset_-6px_0_0_rgba(255,255,255,0.1)] flex items-center justify-center relative overflow-hidden", s,
         isFullish ? "bg-zinc-200" : "bg-zinc-800"
       )}>
-        {isFullish && <div className="w-1/3 h-1/3 rounded-full bg-zinc-300 absolute ml-2 mt-2 opacity-50" />}
+        {isFullish && <div className="w-full h-full rounded-full bg-black/40 absolute left-1/3 mix-blend-multiply" />}
       </div>
       <span className={cn("text-[color:var(--text-tertiary)] uppercase font-semibold", size === 'sm' ? "text-[8px]" : "text-[9px]")}>{iconName}</span>
     </div>
   );
 };
 
-const SunArc = ({ sunrise, sunset, current }: { sunrise: number, sunset: number, current: number }) => {
-  const totalDuration = sunset - sunrise;
-  const elapsed = current - sunrise;
+const SunArc = ({ sunrise, sunset, current, isNight, moonrise, moonset }: { sunrise: number, sunset: number, current: number, isNight: boolean, moonrise?: number, moonset?: number }) => {
+  
+  let start = sunrise;
+  let end = sunset;
+  let isMoon = false;
+  
+  // Se for noite e tivermos os dados da lua, faremos o arco lunar
+  if (isNight && moonrise && moonset) {
+    start = moonrise;
+    end = moonset;
+    isMoon = true;
+    
+    // Se moonset for antes do moonrise (cruzou meia noite), ajustamos
+    if (end < start && current < end) {
+      start -= 86400; // moonrise de ontem
+    } else if (end < start && current > start) {
+      end += 86400; // moonset de amanha
+    }
+  }
+
+  const totalDuration = end - start;
+  const elapsed = current - start;
   let percent = 0;
   
-  if (current > sunrise && current < sunset) {
+  if (current > start && current < end) {
     percent = elapsed / totalDuration;
-  } else if (current >= sunset) {
+  } else if (current >= end) {
     percent = 1;
   }
 
@@ -199,20 +249,20 @@ const SunArc = ({ sunrise, sunset, current }: { sunrise: number, sunset: number,
     <div className="relative w-full h-12 flex items-center justify-center">
       <svg className="w-full h-12 overflow-visible" viewBox="0 0 100 45" preserveAspectRatio="none">
         <path d="M 10 40 Q 50 -10 90 40" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/10" strokeDasharray="3 4" />
-        {(current > sunrise && current < sunset) && (
-          <circle cx={cx} cy={cy} r="4" fill="#fbbf24" className="shadow-[0_0_12px_#fbbf24] animate-pulse" />
+        {(current > start && current < end) && (
+          <circle cx={cx} cy={cy} r="4" fill={isMoon ? "#e4e4e7" : "#fbbf24"} className={isMoon ? "shadow-[0_0_12px_#e4e4e7] animate-pulse" : "shadow-[0_0_12px_#fbbf24] animate-pulse"} />
         )}
       </svg>
       <div className="absolute bottom-0 left-0 text-[10px] text-[color:var(--text-tertiary)] flex justify-between w-full px-1 font-mono">
-        <span>{formatUnixTime(sunrise)}</span>
-        <span>{formatUnixTime(sunset)}</span>
+        <span>{formatUnixTime(start)}</span>
+        <span>{formatUnixTime(end)}</span>
       </div>
     </div>
   );
 };
 
 const MetricCard = ({ icon: Icon, label, value, sub, children }: { icon: any; label: string; value?: React.ReactNode; sub?: string; children?: React.ReactNode }) => (
-  <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3 hover:bg-white/[0.04] transition-colors flex items-center gap-3">
+  <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3 hover:bg-white/[0.04] transition-all hover:-translate-y-0.5 shadow-sm hover:shadow-md flex items-center gap-3">
     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brass-500/10 border border-brass-500/20 shadow-[0_0_10px_rgba(201,162,75,0.05)]">
       <Icon className="h-4 w-4 text-brass-400" />
     </div>
@@ -226,8 +276,7 @@ const MetricCard = ({ icon: Icon, label, value, sub, children }: { icon: any; la
 );
 
 export function WeatherTab() {
-  const [data, setData] = useState<ForecastData | null>(null);
-  const [error, setError] = useState('');
+  const { data, loading, error } = useWeather();
   const [unit, setUnit] = useState<'C' | 'F'>('C');
   const scrollRef = useRef<HTMLDivElement>(null);
   
@@ -236,10 +285,6 @@ export function WeatherTab() {
   const [scrollLeft, setScrollLeft] = useState(0);
 
   const [expandedDay, setExpandedDay] = useState<number | null>(null);
-
-  useEffect(() => {
-    api.getForecast().then(setData).catch(() => setError('Indisponível'));
-  }, []);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!scrollRef.current) return;
@@ -257,84 +302,128 @@ export function WeatherTab() {
     scrollRef.current.scrollLeft = scrollLeft - walk;
   };
 
-  if (error) {
+  if (loading) {
     return (
       <div className="flex h-full flex-col gap-4 overflow-y-auto pb-safe px-safe">
-        <SectionHeading eyebrow="Clima" title="Centro de Comando" subtitle="Monitoramento atmosférico e logístico." />
-        <div className="alfredo-card p-8 text-center text-[color:var(--text-tertiary)]">{error}</div>
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div className="flex h-full flex-col gap-4 overflow-y-auto pb-safe px-safe">
-        <SectionHeading eyebrow="Clima" title="Centro de Comando" subtitle="Monitoramento atmosférico e logístico." />
+        <SectionHeading eyebrow="Clima" title="Centro de Comando" subtitle="Monitoramento atmosférico cinemático." />
         <div className="alfredo-card p-8 text-center text-[color:var(--text-secondary)] text-sm shimmer rounded-2xl h-64 border-none"></div>
       </div>
     );
   }
 
+  if (error || !data) {
+    return (
+      <div className="flex h-full flex-col gap-4 overflow-y-auto pb-safe px-safe">
+        <SectionHeading eyebrow="Clima" title="Centro de Comando" subtitle="Monitoramento atmosférico cinemático." />
+        <div className="alfredo-card p-8 text-center text-[color:var(--text-tertiary)]">{error || 'Sem dados.'}</div>
+      </div>
+    );
+  }
+
   const { current, hourly, daily, city, alerts, aqi } = data;
-  const ct = (v: string) => unit === 'C' ? `${v}°` : `${Math.round(parseInt(v) * 9 / 5 + 32)}°`;
+  
+  const parseTemp = (v: string) => {
+    const n = parseInt(v);
+    return unit === 'C' ? n : Math.round(n * 9 / 5 + 32);
+  };
+  const ctf = (v: string) => `${parseTemp(v)}°`;
+  
   const visKm = (parseInt(current.visibility as any) / 1000).toFixed(1);
   const weatherKind = getWeatherKind(current.weather_code);
-  const bgClass = `bg-weather-${weatherKind}`;
-  
-  let aqiColor = 'bg-zinc-500';
-  let aqiText = 'Desconhecido';
-  if (aqi === 1) { aqiColor = 'bg-green-500 shadow-[0_0_8px_#22c55e]'; aqiText = 'Bom'; }
-  else if (aqi === 2) { aqiColor = 'bg-yellow-400 shadow-[0_0_8px_#facc15]'; aqiText = 'Razoável'; }
-  else if (aqi === 3) { aqiColor = 'bg-orange-500 shadow-[0_0_8px_#f97316]'; aqiText = 'Moderado'; }
-  else if (aqi === 4) { aqiColor = 'bg-red-500 shadow-[0_0_8px_#ef4444]'; aqiText = 'Ruim'; }
-  else if (aqi === 5) { aqiColor = 'bg-purple-600 shadow-[0_0_8px_#9333ea]'; aqiText = 'Péssimo'; }
-
   const nowUnix = Math.floor(Date.now() / 1000);
+  const isNight = current.is_day === 0;
+
+  // Background dinâmico
+  let bgClass = '';
+  if (weatherKind === 'rain' || weatherKind === 'storm' || weatherKind === 'snow') {
+    bgClass = `bg-weather-${weatherKind}`;
+  } else {
+    if (isNight) {
+      bgClass = 'bg-weather-night';
+    } else {
+      const nearSunrise = Math.abs(nowUnix - current.sunrise) < 3600 * 1.5;
+      const nearSunset = Math.abs(nowUnix - current.sunset) < 3600 * 1.5;
+      bgClass = (nearSunrise || nearSunset) ? 'bg-weather-sunset' : 'bg-weather-day';
+    }
+  }
+  
+  // AQI color mapping
+  let aqiColor = 'bg-zinc-500 shadow-none';
+  let aqiText = 'Desconhecido';
+  if (aqi !== undefined) {
+    if (aqi <= 50) { aqiColor = 'bg-green-500 shadow-[0_0_8px_#22c55e]'; aqiText = 'Boa'; }
+    else if (aqi <= 100) { aqiColor = 'bg-yellow-400 shadow-[0_0_8px_#facc15]'; aqiText = 'Moderada'; }
+    else if (aqi <= 150) { aqiColor = 'bg-orange-500 shadow-[0_0_8px_#f97316]'; aqiText = 'Prejudicial s.'; }
+    else if (aqi <= 200) { aqiColor = 'bg-red-500 shadow-[0_0_8px_#ef4444]'; aqiText = 'Ruim'; }
+    else { aqiColor = 'bg-purple-600 shadow-[0_0_8px_#9333ea]'; aqiText = 'Péssima'; }
+  }
+
+  // Briefing
+  let briefing = `${current.description} no momento. `;
+  if (isNight) {
+     briefing += `Mínima prevista de ${current.min_temp}°C nesta noite. `;
+  } else {
+     briefing += `Máxima de ${current.max_temp}°C hoje. `;
+  }
+  if (daily[0]?.pop > 20) {
+     briefing += `Possibilidade de precipitação: ${daily[0].pop}%.`;
+  } else {
+     briefing += `Sem grandes chuvas previstas hoje.`;
+  }
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto pb-safe px-safe hide-scrollbar">
       <SectionHeading
         eyebrow="Clima"
         title="Centro de Comando"
-        subtitle="Monitoramento atmosférico logístico."
+        subtitle="Monitoramento atmosférico cinemático."
         action={
           <div className="flex items-center gap-1.5">
             <StatusPulse label="Ao vivo" tone="success" />
-            <button onClick={() => setUnit(unit === 'C' ? 'F' : 'C')} className="alfredo-pill border-white/10 bg-white/[0.03] text-xs text-[color:var(--text-secondary)] px-2">
+            <button onClick={() => setUnit(unit === 'C' ? 'F' : 'C')} className="alfredo-pill border-white/10 bg-white/[0.03] text-xs text-[color:var(--text-secondary)] px-2 hover:bg-white/[0.08] transition-colors">
               °{unit === 'C' ? 'F' : 'C'}
             </button>
           </div>
         }
       />
 
-      {alerts && <TacticalAlertBanner alerts={alerts} />}
+      {alerts && alerts.length > 0 && <TacticalAlertBanner alerts={alerts} />}
 
       <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
         <div className="flex flex-col gap-4">
-          {/* Card Principal Dinâmico */}
-          <div className={cn("alfredo-card p-5 md:p-6 overflow-hidden relative border-t-2", bgClass)} style={{ borderTopColor: 'var(--color-brass-500)' }}>
-            <div className="relative z-10 flex flex-col md:flex-row md:items-start justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-primary)] opacity-80 mb-2 font-mono uppercase tracking-wider">
-                  <MapPin className="h-3 w-3 text-brass-400" />
-                  {city}
-                </div>
+          {/* Card Principal Dinâmico e Cinematográfico */}
+          <div className={cn("alfredo-card p-5 md:p-6 overflow-hidden relative border-t-2 transition-colors duration-1000", bgClass)} style={{ borderTopColor: 'var(--color-brass-500)' }}>
+            
+            {/* Parallax layers */}
+            {isNight && <div className="absolute inset-0 parallax-stars z-0" />}
+            <div className="absolute inset-0 parallax-clouds z-0" />
+            
+            <div className="relative z-10 flex flex-col gap-4">
+              <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-primary)] opacity-90 mb-2 font-mono uppercase tracking-wider">
+                <MapPin className="h-3 w-3 text-brass-400" />
+                {city}
+              </div>
+              
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <span className="text-7xl font-bold tracking-tighter text-white tabular-nums leading-none drop-shadow-md">
-                    {ct(current.temperature)}
+                    <CountUp value={parseTemp(current.temperature)} />°
                   </span>
                   <div className="flex flex-col items-center">
-                    <WeatherIcon code={current.weather_code} size="lg" />
+                    <WeatherIcon code={current.weather_code} size="lg" isNight={isNight} />
                   </div>
                 </div>
-                <div className="flex flex-col mt-2">
-                    <span className="text-[14px] font-medium text-white/90 capitalize tracking-wide">{current.description}</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-4 text-[12px] text-white/70 font-mono">
-                  <span>SENS. {ct(current.feels_like)}</span>
-                  <span className="flex items-center gap-1"><ArrowUp className="h-3 w-3 text-rose-400" />{ct(current.max_temp)}</span>
-                  <span className="flex items-center gap-1"><ArrowDown className="h-3 w-3 text-sky-400" />{ct(current.min_temp)}</span>
-                </div>
+              </div>
+              
+              <div className="flex flex-col mt-1">
+                  <span className="text-[15px] font-medium text-white capitalize tracking-wide">{current.description}</span>
+                  <span className="text-[11px] text-white/70 mt-1 max-w-[80%]">{briefing}</span>
+              </div>
+              
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 text-[12px] text-white/80 font-mono bg-black/20 p-2 px-3 rounded-lg w-max backdrop-blur-sm border border-white/5">
+                <span>SENS. {ctf(current.feels_like)}</span>
+                <span className="flex items-center gap-1"><ArrowUp className="h-3 w-3 text-rose-400" />{ctf(current.max_temp)}</span>
+                <span className="flex items-center gap-1"><ArrowDown className="h-3 w-3 text-sky-400" />{ctf(current.min_temp)}</span>
               </div>
             </div>
           </div>
@@ -342,16 +431,16 @@ export function WeatherTab() {
           {/* Grid de Dados Atmosféricos */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <MetricCard icon={CloudRain} label="Precipitação" value={`${current.rain?.["1h"] || 0} mm/h`} sub="Última hora" />
-            <MetricCard icon={Wind} label="Vel. Vento" value={`${current.wind_speed} m/s`} sub={`Rajada: ${current.wind_gust || 0} m/s • ${getWindDir(current.wind_deg)}`} />
+            <MetricCard icon={Wind} label="Vel. Vento" value={`${current.wind_speed} km/h`} sub={`Rajada: ${current.wind_gust || 0} km/h • ${getWindDir(current.wind_deg)}`} />
             <MetricCard icon={Activity} label="Qualidade Ar" sub={aqiText}>
               <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden mt-1">
-                <div className={cn("h-full transition-all duration-1000", aqiColor)} style={{ width: `${(aqi || 1) * 20}%` }} />
+                <div className={cn("h-full transition-all duration-1000", aqiColor)} style={{ width: `${Math.min(((aqi || 1) / 300) * 100, 100)}%` }} />
               </div>
             </MetricCard>
             <MetricCard icon={Sun} label="Índice UV">
               <UvGauge uvi={current.uvi || 0} />
             </MetricCard>
-            <MetricCard icon={Droplets} label="Pt. Orvalho" value={ct((current.dew_point || 0).toString())} sub={`Umid: ${current.humidity}%`} />
+            <MetricCard icon={Droplets} label="Pt. Orvalho" value={ctf((current.dew_point || 0).toString())} sub={`Umid: ${current.humidity}%`} />
             <MetricCard icon={Gauge} label="Pressão" value={`${current.pressure} hPa`} sub={`Visão: ${visKm} km`} />
           </div>
 
@@ -368,16 +457,19 @@ export function WeatherTab() {
               onMouseUp={handleMouseUp}
               onMouseMove={handleMouseMove}
             >
-              {hourly.slice(0, 24).map((h, i) => (
-                <div key={i} className="flex shrink-0 flex-col items-center gap-1.5 rounded-xl border border-white/5 bg-white/[0.015] px-3 py-2 min-w-[64px] snap-start hover:bg-white/[0.04] transition-colors select-none">
-                  <span className="text-[10px] font-mono font-semibold text-[color:var(--text-tertiary)]">{i === 0 ? 'AGORA' : h.time}</span>
-                  <WeatherIcon code={h.weather_code} size="sm" />
-                  <span className="text-[14px] font-bold text-[color:var(--text-primary)] tabular-nums">{h.temp}°</span>
-                  <div className="flex items-center gap-0.5 text-[10px] text-sky-400/80 font-mono">
-                    <Droplets className="h-2.5 w-2.5" /> {h.pop}%
+              {hourly.map((h, i) => {
+                const hIsNight = h.time < "06:00" || h.time > "18:30"; // Simplificação para icones
+                return (
+                  <div key={i} className="flex shrink-0 flex-col items-center gap-1.5 rounded-xl border border-white/5 bg-white/[0.015] px-3 py-2 min-w-[64px] snap-start hover:bg-white/[0.04] hover:-translate-y-0.5 transition-all select-none shadow-sm">
+                    <span className="text-[10px] font-mono font-semibold text-[color:var(--text-tertiary)]">{i === 0 ? 'AGORA' : h.time}</span>
+                    <WeatherIcon code={h.weather_code} size="sm" isNight={hIsNight} />
+                    <span className="text-[14px] font-bold text-[color:var(--text-primary)] tabular-nums"><CountUp value={parseTemp(h.temp.toString())} />°</span>
+                    <div className="flex items-center gap-0.5 text-[10px] text-sky-400/80 font-mono">
+                      <Droplets className="h-2.5 w-2.5" /> {h.pop}%
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </div>
@@ -390,9 +482,16 @@ export function WeatherTab() {
             </h4>
             <div className="flex items-end gap-6 mb-2">
               <div className="flex-1">
-                <SunArc sunrise={current.sunrise} sunset={current.sunset} current={nowUnix} />
+                <SunArc 
+                  sunrise={current.sunrise} 
+                  sunset={current.sunset} 
+                  current={nowUnix} 
+                  isNight={isNight}
+                  moonrise={daily[0]?.moonrise}
+                  moonset={daily[0]?.moonset}
+                />
               </div>
-              <div className="shrink-0 pb-1">
+              <div className="shrink-0 pb-1 flex flex-col items-center gap-1">
                 <MoonPhaseIcon phase={daily[0]?.moon_phase || 0} />
               </div>
             </div>
@@ -407,13 +506,12 @@ export function WeatherTab() {
               {daily.slice(0, 7).map((d, i) => {
                 const isExpanded = expandedDay === i;
                 let durationStr = '--h --m';
-                if (d.sunrise && d.sunset) {
-                  const diff = d.sunset - d.sunrise;
-                  durationStr = `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`;
+                if (d.sunshine_duration) {
+                  durationStr = `${Math.floor(d.sunshine_duration / 3600)}h ${Math.floor((d.sunshine_duration % 3600) / 60)}m`;
                 }
 
                 return (
-                  <div key={i} className="flex flex-col rounded-xl border border-white/5 bg-white/[0.015] hover:border-white/10 hover:bg-white/[0.03] transition-all cursor-pointer" onClick={() => setExpandedDay(isExpanded ? null : i)}>
+                  <div key={i} className="flex flex-col rounded-xl border border-white/5 bg-white/[0.015] hover:border-white/20 hover:bg-white/[0.04] transition-all cursor-pointer shadow-sm hover:shadow-md" onClick={() => setExpandedDay(isExpanded ? null : i)}>
                     <div className="flex items-center gap-3 px-3 py-2.5">
                       <span className="w-[4.5rem] text-[11px] font-medium text-[color:var(--text-primary)] uppercase tracking-wider">
                         {formatDayName(d.date)}
@@ -424,7 +522,7 @@ export function WeatherTab() {
                         <span className="text-[10px] text-sky-400/80 font-mono shrink-0 w-8 text-right flex items-center justify-end gap-0.5"><Droplets className="w-2.5 h-2.5"/> {d.pop}%</span>
                       )}
                       <span className="text-[13px] font-bold text-[color:var(--text-primary)] tabular-nums shrink-0 w-16 text-right flex items-center justify-end gap-1.5">
-                        {d.max_temp}° <span className="text-[color:var(--text-tertiary)] font-normal text-[10px]">{d.min_temp}°</span>
+                        {ctf(d.max_temp.toString())} <span className="text-[color:var(--text-tertiary)] font-normal text-[10px]">{ctf(d.min_temp.toString())}</span>
                       </span>
                     </div>
                     
