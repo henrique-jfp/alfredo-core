@@ -259,18 +259,16 @@ const SunArc = ({ sunrise, sunset, current, isNight, moonrise, moonset }: { sunr
       </div>
     </div>
   );
-};
-
-const MetricCard = ({ icon: Icon, label, value, sub, children }: { icon: any; label: string; value?: React.ReactNode; sub?: string; children?: React.ReactNode }) => (
-  <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3 hover:bg-white/[0.04] transition-all hover:-translate-y-0.5 shadow-sm hover:shadow-md flex items-center gap-3">
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brass-500/10 border border-brass-500/20 shadow-[0_0_10px_rgba(201,162,75,0.05)]">
-      <Icon className="h-4 w-4 text-brass-400" />
+};const MetricCard = ({ icon: Icon, label, value, sub, children }: { icon: any; label: string; value?: React.ReactNode; sub?: string; children?: React.ReactNode }) => (
+  <div className="glass-deep p-4 flex items-center gap-3 md:gap-4 flex-1">
+    <div className="flex h-10 w-10 md:h-12 md:w-12 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] border border-white/5">
+      <Icon className="h-5 w-5 md:h-6 md:w-6 drop-shadow-md" />
     </div>
     <div className="min-w-0 flex-1">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[color:var(--text-tertiary)]">{label}</div>
-      {value && <div className="text-[14px] font-bold text-[color:var(--text-primary)] mt-0.5 leading-none tabular-nums">{value}</div>}
-      {sub && <div className="text-[10px] text-[color:var(--text-tertiary)] mt-0.5 font-mono">{sub}</div>}
-      {children && <div className="mt-1">{children}</div>}
+      <div className="text-[9px] md:text-[10px] font-bold uppercase tracking-[0.15em] text-white/60">{label}</div>
+      {value && <div className="text-[14px] md:text-[16px] font-bold text-white mt-0.5 md:mt-1 leading-none tabular-nums drop-shadow-md">{value}</div>}
+      {sub && <div className="text-[10px] md:text-[11px] text-white/50 mt-1 font-mono uppercase tracking-wider">{sub}</div>}
+      {children && <div className="mt-2">{children}</div>}
     </div>
   </div>
 );
@@ -283,8 +281,6 @@ export function WeatherTab() {
   const [isDragging, setIsDragging] = useState(false);
   const [startX, setStartX] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
-
-  const [expandedDay, setExpandedDay] = useState<number | null>(null);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!scrollRef.current) return;
@@ -304,251 +300,201 @@ export function WeatherTab() {
 
   if (loading) {
     return (
-      <div className="flex h-full flex-col gap-4 overflow-y-auto pb-safe px-safe">
-        <SectionHeading eyebrow="Clima" title="Centro de Comando" subtitle="Monitoramento atmosférico cinemático." />
-        <div className="alfredo-card p-8 text-center text-[color:var(--text-secondary)] text-sm shimmer rounded-2xl h-64 border-none"></div>
+      <div className="flex h-full flex-col gap-4 overflow-hidden rounded-3xl bg-zinc-900 pb-safe px-safe relative">
+        <div className="absolute inset-0 z-0 bg-cover bg-center opacity-20" style={{ backgroundImage: 'url("https://images.unsplash.com/photo-1483729558449-99ef09a8c325?q=80&w=2070&auto=format&fit=crop")' }} />
+        <div className="relative z-10 p-8 flex justify-center items-center h-full">
+          <div className="glass-deep p-8 w-full max-w-lg text-center shimmer h-64 border-none" />
+        </div>
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="flex h-full flex-col gap-4 overflow-y-auto pb-safe px-safe">
-        <SectionHeading eyebrow="Clima" title="Centro de Comando" subtitle="Monitoramento atmosférico cinemático." />
-        <div className="alfredo-card p-8 text-center text-[color:var(--text-tertiary)]">{error || 'Sem dados.'}</div>
+      <div className="flex h-full flex-col gap-4 overflow-hidden rounded-3xl bg-zinc-900 pb-safe px-safe relative">
+        <div className="absolute inset-0 z-0 bg-cover bg-center opacity-20" style={{ backgroundImage: 'url("https://images.unsplash.com/photo-1483729558449-99ef09a8c325?q=80&w=2070&auto=format&fit=crop")' }} />
+        <div className="relative z-10 p-8 flex justify-center items-center h-full">
+          <div className="glass-deep p-8 w-full max-w-lg text-center text-white/50">{error || 'Sem dados atmosféricos.'}</div>
+        </div>
       </div>
     );
   }
 
-  const { current, hourly, daily, city, alerts, aqi } = data;
+  const { current, hourly, daily, city, alerts } = data;
   
   const parseTemp = (v: string) => {
     const n = parseInt(v);
     return unit === 'C' ? n : Math.round(n * 9 / 5 + 32);
   };
   const ctf = (v: string) => `${parseTemp(v)}°`;
-  
   const visKm = (parseInt(current.visibility as any) / 1000).toFixed(1);
   const weatherKind = getWeatherKind(current.weather_code);
   const nowUnix = Math.floor(Date.now() / 1000);
   const isNight = current.is_day === 0;
 
-  // Background dinâmico
-  let bgClass = '';
-  if (weatherKind === 'rain' || weatherKind === 'storm' || weatherKind === 'snow') {
-    bgClass = `bg-weather-${weatherKind}`;
-  } else {
-    if (isNight) {
-      bgClass = 'bg-weather-night';
-    } else {
+  let photoOverlayClass = 'bg-weather-photo-day';
+  if (weatherKind === 'rain' || weatherKind === 'snow') photoOverlayClass = 'bg-weather-photo-rain';
+  else if (weatherKind === 'storm') photoOverlayClass = 'bg-weather-photo-storm';
+  else if (weatherKind === 'cloud') photoOverlayClass = 'bg-weather-photo-cloud';
+  else {
+    if (isNight) photoOverlayClass = 'bg-weather-photo-night';
+    else {
       const nearSunrise = Math.abs(nowUnix - current.sunrise) < 3600 * 1.5;
       const nearSunset = Math.abs(nowUnix - current.sunset) < 3600 * 1.5;
-      bgClass = (nearSunrise || nearSunset) ? 'bg-weather-sunset' : 'bg-weather-day';
+      photoOverlayClass = (nearSunrise || nearSunset) ? 'bg-weather-photo-sunset' : 'bg-weather-photo-day';
     }
-  }
-  
-  // AQI color mapping
-  let aqiColor = 'bg-zinc-500 shadow-none';
-  let aqiText = 'Desconhecido';
-  if (aqi !== undefined) {
-    if (aqi <= 50) { aqiColor = 'bg-green-500 shadow-[0_0_8px_#22c55e]'; aqiText = 'Boa'; }
-    else if (aqi <= 100) { aqiColor = 'bg-yellow-400 shadow-[0_0_8px_#facc15]'; aqiText = 'Moderada'; }
-    else if (aqi <= 150) { aqiColor = 'bg-orange-500 shadow-[0_0_8px_#f97316]'; aqiText = 'Prejudicial s.'; }
-    else if (aqi <= 200) { aqiColor = 'bg-red-500 shadow-[0_0_8px_#ef4444]'; aqiText = 'Ruim'; }
-    else { aqiColor = 'bg-purple-600 shadow-[0_0_8px_#9333ea]'; aqiText = 'Péssima'; }
-  }
-
-  // Briefing
-  let briefing = `${current.description} no momento. `;
-  if (isNight) {
-     briefing += `Mínima prevista de ${current.min_temp}°C nesta noite. `;
-  } else {
-     briefing += `Máxima de ${current.max_temp}°C hoje. `;
-  }
-  if (daily[0]?.pop > 20) {
-     briefing += `Possibilidade de precipitação: ${daily[0].pop}%.`;
-  } else {
-     briefing += `Sem grandes chuvas previstas hoje.`;
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto pb-safe px-safe hide-scrollbar">
-      <SectionHeading
-        eyebrow="Clima"
-        title="Centro de Comando"
-        subtitle="Monitoramento atmosférico cinemático."
-        action={
-          <div className="flex items-center gap-1.5">
-            <StatusPulse label="Ao vivo" tone="success" />
-            <button onClick={() => setUnit(unit === 'C' ? 'F' : 'C')} className="alfredo-pill border-white/10 bg-white/[0.03] text-xs text-[color:var(--text-secondary)] px-2 hover:bg-white/[0.08] transition-colors">
-              °{unit === 'C' ? 'F' : 'C'}
-            </button>
-          </div>
-        }
-      />
+    <div className="relative flex h-full flex-col overflow-y-auto hide-scrollbar rounded-3xl overflow-hidden bg-obsidian-900 shadow-2xl">
+      {/* Background Dinâmico - Imagem do Rio de Janeiro */}
+      <div 
+        className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-1000"
+        style={{ backgroundImage: 'url("https://images.unsplash.com/photo-1483729558449-99ef09a8c325?q=80&w=2070&auto=format&fit=crop")' }}
+      >
+        {/* Camada Reativa de Clima (CSS Overlay) */}
+        <div className={cn("absolute inset-0 transition-colors duration-1000", photoOverlayClass)} />
+        
+        {/* Parallax layers */}
+        {isNight && <div className="absolute inset-0 parallax-stars opacity-80" />}
+        {(weatherKind === 'rain' || weatherKind === 'storm') && <div className="absolute inset-0 bg-black/20" />}
+      </div>
 
-      {alerts && alerts.length > 0 && <TacticalAlertBanner alerts={alerts} />}
-
-      <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-        <div className="flex flex-col gap-4">
-          {/* Card Principal Dinâmico e Cinematográfico */}
-          <div className={cn("alfredo-card p-5 md:p-6 overflow-hidden relative border-t-2 transition-colors duration-1000", bgClass)} style={{ borderTopColor: 'var(--color-brass-500)' }}>
-            
-            {/* Parallax layers */}
-            {isNight && <div className="absolute inset-0 parallax-stars z-0" />}
-            <div className="absolute inset-0 parallax-clouds z-0" />
-            
-            <div className="relative z-10 flex flex-col gap-4">
-              <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-primary)] opacity-90 mb-2 font-mono uppercase tracking-wider">
-                <MapPin className="h-3 w-3 text-brass-400" />
-                {city}
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <span className="text-7xl font-bold tracking-tighter text-white tabular-nums leading-none drop-shadow-md">
-                    <CountUp value={parseTemp(current.temperature)} />°
-                  </span>
-                  <div className="flex flex-col items-center">
-                    <WeatherIcon code={current.weather_code} size="lg" isNight={isNight} />
-                  </div>
-                </div>
-              </div>
-              
-              <div className="flex flex-col mt-1">
-                  <span className="text-[15px] font-medium text-white capitalize tracking-wide">{current.description}</span>
-                  <span className="text-[11px] text-white/70 mt-1 max-w-[80%]">{briefing}</span>
-              </div>
-              
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 text-[12px] text-white/80 font-mono bg-black/20 p-2 px-3 rounded-lg w-max backdrop-blur-sm border border-white/5">
-                <span>SENS. {ctf(current.feels_like)}</span>
-                <span className="flex items-center gap-1"><ArrowUp className="h-3 w-3 text-rose-400" />{ctf(current.max_temp)}</span>
-                <span className="flex items-center gap-1"><ArrowDown className="h-3 w-3 text-sky-400" />{ctf(current.min_temp)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Grid de Dados Atmosféricos */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <MetricCard icon={CloudRain} label="Precipitação" value={`${current.rain?.["1h"] || 0} mm/h`} sub="Última hora" />
-            <MetricCard icon={Wind} label="Vel. Vento" value={`${current.wind_speed} km/h`} sub={`Rajada: ${current.wind_gust || 0} km/h • ${getWindDir(current.wind_deg)}`} />
-            <MetricCard icon={Activity} label="Qualidade Ar" sub={aqiText}>
-              <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden mt-1">
-                <div className={cn("h-full transition-all duration-1000", aqiColor)} style={{ width: `${Math.min(((aqi || 1) / 300) * 100, 100)}%` }} />
-              </div>
-            </MetricCard>
-            <MetricCard icon={Sun} label="Índice UV">
-              <UvGauge uvi={current.uvi || 0} />
-            </MetricCard>
-            <MetricCard icon={Droplets} label="Pt. Orvalho" value={ctf((current.dew_point || 0).toString())} sub={`Umid: ${current.humidity}%`} />
-            <MetricCard icon={Gauge} label="Pressão" value={`${current.pressure} hPa`} sub={`Visão: ${visKm} km`} />
-          </div>
-
-          {/* Carrossel de Previsão por Hora */}
-          <div className="alfredo-card p-4">
-            <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[color:var(--text-tertiary)] mb-3 flex items-center gap-2">
-              <CloudFog className="h-3 w-3 text-brass-400" /> Previsão 24h
-            </h4>
-            <div 
-              ref={scrollRef}
-              className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar cursor-grab active:cursor-grabbing snap-x"
-              onMouseDown={handleMouseDown}
-              onMouseLeave={handleMouseLeave}
-              onMouseUp={handleMouseUp}
-              onMouseMove={handleMouseMove}
-            >
-              {hourly.map((h, i) => {
-                const hIsNight = h.time < "06:00" || h.time > "18:30"; // Simplificação para icones
-                return (
-                  <div key={i} className="flex shrink-0 flex-col items-center gap-1.5 rounded-xl border border-white/5 bg-white/[0.015] px-3 py-2 min-w-[64px] snap-start hover:bg-white/[0.04] hover:-translate-y-0.5 transition-all select-none shadow-sm">
-                    <span className="text-[10px] font-mono font-semibold text-[color:var(--text-tertiary)]">{i === 0 ? 'AGORA' : h.time}</span>
-                    <WeatherIcon code={h.weather_code} size="sm" isNight={hIsNight} />
-                    <span className="text-[14px] font-bold text-[color:var(--text-primary)] tabular-nums"><CountUp value={parseTemp(h.temp.toString())} />°</span>
-                    <div className="flex items-center gap-0.5 text-[10px] text-sky-400/80 font-mono">
-                      <Droplets className="h-2.5 w-2.5" /> {h.pop}%
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+      <div className="relative z-10 p-6 md:p-8 flex flex-col gap-6 md:gap-8 h-full text-white">
+        
+        {/* Header Superior */}
+        <div className="flex items-start justify-between">
+           <div className="flex flex-col drop-shadow-md">
+             <span className="text-[9px] md:text-[10px] uppercase tracking-[0.2em] text-white/70 font-bold mb-1">CLIMA</span>
+             <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-white">Previsão do tempo</h1>
+             <p className="text-xs md:text-sm text-white/70 mt-1">Condições atuais e previsão estendida.</p>
+           </div>
+           <div className="flex flex-col md:flex-row items-end md:items-center gap-3">
+              <StatusPulse label="Ao vivo" tone="success" />
+              <button onClick={() => setUnit(unit === 'C' ? 'F' : 'C')} className="glass-deep border-none px-3 py-1.5 text-xs hover:bg-white/10 text-white font-bold tracking-widest shadow-none">
+                °{unit === 'C' ? 'F' : 'C'}
+              </button>
+           </div>
         </div>
 
-        <div className="flex flex-col gap-4">
-          {/* Ciclos Celestes Hoje */}
-          <div className="alfredo-card p-4">
-             <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[color:var(--text-tertiary)] mb-4 flex items-center gap-2">
-              <Moon className="h-3 w-3 text-brass-400" /> Ciclos Celestes (Hoje)
-            </h4>
-            <div className="flex items-end gap-6 mb-2">
-              <div className="flex-1">
-                <SunArc 
-                  sunrise={current.sunrise} 
-                  sunset={current.sunset} 
-                  current={nowUnix} 
-                  isNight={isNight}
-                  moonrise={daily[0]?.moonrise}
-                  moonset={daily[0]?.moonset}
-                />
-              </div>
-              <div className="shrink-0 pb-1 flex flex-col items-center gap-1">
-                <MoonPhaseIcon phase={daily[0]?.moon_phase || 0} />
-              </div>
-            </div>
-          </div>
+        {alerts && alerts.length > 0 && <TacticalAlertBanner alerts={alerts} />}
 
-          {/* Previsão Diária Accordion */}
-          <div className="alfredo-card p-4 flex-1">
-            <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[color:var(--text-tertiary)] mb-3">
-              Projeção 7 Dias
-            </h4>
-            <div className="space-y-2">
-              {daily.slice(0, 7).map((d, i) => {
-                const isExpanded = expandedDay === i;
-                let durationStr = '--h --m';
-                if (d.sunshine_duration) {
-                  durationStr = `${Math.floor(d.sunshine_duration / 3600)}h ${Math.floor((d.sunshine_duration % 3600) / 60)}m`;
-                }
-
-                return (
-                  <div key={i} className="flex flex-col rounded-xl border border-white/5 bg-white/[0.015] hover:border-white/20 hover:bg-white/[0.04] transition-all cursor-pointer shadow-sm hover:shadow-md" onClick={() => setExpandedDay(isExpanded ? null : i)}>
-                    <div className="flex items-center gap-3 px-3 py-2.5">
-                      <span className="w-[4.5rem] text-[11px] font-medium text-[color:var(--text-primary)] uppercase tracking-wider">
-                        {formatDayName(d.date)}
-                      </span>
-                      <WeatherIcon code={d.weather_code} size="sm" />
-                      <span className="flex-1 text-[11px] text-[color:var(--text-secondary)] truncate pl-2 font-mono">{d.description}</span>
-                      {d.pop > 0 && (
-                        <span className="text-[10px] text-sky-400/80 font-mono shrink-0 w-8 text-right flex items-center justify-end gap-0.5"><Droplets className="w-2.5 h-2.5"/> {d.pop}%</span>
-                      )}
-                      <span className="text-[13px] font-bold text-[color:var(--text-primary)] tabular-nums shrink-0 w-16 text-right flex items-center justify-end gap-1.5">
-                        {ctf(d.max_temp.toString())} <span className="text-[color:var(--text-tertiary)] font-normal text-[10px]">{ctf(d.min_temp.toString())}</span>
-                      </span>
+        {/* Layout Principal em Grid */}
+        <div className="grid gap-6 lg:gap-8 lg:grid-cols-[1.5fr_1fr] flex-1 min-h-0">
+           
+           {/* Coluna Esquerda: Métricas Atuais */}
+           <div className="flex flex-col gap-6 lg:gap-8 min-h-0">
+              
+              <div className="glass-deep p-6 md:p-8 flex flex-col gap-8 relative overflow-hidden flex-1 shrink-0 justify-between">
+                 {/* Seção Superior Esquerda (Temp e Local) */}
+                 <div className="flex justify-between items-start drop-shadow-md relative z-10">
+                    <div className="flex flex-col">
+                       <div className="flex items-center gap-2 text-xs md:text-sm text-white/80 font-mono uppercase tracking-widest mb-3 md:mb-4">
+                         <MapPin className="h-4 w-4 text-rose-400" /> {city}
+                       </div>
+                       <div className="flex items-end gap-3 md:gap-4">
+                         <span className="text-7xl md:text-8xl font-bold tracking-tighter text-white tabular-nums leading-none">
+                           <CountUp value={parseTemp(current.temperature)} />°C
+                         </span>
+                         <div className="flex flex-col pb-2 md:pb-3">
+                           <span className="text-xs md:text-sm font-medium text-white/80">Sensação {ctf(current.feels_like)}</span>
+                           <span className="text-sm md:text-base font-semibold capitalize text-white/90">{current.description}</span>
+                         </div>
+                       </div>
+                       <div className="flex items-center gap-5 mt-5 text-sm md:text-base font-semibold text-white/80">
+                         <span className="flex items-center gap-1.5 text-rose-300 drop-shadow-sm"><ArrowUp className="h-4 w-4 md:h-5 md:w-5" /> {ctf(current.max_temp)}</span>
+                         <span className="flex items-center gap-1.5 text-sky-300 drop-shadow-sm"><ArrowDown className="h-4 w-4 md:h-5 md:w-5" /> {ctf(current.min_temp)}</span>
+                       </div>
                     </div>
-                    
-                    {/* Expanded details */}
-                    {isExpanded && (
-                      <div className="px-4 pb-3 pt-2 border-t border-white/5 grid grid-cols-3 gap-2 fade-up">
-                        <div className="flex flex-col">
-                          <span className="text-[9px] uppercase tracking-[0.15em] text-[color:var(--text-tertiary)] flex items-center gap-1"><Sun className="w-2.5 h-2.5 text-brass-400"/> LUZ SOLAR</span>
-                          <span className="text-[12px] font-mono font-medium text-amber-400/90 mt-1">{durationStr}</span>
-                        </div>
-                        <div className="flex flex-col col-span-1">
-                          <span className="text-[9px] uppercase tracking-[0.15em] text-[color:var(--text-tertiary)] text-center">NASCER / PÔR</span>
-                          <span className="text-[11px] font-mono font-medium text-[color:var(--text-secondary)] mt-1 flex items-center justify-center gap-1.5">
-                            {d.sunrise ? formatUnixTime(d.sunrise) : '--:--'} <ArrowDown className="w-2.5 h-2.5 text-zinc-500" /> {d.sunset ? formatUnixTime(d.sunset) : '--:--'}
-                          </span>
-                        </div>
-                        <div className="flex flex-col items-end justify-center">
-                          <MoonPhaseIcon phase={d.moon_phase || 0} size="sm" />
-                        </div>
+                 </div>
+
+                 {/* Ícone flutuante gigante centralizado/direita no card (opcional, igual ao mockup) */}
+                 <div className="absolute top-0 right-0 md:-right-10 md:-top-10 opacity-70 pointer-events-none scale-150 transform-gpu blur-[1px]">
+                   <WeatherIcon code={current.weather_code} size="lg" isNight={isNight} />
+                 </div>
+
+                 <div className="flex flex-col gap-6 md:gap-8 relative z-10 mt-auto">
+                   {/* Métricas Rápidas (4 cards horizontais) */}
+                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                      <MetricCard icon={Droplets} label="Umidade" value={`${current.humidity}%`} />
+                      <MetricCard icon={Wind} label="Vento" value={`${current.wind_speed} m/s`} sub={getWindDir(current.wind_deg)} />
+                      <MetricCard icon={Eye} label="Visibilidade" value={`${visKm} km`} />
+                      <MetricCard icon={Gauge} label="Pressão" value={`${current.pressure} hPa`} sub={current.pressure < 1010 ? "Baixo" : "Normal"} />
+                   </div>
+
+                   {/* Previsão por Hora */}
+                   <div className="flex flex-col gap-3">
+                      <h4 className="text-[9px] md:text-[10px] font-bold uppercase tracking-[0.2em] text-white/50 drop-shadow-sm">PREVISÃO POR HORA</h4>
+                      <div 
+                        ref={scrollRef}
+                        className="flex gap-3 overflow-x-auto pb-3 pt-1 px-1 hide-scrollbar cursor-grab active:cursor-grabbing snap-x -mx-1"
+                        onMouseDown={handleMouseDown} onMouseLeave={handleMouseLeave} onMouseUp={handleMouseUp} onMouseMove={handleMouseMove}
+                      >
+                         {hourly.map((h, i) => (
+                           <div key={i} className="glass-deep border-none px-4 py-3 shrink-0 flex flex-col items-center gap-2.5 min-w-[72px] md:min-w-[80px] snap-start hover:bg-white/[0.15]">
+                             <span className="text-[10px] md:text-[11px] font-medium text-white/80">{i===0 ? 'Agora' : h.time}</span>
+                             <div className="drop-shadow-md"><WeatherIcon code={h.weather_code} size="sm" isNight={h.time < "06:00" || h.time > "18:30"} /></div>
+                             <span className="text-[14px] md:text-[16px] font-bold tabular-nums drop-shadow-md"><CountUp value={parseTemp(h.temp.toString())} />°</span>
+                             <span className="text-[10px] font-mono text-sky-200/80 mt-1">{h.pop}%</span>
+                           </div>
+                         ))}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+                   </div>
+                 </div>
+              </div>
+           </div>
+
+           {/* Coluna Direita: Próximos dias e Sol */}
+           <div className="flex flex-col gap-6 lg:gap-8 relative min-h-0">
+              
+              {/* Próximos Dias */}
+              <div className="glass-deep p-6 flex-1 flex flex-col z-10 relative">
+                 <h4 className="text-[9px] md:text-[10px] font-bold uppercase tracking-[0.2em] text-white/50 mb-5 drop-shadow-sm">PRÓXIMOS DIAS</h4>
+                 <div className="flex flex-col gap-2 flex-1 justify-around">
+                    {daily.slice(0, 5).map((d, i) => (
+                       <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-[20px] bg-white/[0.03] border border-white/5 hover:bg-white/[0.08] transition-colors cursor-pointer shadow-sm">
+                          <span className="w-16 md:w-20 text-[12px] md:text-[13px] font-medium text-white/90 drop-shadow-sm">{formatDayName(d.date)}</span>
+                          <div className="drop-shadow-md"><WeatherIcon code={d.weather_code} size="sm" /></div>
+                          <span className="flex-1 text-[11px] md:text-[12px] text-white/70 truncate pl-2 font-medium capitalize">{d.description}</span>
+                          {d.pop > 0 && <span className="text-[10px] md:text-[11px] text-sky-300/80 font-mono w-8 text-right drop-shadow-sm">{d.pop}%</span>}
+                          <span className="text-[13px] md:text-[14px] font-bold text-white tabular-nums w-16 text-right flex justify-end gap-1.5 drop-shadow-md">
+                             {ctf(d.max_temp.toString())} <span className="text-white/40 font-normal text-[11px]">{ctf(d.min_temp.toString())}</span>
+                          </span>
+                       </div>
+                    ))}
+                 </div>
+              </div>
+
+              {/* Sol (Nascer/Pôr) com gradiente elegante */}
+              <div className="glass-deep p-6 border-white/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] relative overflow-hidden h-40 shrink-0">
+                 <div className="absolute inset-0 bg-gradient-to-t from-orange-600/30 via-purple-800/40 to-transparent mix-blend-overlay" />
+                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-900/40 to-rose-900/30" />
+                 
+                 <div className="relative z-10 flex flex-col h-full justify-between">
+                   <h4 className="text-[9px] md:text-[10px] font-bold uppercase tracking-[0.2em] text-white/70 drop-shadow-sm mb-2">SOL</h4>
+                   <div className="mt-auto drop-shadow-lg scale-105 transform origin-bottom">
+                     <SunArc 
+                       sunrise={current.sunrise} 
+                       sunset={current.sunset} 
+                       current={nowUnix} 
+                       isNight={isNight}
+                     />
+                   </div>
+                 </div>
+                 
+                 <div className="absolute bottom-4 left-6 right-6 flex justify-between items-end">
+                    <div className="flex flex-col text-left drop-shadow-md">
+                      <span className="text-[8px] uppercase tracking-[0.2em] text-white/60 font-bold mb-0.5">NASCER</span>
+                      <span className="text-[13px] font-bold font-mono text-white/90">{formatUnixTime(current.sunrise)}</span>
+                    </div>
+                    <div className="flex flex-col text-right drop-shadow-md">
+                      <span className="text-[8px] uppercase tracking-[0.2em] text-white/60 font-bold mb-0.5">PÔR</span>
+                      <span className="text-[13px] font-bold font-mono text-white/90">{formatUnixTime(current.sunset)}</span>
+                    </div>
+                 </div>
+              </div>
+
+           </div>
         </div>
       </div>
     </div>
