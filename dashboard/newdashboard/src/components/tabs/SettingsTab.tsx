@@ -220,23 +220,26 @@ export function SettingsTab() {
                   ))}
                   {isAddingLocation ? (
                     <div className="flex flex-col gap-3 rounded-2xl border border-brass-500/30 bg-brass-500/5 p-4 mt-2">
-                      <div className="text-[14px] font-semibold text-brass-400">Novo Endereço</div>
+                      <div className="text-[13px] font-semibold text-brass-400">Novo Endereço</div>
+                      
                       <div className="flex gap-2">
                         <input
                           type="text"
-                          placeholder="Nome (ex: Casa)"
-                          value={newLocName}
-                          onChange={(e) => setNewLocName(e.target.value)}
-                          className="alfredo-input flex-1"
+                          placeholder="📍"
+                          value={newLocIcon}
+                          onChange={(e) => setNewLocIcon(e.target.value)}
+                          className="alfredo-input w-12 text-center text-lg p-0 flex-shrink-0"
+                          title="Ícone"
                         />
                         <input
                           type="text"
-                          placeholder="Ícone (ex: 🏠)"
-                          value={newLocIcon}
-                          onChange={(e) => setNewLocIcon(e.target.value)}
-                          className="alfredo-input w-16 text-center"
+                          placeholder="Nome (ex: Trabalho)"
+                          value={newLocName}
+                          onChange={(e) => setNewLocName(e.target.value)}
+                          className="alfredo-input flex-1 text-center font-medium"
                         />
                       </div>
+                      
                       <div className="flex gap-2">
                         <input
                           type="text"
@@ -253,17 +256,18 @@ export function SettingsTab() {
                           className="alfredo-input flex-1 font-mono text-sm"
                         />
                       </div>
+                      
                       <div className="flex gap-2 mt-1">
                         <button
                           onClick={() => setIsAddingLocation(false)}
-                          className="alfredo-pill flex-1 justify-center border-white/10 bg-white/[0.03] text-[color:var(--text-primary)]"
+                          className="flex-1 rounded-xl border border-white/10 bg-transparent py-2.5 text-[11px] font-bold uppercase tracking-widest text-[color:var(--text-primary)] transition-colors hover:bg-white/5"
                         >
                           Cancelar
                         </button>
                         <button
                           onClick={handleSaveNewLocation}
                           disabled={!newLocName || !newLocLat || !newLocLng}
-                          className="alfredo-pill flex-1 justify-center border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] disabled:opacity-50"
+                          className="flex-1 rounded-xl bg-brass-600 py-2.5 text-[11px] font-bold uppercase tracking-widest text-[color:var(--bg-base)] transition-colors hover:bg-brass-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Salvar
                         </button>
