@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, Boolean, ForeignKey
 from sqlalchemy.sql import func
 import json
 from .database import Base
@@ -177,3 +177,26 @@ class TVConfig(Base):
     smartthings_device_id = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class Room(Base):
+    """Cômodo da casa. Segue a convenção existente: room_id é string única usada
+    como referência em todo o resto do sistema (ex: 'ROOM_LIVING', 'ROOM_OFFICE')."""
+    __tablename__ = "rooms"
+
+    id = Column(Integer, primary_key=True, index=True)
+    room_id = Column(String, unique=True, index=True, nullable=False)  # Ex: "ROOM_LIVING"
+    name = Column(String, nullable=False)  # Ex: "Sala", "Escritório"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class SmartDevice(Base):
+    """Dispositivo de casa inteligente (lâmpada, ventilador, tomada) controlado
+    via Home Assistant. NÃO confundir com o modelo Device (satélites físicos)."""
+    __tablename__ = "smart_devices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entity_id = Column(String, unique=True, index=True, nullable=False)  # Ex: "light.luz_sala_1"
+    friendly_name = Column(String, nullable=False)  # Ex: "Luz do Teto"
+    device_type = Column(String, nullable=False)  # "light", "fan", "switch", "lock", "sensor"
+    room_id = Column(String, ForeignKey("rooms.room_id"), nullable=False, index=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

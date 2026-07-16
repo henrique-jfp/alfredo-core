@@ -24,6 +24,7 @@ from core.brain.skills.music_skill import MusicSkill
 from core.brain.skills.tv_skill import TVSkill
 from core.brain.skills.youtube_skill import YouTubeSkill
 from core.brain.skills.routine_skill import RoutineSkill
+from core.brain.skills.smart_home_skill import SmartHomeSkill
 from core.services.key_manager import (
     next_gemini_key, next_groq_key,
     mark_gemini_cooldown, mark_groq_cooldown,
@@ -58,7 +59,8 @@ class AgentRouter:
             "get_news": NewsSkill(),
             "manage_tv": TVSkill(),
             "play_youtube": YouTubeSkill(),
-            "manage_routine": RoutineSkill()
+            "manage_routine": RoutineSkill(),
+            "manage_smart_device": SmartHomeSkill()
         }
         # Groq client será criado sob demanda com a chave selecionada
         self._groq_client_cache = {}
@@ -423,6 +425,56 @@ class AgentRouter:
                                 "routine_id": {
                                     "type": "integer",
                                     "description": "ID da rotina para ação 'update' ou 'delete'. Se não souber o ID, liste as rotinas primeiro buscando na memória."
+                                }
+                            },
+                            "required": ["action"]
+                        }
+                    },
+                    {
+                        "name": "manage_smart_device",
+                        "description": (
+                            "GERENCIAR DISPOSITIVOS INTELIGENTES: use esta ferramenta OBRIGATORIAMENTE para "
+                            "ligar, desligar, alternar ou ajustar brilho/velocidade de lâmpadas, ventiladores, "
+                            "tomadas e outros dispositivos de casa inteligente. "
+                            "EXEMPLOS:\n"
+                            "- 'Acende a luz da sala'\n"
+                            "- 'Apaga todas as luzes do escritório'\n"
+                            "- 'Liga o ventilador do quarto'\n"
+                            "- 'Aumenta o brilho da luz do teto'\n"
+                            "- 'Desliga a tomada da tv'\n\n"
+                            "Quando o usuário disser 'acende a luz' sem especificar cômodo, "
+                            "use o cômodo atual (context) como padrão.\n"
+                            "Se pedir 'apaga todas as luzes', use device_type='light' sem device_name "
+                            "para afetar todas as luzes do cômodo."
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "description": "Ação a executar: 'turn_on' (ligar), 'turn_off' (desligar), 'toggle' (alternar), 'set_brightness' (ajustar brilho), 'set_speed' (ajustar velocidade do ventilador)",
+                                    "enum": ["turn_on", "turn_off", "toggle", "set_brightness", "set_speed"]
+                                },
+                                "device_type": {
+                                    "type": "string",
+                                    "description": "Tipo de dispositivo (opcional). Use 'light' para luzes, 'fan' para ventiladores, 'switch' para tomadas. Se omitido, opera em TODOS os dispositivos do cômodo.",
+                                    "enum": ["light", "fan", "switch"]
+                                },
+                                "device_name": {
+                                    "type": "string",
+                                    "description": "Nome amigável do dispositivo (opcional). Ex: 'Luz do Teto', 'Ventilador do Canto'. Se omitido, opera em TODOS os dispositivos do tipo no cômodo."
+                                },
+                                "target_room": {
+                                    "type": "string",
+                                    "description": "Nome do cômodo (opcional). Ex: 'sala', 'quarto', 'escritório', 'cozinha'. Se omitido, usa o cômodo atual."
+                                },
+                                "value": {
+                                    "type": "integer",
+                                    "description": "Valor numérico para ações como set_brightness (0-255) ou set_speed (opcional, use 'speed' como string para ventilador)."
+                                },
+                                "speed": {
+                                    "type": "string",
+                                    "description": "Velocidade do ventilador (apenas para action='set_speed'). Valores: 'off', 'low', 'medium', 'high'."
                                 }
                             },
                             "required": ["action"]
