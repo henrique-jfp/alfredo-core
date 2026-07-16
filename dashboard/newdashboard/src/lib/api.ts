@@ -75,4 +75,11 @@ export const api = {
   deleteEvent: (id: number) => fetchFromAPI<any>(`/api/dashboard/events/${id}`, { method: 'DELETE' }),
   getForecast: () => fetchFromAPI<ForecastData>('/api/weather/forecast'),
   getIntegrations: () => fetchFromAPI<IntegrationsData>('/api/dashboard/integrations'),
+  getLocations: () => fetchFromAPI<any[]>('/api/dashboard/locations'),
+  createLocation: (data: any) => fetchFromAPI<any>('/api/dashboard/locations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }),
+  deleteLocation: (id: number) => fetchFromAPI<any>(`/api/dashboard/locations/${id}`, { method: 'DELETE' }),
 };
