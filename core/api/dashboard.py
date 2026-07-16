@@ -492,7 +492,7 @@ def get_api_status():
     
     return {
         "status": "online",
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.1-flash-lite",
         "gemini": {
             "total_keys": ks["gemini_total_keys"],
             "active_keys": ks["gemini_active_keys"],
