@@ -19,6 +19,12 @@ export function SettingsTab() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationsLoading, setLocationsLoading] = useState(true);
 
+  const [isAddingLocation, setIsAddingLocation] = useState(false);
+  const [newLocName, setNewLocName] = useState('');
+  const [newLocLat, setNewLocLat] = useState('');
+  const [newLocLng, setNewLocLng] = useState('');
+  const [newLocIcon, setNewLocIcon] = useState('📍');
+
   useEffect(() => {
     api.getSettings().then((data) => {
       setSettings(data);
@@ -44,11 +50,16 @@ export function SettingsTab() {
     }
   };
 
-  const handleAddLocation = async () => {
-    const newLoc = { name: 'Novo Endereço', latitude: '-23.000', longitude: '-43.000', icon: '📍' };
+  const handleSaveNewLocation = async () => {
+    if (!newLocName || !newLocLat || !newLocLng) return;
+    const newLoc = { name: newLocName, latitude: newLocLat, longitude: newLocLng, icon: newLocIcon };
     try {
       const created = await api.createLocation(newLoc);
       setLocations([...locations, created]);
+      setIsAddingLocation(false);
+      setNewLocName('');
+      setNewLocLat('');
+      setNewLocLng('');
     } catch (e) {
       console.error('Erro ao criar endereço:', e);
     }
@@ -207,13 +218,66 @@ export function SettingsTab() {
                       </button>
                     </div>
                   ))}
-                  <button
-                    onClick={handleAddLocation}
-                    className="alfredo-empty mt-2 border-dashed py-4 text-[14px] text-[color:var(--text-secondary)] hover:border-brass-500/30 hover:text-brass-300 flex items-center justify-center gap-2"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Adicionar endereço
-                  </button>
+                  {isAddingLocation ? (
+                    <div className="flex flex-col gap-3 rounded-2xl border border-brass-500/30 bg-brass-500/5 p-4 mt-2">
+                      <div className="text-[14px] font-semibold text-brass-400">Novo Endereço</div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Nome (ex: Casa)"
+                          value={newLocName}
+                          onChange={(e) => setNewLocName(e.target.value)}
+                          className="alfredo-input flex-1"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Ícone (ex: 🏠)"
+                          value={newLocIcon}
+                          onChange={(e) => setNewLocIcon(e.target.value)}
+                          className="alfredo-input w-16 text-center"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Latitude"
+                          value={newLocLat}
+                          onChange={(e) => setNewLocLat(e.target.value)}
+                          className="alfredo-input flex-1 font-mono text-sm"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Longitude"
+                          value={newLocLng}
+                          onChange={(e) => setNewLocLng(e.target.value)}
+                          className="alfredo-input flex-1 font-mono text-sm"
+                        />
+                      </div>
+                      <div className="flex gap-2 mt-1">
+                        <button
+                          onClick={() => setIsAddingLocation(false)}
+                          className="alfredo-pill flex-1 justify-center border-white/10 bg-white/[0.03] text-[color:var(--text-primary)]"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={handleSaveNewLocation}
+                          disabled={!newLocName || !newLocLat || !newLocLng}
+                          className="alfredo-pill flex-1 justify-center border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] disabled:opacity-50"
+                        >
+                          Salvar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setIsAddingLocation(true)}
+                      className="alfredo-empty mt-2 border-dashed py-4 text-[14px] text-[color:var(--text-secondary)] hover:border-brass-500/30 hover:text-brass-300 flex items-center justify-center gap-2"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Adicionar endereço
+                    </button>
+                  )}
                 </>
               )}
             </div>
