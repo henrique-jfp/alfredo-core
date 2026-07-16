@@ -562,16 +562,15 @@ def _audio_callback_impl(indata, frames, time_info, status):
                     VAD_MAX_COOLDOWN
                 )
                 if elapsed_since_last < required_cooldown:
+                    _vad_speech_frames = 0  # Ainda em cooldown adaptativo — descarta este trigger
+                else:
+                    _vad_consecutive_triggers += 1
+                    _vad_last_trigger_time = now
+                    _tv_was_muted = False  # FIX A: VAD NÃO muta a TV, só grava
+                    print(f"🔊 [VAD] Fala detectada! Gravando...", flush=True)
+                    _stop_current_music()
+                    _start_recording()
                     _vad_speech_frames = 0
-                    continue  # Ainda em cooldown adaptativo — descarta este trigger
-
-                _vad_consecutive_triggers += 1
-                _vad_last_trigger_time = now
-                _tv_was_muted = False  # FIX A: VAD NÃO muta a TV, só grava
-                print(f"🔊 [VAD] Fala detectada! Gravando...", flush=True)
-                _stop_current_music()
-                _start_recording()
-                _vad_speech_frames = 0
 
     if not is_recording:
         # Dashcam: manter sempre os últimos 3 segundos na memória (pré-gravação)
