@@ -225,18 +225,10 @@ export function SettingsTab() {
                       <div className="flex gap-2">
                         <input
                           type="text"
-                          placeholder="📍"
-                          value={newLocIcon}
-                          onChange={(e) => setNewLocIcon(e.target.value)}
-                          className="alfredo-input w-12 text-center text-lg p-0 flex-shrink-0"
-                          title="Ícone"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Nome (ex: Trabalho)"
+                          placeholder="Nome do local (ex: Casa, Trabalho)"
                           value={newLocName}
                           onChange={(e) => setNewLocName(e.target.value)}
-                          className="alfredo-input flex-1 text-center font-medium"
+                          className="alfredo-input flex-1 font-medium"
                         />
                       </div>
                       
