@@ -260,14 +260,14 @@ const SunArc = ({ sunrise, sunset, current, isNight, moonrise, moonset }: { sunr
     </div>
   );
 };const MetricCard = ({ icon: Icon, label, value, sub, children }: { icon: any; label: string; value?: React.ReactNode; sub?: string; children?: React.ReactNode }) => (
-  <div className="glass-deep p-4 flex items-center gap-3 md:gap-4 flex-1">
-    <div className="flex h-10 w-10 md:h-12 md:w-12 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] border border-white/5">
-      <Icon className="h-5 w-5 md:h-6 md:w-6 drop-shadow-md" />
+  <div className="glass-panel p-4 flex flex-col md:flex-row items-start md:items-center gap-3 w-full">
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]">
+      <Icon className="h-5 w-5 drop-shadow-md" />
     </div>
     <div className="min-w-0 flex-1">
-      <div className="text-[9px] md:text-[10px] font-bold uppercase tracking-[0.15em] text-white/60">{label}</div>
-      {value && <div className="text-[14px] md:text-[16px] font-bold text-white mt-0.5 md:mt-1 leading-none tabular-nums drop-shadow-md">{value}</div>}
-      {sub && <div className="text-[10px] md:text-[11px] text-white/50 mt-1 font-mono uppercase tracking-wider">{sub}</div>}
+      <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/60">{label}</div>
+      {value && <div className="text-[16px] font-bold text-white mt-1 leading-none tabular-nums drop-shadow-md">{value}</div>}
+      {sub && <div className="text-[11px] text-white/50 mt-1 font-mono uppercase tracking-wider">{sub}</div>}
       {children && <div className="mt-2">{children}</div>}
     </div>
   </div>
@@ -347,29 +347,25 @@ export function WeatherTab() {
 
   return (
     <div className="relative flex h-full flex-col overflow-y-auto hide-scrollbar rounded-3xl overflow-hidden bg-obsidian-900 shadow-2xl">
-      {/* Background Dinâmico - Imagem do Rio de Janeiro */}
       <div 
         className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-1000"
         style={{ backgroundImage: 'url("https://images.unsplash.com/photo-1483729558449-99ef09a8c325?q=80&w=2070&auto=format&fit=crop")' }}
       >
-        {/* Camada Reativa de Clima (CSS Overlay) */}
         <div className={cn("absolute inset-0 transition-colors duration-1000", photoOverlayClass)} />
-        
-        {/* Parallax layers */}
         {isNight && <div className="absolute inset-0 parallax-stars opacity-80" />}
         {(weatherKind === 'rain' || weatherKind === 'storm') && <div className="absolute inset-0 bg-black/20" />}
       </div>
 
-      <div className="relative z-10 p-6 md:p-8 flex flex-col gap-6 md:gap-8 h-full text-white">
+      <div className="relative z-10 p-4 md:p-8 flex flex-col gap-6 md:gap-8 min-h-max text-white">
         
         {/* Header Superior */}
         <div className="flex items-start justify-between">
            <div className="flex flex-col drop-shadow-md">
-             <span className="text-[9px] md:text-[10px] uppercase tracking-[0.2em] text-white/70 font-bold mb-1">CLIMA</span>
+             <span className="text-[10px] uppercase tracking-[0.2em] text-white/70 font-bold mb-1">CLIMA</span>
              <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-white">Previsão do tempo</h1>
-             <p className="text-xs md:text-sm text-white/70 mt-1">Condições atuais e previsão estendida.</p>
+             <p className="text-sm text-white/70 mt-1 hidden md:block">Condições atuais e previsão estendida.</p>
            </div>
-           <div className="flex flex-col md:flex-row items-end md:items-center gap-3">
+           <div className="flex items-center gap-3">
               <StatusPulse label="Ao vivo" tone="success" />
               <button onClick={() => setUnit(unit === 'C' ? 'F' : 'C')} className="glass-deep border-none px-3 py-1.5 text-xs hover:bg-white/10 text-white font-bold tracking-widest shadow-none">
                 °{unit === 'C' ? 'F' : 'C'}
@@ -379,43 +375,45 @@ export function WeatherTab() {
 
         {alerts && alerts.length > 0 && <TacticalAlertBanner alerts={alerts} />}
 
-        {/* Layout Principal em Grid */}
-        <div className="grid gap-6 lg:gap-8 lg:grid-cols-[1.5fr_1fr] flex-1 min-h-0">
+        {/* Layout Principal em Grid responsivo. 
+            Em telas muito grandes: 1.5fr / 1fr. 
+            Em telas médias (md): 1fr / 1fr (2 colunas iguais) 
+            Em telas pequenas: 1 coluna */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[1.5fr_1fr] gap-6 lg:gap-8 pb-8">
            
            {/* Coluna Esquerda: Métricas Atuais */}
-           <div className="flex flex-col gap-6 lg:gap-8 min-h-0">
+           <div className="flex flex-col gap-6 lg:gap-8">
               
-              <div className="glass-deep p-6 md:p-8 flex flex-col gap-8 relative overflow-hidden flex-1 shrink-0 justify-between">
-                 {/* Seção Superior Esquerda (Temp e Local) */}
+              <div className="glass-deep p-6 md:p-8 flex flex-col gap-8 relative overflow-hidden">
+                 
                  <div className="flex justify-between items-start drop-shadow-md relative z-10">
                     <div className="flex flex-col">
-                       <div className="flex items-center gap-2 text-xs md:text-sm text-white/80 font-mono uppercase tracking-widest mb-3 md:mb-4">
+                       <div className="flex items-center gap-2 text-sm text-white/80 font-mono uppercase tracking-widest mb-4">
                          <MapPin className="h-4 w-4 text-rose-400" /> {city}
                        </div>
-                       <div className="flex items-end gap-3 md:gap-4">
+                       <div className="flex items-end gap-4">
                          <span className="text-7xl md:text-8xl font-bold tracking-tighter text-white tabular-nums leading-none">
                            <CountUp value={parseTemp(current.temperature)} />°C
                          </span>
-                         <div className="flex flex-col pb-2 md:pb-3">
-                           <span className="text-xs md:text-sm font-medium text-white/80">Sensação {ctf(current.feels_like)}</span>
-                           <span className="text-sm md:text-base font-semibold capitalize text-white/90">{current.description}</span>
+                         <div className="flex flex-col pb-3">
+                           <span className="text-sm font-medium text-white/80">Sensação {ctf(current.feels_like)}</span>
+                           <span className="text-base font-semibold capitalize text-white/90">{current.description}</span>
                          </div>
                        </div>
-                       <div className="flex items-center gap-5 mt-5 text-sm md:text-base font-semibold text-white/80">
-                         <span className="flex items-center gap-1.5 text-rose-300 drop-shadow-sm"><ArrowUp className="h-4 w-4 md:h-5 md:w-5" /> {ctf(current.max_temp)}</span>
-                         <span className="flex items-center gap-1.5 text-sky-300 drop-shadow-sm"><ArrowDown className="h-4 w-4 md:h-5 md:w-5" /> {ctf(current.min_temp)}</span>
+                       <div className="flex items-center gap-5 mt-5 text-base font-semibold text-white/80">
+                         <span className="flex items-center gap-1.5 text-rose-300 drop-shadow-sm"><ArrowUp className="h-5 w-5" /> {ctf(current.max_temp)}</span>
+                         <span className="flex items-center gap-1.5 text-sky-300 drop-shadow-sm"><ArrowDown className="h-5 w-5" /> {ctf(current.min_temp)}</span>
                        </div>
                     </div>
                  </div>
 
-                 {/* Ícone flutuante gigante centralizado/direita no card (opcional, igual ao mockup) */}
-                 <div className="absolute top-0 right-0 md:-right-10 md:-top-10 opacity-70 pointer-events-none scale-150 transform-gpu blur-[1px]">
+                 <div className="absolute top-0 right-0 opacity-80 pointer-events-none scale-125 md:scale-150 transform-gpu blur-[1px] translate-x-4 -translate-y-4 md:-translate-y-8">
                    <WeatherIcon code={current.weather_code} size="lg" isNight={isNight} />
                  </div>
 
-                 <div className="flex flex-col gap-6 md:gap-8 relative z-10 mt-auto">
-                   {/* Métricas Rápidas (4 cards horizontais) */}
-                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                 <div className="flex flex-col gap-6 relative z-10 mt-4">
+                   {/* Métricas Rápidas (2x2 em mobile, 4 em linha no desktop) */}
+                   <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
                       <MetricCard icon={Droplets} label="Umidade" value={`${current.humidity}%`} />
                       <MetricCard icon={Wind} label="Vento" value={`${current.wind_speed} m/s`} sub={getWindDir(current.wind_deg)} />
                       <MetricCard icon={Eye} label="Visibilidade" value={`${visKm} km`} />
@@ -423,18 +421,18 @@ export function WeatherTab() {
                    </div>
 
                    {/* Previsão por Hora */}
-                   <div className="flex flex-col gap-3">
-                      <h4 className="text-[9px] md:text-[10px] font-bold uppercase tracking-[0.2em] text-white/50 drop-shadow-sm">PREVISÃO POR HORA</h4>
+                   <div className="flex flex-col gap-3 mt-2">
+                      <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/50 drop-shadow-sm">PREVISÃO POR HORA</h4>
                       <div 
                         ref={scrollRef}
                         className="flex gap-3 overflow-x-auto pb-3 pt-1 px-1 hide-scrollbar cursor-grab active:cursor-grabbing snap-x -mx-1"
                         onMouseDown={handleMouseDown} onMouseLeave={handleMouseLeave} onMouseUp={handleMouseUp} onMouseMove={handleMouseMove}
                       >
                          {hourly.map((h, i) => (
-                           <div key={i} className="glass-deep border-none px-4 py-3 shrink-0 flex flex-col items-center gap-2.5 min-w-[72px] md:min-w-[80px] snap-start hover:bg-white/[0.15]">
-                             <span className="text-[10px] md:text-[11px] font-medium text-white/80">{i===0 ? 'Agora' : h.time}</span>
+                           <div key={i} className="glass-panel px-4 py-3 shrink-0 flex flex-col items-center gap-2.5 min-w-[72px] md:min-w-[80px] snap-start glass-panel-hover border-none">
+                             <span className="text-[11px] font-medium text-white/80">{i===0 ? 'Agora' : h.time}</span>
                              <div className="drop-shadow-md"><WeatherIcon code={h.weather_code} size="sm" isNight={h.time < "06:00" || h.time > "18:30"} /></div>
-                             <span className="text-[14px] md:text-[16px] font-bold tabular-nums drop-shadow-md"><CountUp value={parseTemp(h.temp.toString())} />°</span>
+                             <span className="text-[16px] font-bold tabular-nums drop-shadow-md"><CountUp value={parseTemp(h.temp.toString())} />°</span>
                              <span className="text-[10px] font-mono text-sky-200/80 mt-1">{h.pop}%</span>
                            </div>
                          ))}
@@ -445,19 +443,18 @@ export function WeatherTab() {
            </div>
 
            {/* Coluna Direita: Próximos dias e Sol */}
-           <div className="flex flex-col gap-6 lg:gap-8 relative min-h-0">
+           <div className="flex flex-col gap-6 lg:gap-8 relative">
               
-              {/* Próximos Dias */}
-              <div className="glass-deep p-6 flex-1 flex flex-col z-10 relative">
-                 <h4 className="text-[9px] md:text-[10px] font-bold uppercase tracking-[0.2em] text-white/50 mb-5 drop-shadow-sm">PRÓXIMOS DIAS</h4>
-                 <div className="flex flex-col gap-2 flex-1 justify-around">
+              <div className="glass-deep p-6 flex flex-col z-10 relative">
+                 <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/50 mb-5 drop-shadow-sm">PRÓXIMOS DIAS</h4>
+                 <div className="flex flex-col gap-2">
                     {daily.slice(0, 5).map((d, i) => (
-                       <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-[20px] bg-white/[0.03] border border-white/5 hover:bg-white/[0.08] transition-colors cursor-pointer shadow-sm">
-                          <span className="w-16 md:w-20 text-[12px] md:text-[13px] font-medium text-white/90 drop-shadow-sm">{formatDayName(d.date)}</span>
+                       <div key={i} className="glass-panel flex items-center gap-3 px-4 py-3 glass-panel-hover shadow-sm border-none">
+                          <span className="w-16 md:w-20 text-[13px] font-medium text-white/90 drop-shadow-sm">{formatDayName(d.date)}</span>
                           <div className="drop-shadow-md"><WeatherIcon code={d.weather_code} size="sm" /></div>
-                          <span className="flex-1 text-[11px] md:text-[12px] text-white/70 truncate pl-2 font-medium capitalize">{d.description}</span>
-                          {d.pop > 0 && <span className="text-[10px] md:text-[11px] text-sky-300/80 font-mono w-8 text-right drop-shadow-sm">{d.pop}%</span>}
-                          <span className="text-[13px] md:text-[14px] font-bold text-white tabular-nums w-16 text-right flex justify-end gap-1.5 drop-shadow-md">
+                          <span className="flex-1 text-[12px] text-white/70 truncate pl-2 font-medium capitalize">{d.description}</span>
+                          {d.pop > 0 && <span className="text-[11px] text-sky-300/80 font-mono w-8 text-right drop-shadow-sm">{d.pop}%</span>}
+                          <span className="text-[14px] font-bold text-white tabular-nums w-16 text-right flex justify-end gap-1.5 drop-shadow-md">
                              {ctf(d.max_temp.toString())} <span className="text-white/40 font-normal text-[11px]">{ctf(d.min_temp.toString())}</span>
                           </span>
                        </div>
@@ -465,13 +462,12 @@ export function WeatherTab() {
                  </div>
               </div>
 
-              {/* Sol (Nascer/Pôr) com gradiente elegante */}
               <div className="glass-deep p-6 border-white/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] relative overflow-hidden h-40 shrink-0">
                  <div className="absolute inset-0 bg-gradient-to-t from-orange-600/30 via-purple-800/40 to-transparent mix-blend-overlay" />
                  <div className="absolute inset-0 bg-gradient-to-r from-indigo-900/40 to-rose-900/30" />
                  
                  <div className="relative z-10 flex flex-col h-full justify-between">
-                   <h4 className="text-[9px] md:text-[10px] font-bold uppercase tracking-[0.2em] text-white/70 drop-shadow-sm mb-2">SOL</h4>
+                   <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/70 drop-shadow-sm mb-2">SOL</h4>
                    <div className="mt-auto drop-shadow-lg scale-105 transform origin-bottom">
                      <SunArc 
                        sunrise={current.sunrise} 
