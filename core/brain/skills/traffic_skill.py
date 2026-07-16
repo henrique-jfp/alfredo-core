@@ -93,14 +93,22 @@ class TrafficSkill(Skill):
         """Consulta API de rotas. Retorna dict com distance, duration, provider, ou error."""
         try:
             if gmaps_key:
+                import time
                 logger.info("Buscando rota na API do Google Maps (com Trânsito)...")
-                url = (
-                    f"https://maps.googleapis.com/maps/api/distancematrix/json"
-                    f"?origins={orig_lat},{orig_lon}"
-                    f"&destinations={dest_lat},{dest_lon}"
-                    f"&departure_time=now&key={gmaps_key}&language=pt-BR"
-                )
-                response = requests.get(url, timeout=5)
+                
+                origins = f"{orig_lat},{orig_lon}" if orig_lon else orig_lat
+                destinations = f"{dest_lat},{dest_lon}" if dest_lon else dest_lat
+                
+                url = "https://maps.googleapis.com/maps/api/distancematrix/json"
+                params = {
+                    "origins": origins,
+                    "destinations": destinations,
+                    "departure_time": int(time.time()),
+                    "key": gmaps_key,
+                    "language": "pt-BR",
+                    "traffic_model": "best_guess"
+                }
+                response = requests.get(url, params=params, timeout=5)
                 data = response.json()
 
                 if data.get("status") == "OK" and data["rows"][0]["elements"][0]["status"] == "OK":
