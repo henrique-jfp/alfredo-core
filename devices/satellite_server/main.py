@@ -195,7 +195,9 @@ stream_queue: queue.Queue = queue.Queue(maxsize=20)
 ws_instance = None
 
 # Pre-amp de software controlável
-SOFTWARE_MULTIPLIER = 1.5
+# Com beamforming (4 mics) + clean_audio + ALSA capture 100%,
+# o ganho natural do PS3 Eye é suficiente. Ajuste via Dashboard se necessário.
+SOFTWARE_MULTIPLIER = 1.0
 
 # Variáveis de calibração do Noise Gate
 is_calibrated = False
@@ -206,7 +208,7 @@ full_audio_buffer = bytearray()
 
 # Noise Gate com Hold Time (evita cortar sílabas fracas de voz distante)
 noise_gate_hold = 0
-NOISE_GATE_HOLD_FRAMES = 10  # 10 chunks de 20ms = 200ms de hold antes de fechar o gate
+NOISE_GATE_HOLD_FRAMES = 20  # 20 chunks de 20ms = 400ms — preserva consoantes fracas e pausas curtas
 
 # DASHCAM BUFFER (Mão-na-Roda)
 # Mantém os últimos 6 segundos de áudio guardados. Quando detecta a wake word, 
@@ -215,9 +217,23 @@ DASHCAM_SECONDS = 6
 DASHCAM_MAX_BYTES = DASHCAM_SECONDS * RATE * 2 # 16kHz, 16-bit (2 bytes por sample)
 dashcam_buffer = bytearray()
 
-# Coeficiente do filtro IIR low-pass (estado persistente entre callbacks)
-_notch_x = [0.0, 0.0]
-_notch_y = [0.0, 0.0]
+
+
+# Cache do filtro high-pass (calculado uma vez, reutilizado)
+_highpass_sos = None
+
+def _get_highpass_filter():
+    """Retorna coeficientes SOS do filtro high-pass 80Hz, com cache."""
+    global _highpass_sos
+    if _highpass_sos is None:
+        try:
+            from scipy.signal import butter
+            _highpass_sos = butter(4, 80, btype='highpass', fs=16000, output='sos')
+            print("🎛️ [ÁUDIO] Filtro high-pass 80Hz (scipy) ativado.", flush=True)
+        except ImportError:
+            print("⚠️ [ÁUDIO] scipy não disponível — filtro high-pass desativado.", flush=True)
+            _highpass_sos = False  # Marca como indisponível para não tentar de novo
+    return _highpass_sos
 
 
 def get_rms(data: bytes) -> float:
@@ -250,48 +266,27 @@ def _is_confirmed_speech(vad_says_speech: bool, rms: float, threshold: float) ->
 
 def clean_audio(samples: np.ndarray) -> np.ndarray:
     """Pipeline de limpeza de áudio.
-    
+
     1. Remove DC offset
-    2. Notch filter em 434Hz (interferência elétrica do hardware)
+    2. High-pass filter em 80Hz (remove hum elétrico 50/60Hz, rumble mecânico)
+       Mais efetivo que notch fixo — remove toda a faixa sub-vocal de uma vez.
+       Frequências vocais começam em ~85Hz (homens), então 80Hz é seguro.
     """
-    global _notch_x, _notch_y
     audio = samples.astype(np.float32)
 
     # Etapa 1: Remove DC offset
     audio -= np.mean(audio)
 
-    # Etapa 2: Notch filter biquad em 434Hz (remove zumbido elétrico do notebook)
-    # Coeficientes para f0=434Hz, fs=16000Hz, Q=30
-    f0 = 434.0
-    fs = 16000.0
-    Q = 30.0
-    w0 = 2.0 * np.pi * f0 / fs
-    alpha = np.sin(w0) / (2.0 * Q)
-    cos_w0 = np.cos(w0)
+    # Etapa 2: High-pass filter vetorizado (scipy) — ~100x mais rápido que loop Python
+    sos = _get_highpass_filter()
+    if sos is not False and sos is not None:
+        try:
+            from scipy.signal import sosfilt
+            audio = sosfilt(sos, audio).astype(np.float32)
+        except Exception:
+            pass  # Falha silenciosa — DC removal sozinho já ajuda
 
-    b0 = 1.0 / (1.0 + alpha)
-    b1 = -2.0 * cos_w0 / (1.0 + alpha)
-    b2 = 1.0 / (1.0 + alpha)
-    a1 = -2.0 * cos_w0 / (1.0 + alpha)
-    a2 = (1.0 - alpha) / (1.0 + alpha)
-
-    out = np.zeros_like(audio)
-    for i in range(len(audio)):
-        x = audio[i]
-        # Estado inicial
-        if i == 0:
-            y = b0 * x + b1 * _notch_x[0] + b2 * _notch_x[1] - a1 * _notch_y[0] - a2 * _notch_y[1]
-        elif i == 1:
-            y = b0 * x + b1 * audio[0] + b2 * _notch_x[0] - a1 * out[0] - a2 * _notch_y[0]
-        else:
-            y = b0 * x + b1 * audio[i-1] + b2 * audio[i-2] - a1 * out[i-1] - a2 * out[i-2]
-        out[i] = y
-
-    # Salva estado para próximo callback
-    _notch_x = [audio[-1], audio[-2]] if len(audio) >= 2 else [audio[-1], 0.0]
-    _notch_y = [out[-1], out[-2]] if len(out) >= 2 else [out[-1], 0.0]
-
-    return out
+    return audio
 
 
 def soft_clip(audio: np.ndarray, threshold: float = 28000) -> np.ndarray:
@@ -478,21 +473,24 @@ def _audio_callback_impl(indata, frames, time_info, status):
         if status.input_overflow:
             print("⚠️ [AUDIO] Buffer overflow detectado! Áudio pode picotar.", flush=True)
 
-    # Downmix explícito: se o dispositivo tem mais de 1 canal (ex: array de
-    # 4 mics da PS3 Eye), reduz pra mono aqui mesmo, de forma controlada e
-    # barata (média simples), em vez de depender de downmix implícito de
-    # alguma camada do PulseAudio/ALSA no meio do caminho.
+    # Beamforming: se o dispositivo tem mais de 1 canal (ex: array de 4 mics
+    # da PS3 Eye), faz média de TODOS os canais. Isso cancela ruídos
+    # não-correlacionados (elétrico, mecânico) e reforça a voz (mesma
+    # direção), melhorando SNR em ~6dB vs usar apenas 1 canal.
     if indata.ndim > 1 and indata.shape[1] > 1:
-        flattened = indata[:, 0]
+        flattened = np.mean(indata, axis=1)
     else:
         flattened = indata.flatten()
     cleaned = flattened.astype(np.float32)
-    
-    # Amplificador de software dinâmico
+
+    # Etapa 1: Limpeza (DC offset + high-pass 80Hz) — ANTES de amplificar
+    cleaned = clean_audio(cleaned)
+
+    # Etapa 2: Amplificador de software (só depois da limpeza)
     if SOFTWARE_MULTIPLIER != 1.0:
         cleaned = cleaned * SOFTWARE_MULTIPLIER
 
-    # Soft-clip: comprime gradualmente ao invés de cortar abruptamente
+    # Etapa 3: Soft-clip (protege contra clipping pós-amplificação)
     cleaned = soft_clip(cleaned)
     cleaned = cleaned.astype(np.int16)
     bytes_data = cleaned.tobytes()
@@ -506,8 +504,10 @@ def _audio_callback_impl(indata, frames, time_info, status):
         
         if calibration_frames >= required_frames:
             avg_noise = calibration_sum / calibration_frames
-            # Margem um pouco acima do chiado ambiente para não bloquear voz distante
-            noise_threshold = avg_noise + 500
+            # Margem proporcional ao ruído real — se adapta ao ambiente.
+            # Fórmula: 1.8x o ruído + margem mínima de 100.
+            # avg_noise=200 → threshold=460 | avg_noise=500 → threshold=1000
+            noise_threshold = avg_noise * 1.8 + 100
             print(f"\n🎙️ [CALIBRAÇÃO] Ruído de fundo médio: {avg_noise:.1f}")
             print(f"🎙️ [CALIBRAÇÃO] Noise Threshold dinâmico definido para: {noise_threshold:.1f}\n")
             is_calibrated = True
@@ -664,11 +664,13 @@ def _audio_callback_impl(indata, frames, time_info, status):
         # já estava acumulado no momento da wake word.
         live_frames = live_recording_bytes // 320
 
-        # 30-50 frames de 10ms = 0.3-0.5s de silêncio após a fala
+        # Silêncio pós-fala mais generoso para não cortar comandos no meio
+        # 0.5s no início (áudio curto) e 0.8s após fala sustentada
+        # Permite pausas naturais ("Alfredo... liga a luz da sala")
         if total_frames < int(1.0 * RATE / 160):
-            max_silence = int(0.3 * RATE / 160)
-        else:
             max_silence = int(0.5 * RATE / 160)
+        else:
+            max_silence = int(0.8 * RATE / 160)
         timeout_frames = int(20 * RATE / 160) if _session_mode else int(5 * RATE / 160)
         max_total = int(8 * RATE / 160)  # 8s máximo de FALA NOVA (ninguém dá um comando de 15s)
 
@@ -933,9 +935,9 @@ def main():
     import warnings
     warnings.filterwarnings("ignore")
 
-    # OpenWakeWord como gatilho adicional (modelo "Alexa" não detecta "alfredo",
-    # então VAD é o mecanismo principal)
-    print("🧠 Carregando OpenWakeWord (gatilho adicional)...")
+    # OpenWakeWord como gatilho PRINCIPAL de ativação.
+    # Modelo "alexa" pré-treinado — para usar "alfredo", treinar modelo customizado via Colab.
+    print("🧠 Carregando OpenWakeWord (gatilho principal)...")
     try:
         paths = openwakeword.get_pretrained_model_paths()
         alexa_path = next((p for p in paths if 'alexa' in p), None)
@@ -949,14 +951,16 @@ def main():
         print(f"⚠️  Falha ao carregar OpenWakeWord: {e}")
         oww_model = None
 
-    # VAD-only mode SEMPRE ativo: detecta fala contínua e grava.
-    # O servidor filtra comandos sem "alfredo" (server-side guard).
-    _vad_only_mode = True
-    print("🎤 Modo VAD ativo: gravando qualquer fala sustentada.")
-    print("   O servidor filtra comandos sem palavra de ativação.")
+    # VAD-only mode DESATIVADO: agora só o OpenWakeWord ("alexa") inicia gravação.
+    # Isso evita queimar tokens Groq com fala ambiente (TV, conversas, etc).
+    # O modo mãos-livres (sessões quiz/receita) continua funcionando independentemente.
+    _vad_only_mode = False
+    print("🎤 Modo VAD passivo desativado — apenas OpenWakeWord ('alexa') ativa gravação.")
+    print("   Sessões interativas (mãos-livres) continuam funcionando normalmente.")
 
-    # VAD: agressividade média (2) — precisa detectar fala para VAD-only mode
-    vad = webrtcvad.Vad(2)
+    # VAD: agressividade baixa (1) — mais sensível a voz distante.
+    # Ainda necessário para detecção de silêncio durante gravações ativas.
+    vad = webrtcvad.Vad(1)
 
     if not register_device():
         print("Falha ao registrar. Continuando mesmo assim...")
