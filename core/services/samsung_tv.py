@@ -232,9 +232,16 @@ class SamsungTVManager:
             except Exception as e:
                 logger.error(f"Erro ao definir mute via SmartThings: {e}")
 
-        logger.warning(
-            f"Fallback para KEY_MUTE local (TOGGLE, não absoluto) ao tentar mute={mute}. "
-            "SmartThings indisponível ou inválido."
+        logger.error(
+            f"\n"
+            f"{'='*60}\n"
+            f"⚠️  FALLBACK CRÍTICO: SmartThings indisponível para comando mute={mute}\n"
+            f"{'='*60}\n"
+            f"Motivo: SmartThings PAT inválido/expirado ou device_id incorreto.\n"
+            f"Usando KEY_MUTE local (TOGGLE) — o resultado pode ser o OPOSTO do pedido,\n"
+            f"já que KEY_MUTE alterna o estado atual em vez de defini-lo absolutamente.\n"
+            f"Para corrigir: verifique as credenciais do SmartThings no Dashboard.\n"
+            f"{'='*60}"
         )
         return await self._run_local_command(self.tv.send_key, "KEY_MUTE")
 

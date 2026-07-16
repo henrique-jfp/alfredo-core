@@ -162,6 +162,21 @@ _playback_cooldown_until = 0.0
 # Variáveis Globais de Estado
 is_recording = False
 has_spoken = False
+# BUG CORRIGIDO (FIX A): rastreia se o satélite MUTOU a TV para só desmutar
+# quando necessário. Antes, _post_playback_cleanup() SEMPRE enviava unmute,
+# mesmo quando a TV nunca foi mutada (ex: gravações do VAD-only mode).
+# Isso causava mute aleatório quando o SmartThings não estava configurado
+# (fallback para KEY_MUTE toggle).
+_tv_was_muted = False
+
+# BUG CORRIGIDO (FIX B): cooldown adaptativo entre gravações do VAD.
+# Se o VAD ficar disparando repetidamente sem wake word (ex: áudio da TV
+# sendo confundido com fala), o cooldown aumenta exponencialmente para
+# evitar loop infinito de gravações falsas.
+_vad_consecutive_triggers = 0
+_vad_last_trigger_time = 0.0
+VAD_BASE_COOLDOWN = 3.0      # cooldown inicial (segundos)
+VAD_MAX_COOLDOWN = 120.0     # cooldown máximo (2 min) se continuar falso
 silence_frames = 0
 recording_buffer = bytearray()
 full_audio_buffer = bytearray()
@@ -456,7 +471,7 @@ def _audio_callback_impl(indata, frames, time_info, status):
     global is_calibrated, calibration_frames, calibration_sum, noise_threshold
     global full_audio_buffer, dashcam_buffer, SOFTWARE_MULTIPLIER, noise_gate_hold, _session_mode
     global live_recording_bytes, _last_detection_time, _last_detection_lock, accumulated_vosk_text
-    global _vad_only_mode, _vad_speech_frames
+    global _vad_only_mode, _vad_speech_frames, _tv_was_muted, _vad_consecutive_triggers, _vad_last_trigger_time
 
     # Tratar overflow ao invés de descartar silenciosamente
     if status:
@@ -510,6 +525,8 @@ def _audio_callback_impl(indata, frames, time_info, status):
                 if score >= 0.7 and not is_recording:
                     print(f"🔊 OWW score {score:.2f} — iniciando gravação", flush=True)
                     _stop_current_music()
+                    _tv_was_muted = True  # FIX A: marca que MUTOU a TV
+                    _vad_consecutive_triggers = 0  # FIX B: reseta contagem de falsos VAD
                     try:
                         threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=5), daemon=True).start()
                     except:
@@ -536,6 +553,21 @@ def _audio_callback_impl(indata, frames, time_info, status):
                     _vad_speech_frames = 0
             # 8 frames consecutivos = ~0.8s de fala contínua (evita ruídos curtos)
             if _vad_speech_frames >= 8:
+                # FIX B: cooldown adaptativo — se VAD ficou disparando sem wake word
+                # (ex: áudio da TV), espaça as gravações para não sobrecarregar o sistema.
+                now = time.time()
+                elapsed_since_last = now - _vad_last_trigger_time
+                required_cooldown = min(
+                    VAD_BASE_COOLDOWN * (2 ** _vad_consecutive_triggers),
+                    VAD_MAX_COOLDOWN
+                )
+                if elapsed_since_last < required_cooldown:
+                    _vad_speech_frames = 0
+                    continue  # Ainda em cooldown adaptativo — descarta este trigger
+
+                _vad_consecutive_triggers += 1
+                _vad_last_trigger_time = now
+                _tv_was_muted = False  # FIX A: VAD NÃO muta a TV, só grava
                 print(f"🔊 [VAD] Fala detectada! Gravando...", flush=True)
                 _stop_current_music()
                 _start_recording()
@@ -762,10 +794,18 @@ def _stop_playback():
 
 
 def _post_playback_cleanup():
-    try:
-        requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=false", timeout=5)
-    except:
-        pass
+    global _tv_was_muted
+    # FIX A: só desmuta a TV se o satélite realmente a mutou antes.
+    # Antes, esse POST era enviado SEMPRE que uma gravação terminava,
+    # inclusive nas do VAD-only (que NUNCA mutam a TV). Isso causava
+    # um unmute espúrio a cada ~12s com a TV ligada, que virava mute
+    # aleatório se o SmartThings estivesse offline (fallback KEY_MUTE).
+    if _tv_was_muted:
+        try:
+            requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=false", timeout=5)
+            _tv_was_muted = False
+        except:
+            pass
     time.sleep(PLAYBACK_TAIL_COOLDOWN)
     _check_session_mode()
 
