@@ -306,7 +306,19 @@ async def process_voice_text(
         logger.error(f"Erro no Router (Text): {e}")
         response_text = "Tive um problema interno ao processar o texto."
         
-    # 3. Sintetizar áudio
+    # 3. Verificar se é resposta de confirmação curta (pular TTS)
+    _QUICK_ACK = {"ok", "ok.", "oque", "oke"}
+    if response_text.strip().lower() in _QUICK_ACK:
+        interaction.output_text = response_text
+        db.commit()
+        logger.info(f"⚡ SKIP TTS: resposta curta '{response_text}' — retornando JSON")
+        return {
+            "status": "ok",
+            "text": response_text,
+            "skip_tts": True,
+        }
+    
+    # 4. Sintetizar áudio (apenas para respostas não-triviais)
     temp_dir = os.path.join(os.getcwd(), "tmp")
     os.makedirs(temp_dir, exist_ok=True)
     output_filepath = os.path.join(temp_dir, f"out_text_{int(time.time())}.wav")

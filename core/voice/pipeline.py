@@ -16,6 +16,13 @@ logger = logging.getLogger("alfredo.voice_pipeline")
 
 _WAKE_WORDS = ["alfredo", "alfre", "fredo", "al fredo", "hey alfredo", "ok alfredo", "alexa", "é alexa"]
 
+
+async def _async_gen_from_text(text: str):
+    """Converte um texto completo em um async generator que yield 1 sentença.
+    Útil para o TTS stream quando já temos o texto completo (pós-skip de TTS
+    ou resposta de tool direta)."""
+    yield text
+
 def _has_wake_word(text: str) -> bool:
     text_lower = text.lower().strip()
     for w in _WAKE_WORDS:
@@ -111,9 +118,17 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
         return
 
     # 3a. Guarda: rejeita se não houver wake word (a menos que em sessão ativa)
-    # O fast path (semantic router com vosk_text) executa antes deste guarda,
-    # então comandos determinísticos como "pausa a música" passam mesmo sem wake word.
-    if not _has_wake_word(transcribed_text):
+    #
+    # ⚠️ BUG CORRIGIDO: o comentário original dizia que o FAST INTERCEPT
+    # (semantic router com vosk_text) "passa mesmo sem wake word", mas na
+    # verdade o código caía neste guarda DEPOIS do intercept, bloqueando
+    # comandos offline de luz ("liga a luz da sala") que o Vosk transcreveu
+    # sem wake word.
+    #
+    # Agora: se skip_stt=True (já foi interceptado pelo semantic router),
+    # pulamos o guarda — o semantic router já validou que é um comando
+    # determinístico e não precisa de wake word.
+    if not skip_stt and not _has_wake_word(transcribed_text):
         session_active = db.query(models.SessionState).filter(
             models.SessionState.room_id == room_id,
         ).first()
@@ -173,6 +188,11 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
         intercepted_stream = error_stream()
 
     # 4. Sintetizar áudio de resposta via Streaming ou Arquivo Único
+    #
+    # ⚡ OTIMIZAÇÃO DE LATÊNCIA: se a resposta for uma confirmação curta
+    # ("Ok."), pulamos o TTS completamente — a economia é de ~300-800ms
+    # de síntese de fala para uma palavra de 2 letras. O cliente (satélite)
+    # já emite seu próprio beep de confirmação via _offline_beep().
     try:
         voice_setting = db.query(models.Setting).filter(models.Setting.key == "assistant_voice").first()
         chosen_voice = voice_setting.value.strip() if voice_setting and voice_setting.value and voice_setting.value.strip() else "pt-BR-FranciscaNeural"
@@ -182,12 +202,29 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
         
         logger.info(f"Pipeline pré-TTS pronto em {_time.time() - t_pipeline_start:.3f}s")
         
+        # Junta a resposta completa primeiro para decidir se faz TTS
+        full_text = ""
+        async for sentence in intercepted_stream:
+            full_text += sentence + " "
+        full_text = full_text.strip()
+        
+        # ⚡ SKIP TTS para respostas de confirmação curtas (Ok, Ok.)
+        _QUICK_ACK = {"ok", "ok.", "oque", "oke"}
+        if full_text.lower().strip() in _QUICK_ACK:
+            logger.info(f"⚡ SKIP TTS: resposta curta '{full_text}' — pulando síntese de áudio")
+            # Salva latência mesmo sem TTS
+            try:
+                with SessionLocal() as new_db:
+                    inter = new_db.query(models.Interaction).filter(models.Interaction.id == interaction_id).first()
+                    if inter:
+                        inter.latency_ms = int((_time.time() - t_pipeline_start) * 1000)
+                        inter.output_text = full_text
+                        new_db.commit()
+            except Exception as e:
+                logger.error(f"Erro ao salvar interação (skip TTS): {e}")
+            return  # Não yield nada — cliente recebe stream vazio = confirmação
+        
         if not stream_tts:
-            full_text = ""
-            async for sentence in intercepted_stream:
-                full_text += sentence + " "
-            full_text = full_text.strip()
-            
             if full_text:
                 import tempfile
                 tmp_wav = tempfile.mktemp(suffix=".wav")
@@ -200,7 +237,7 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
                     with SessionLocal() as new_db:
                         inter = new_db.query(models.Interaction).filter(models.Interaction.id == interaction_id).first()
                         if inter:
-                            inter.latency_ms = int((_time.time() - t_pipeline_start) * 1000)
+                            inter.latency_ms = int((__import__('time').time() - t_pipeline_start) * 1000)
                             new_db.commit()
                 except Exception as e:
                     logger.error(f"Erro ao salvar latência do áudio completo: {e}")
@@ -208,7 +245,7 @@ async def process_audio_pipeline(audio_bytes: bytes, device_id: str, room_id: st
                 yield wav_data
         else:
             first_audio_chunk = True
-            async for audio_chunk in tts_engine.stream_audio_from_generator(intercepted_stream):
+            async for audio_chunk in tts_engine.stream_audio_from_generator(_async_gen_from_text(full_text)):
                 if first_audio_chunk:
                     try:
                         with SessionLocal() as new_db:
