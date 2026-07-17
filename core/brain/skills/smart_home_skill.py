@@ -143,6 +143,9 @@ class SmartHomeSkill:
                 elif action == "set_brightness":
                     b = arguments.get("brightness", arguments.get("value", 128))
                     ha.set_brightness(dev.entity_id, int(b))
+                elif action == "set_color":
+                    c = arguments.get("color", "white")
+                    ha.set_color(dev.entity_id, c)
                 elif action == "set_speed":
                     speed = arguments.get("speed", arguments.get("value", "medium"))
                     ha.set_speed(dev.entity_id, speed)
@@ -157,10 +160,10 @@ class SmartHomeSkill:
         if not results:
             return {"direct_response": "Nenhum dispositivo foi controlado."}
 
-        # ── Resposta direta ──────────────────────────────────────────
-        if len(results) == 1:
-            return {"direct_response": f"{action_pt} {results[0]}."}
-        return {"direct_response": f"{action_pt} {', '.join(results[:-1])} e {results[-1]}."}
+        # ── Resposta direta minimalista ──────────────────────────────
+        # O usuário pediu para ser o mais rápido possível: só "Ok."
+        # (O TTS de uma palavra de 2 letras é virtualmente instantâneo)
+        return {"direct_response": "Ok."}
 
 
 # ── helpers de tradução ────────────────────────────────────────────────
@@ -171,6 +174,7 @@ def _translate_action(action: str) -> str:
         "turn_off": "Desliguei",
         "toggle": "Alternei",
         "set_brightness": "Ajustei o brilho de",
+        "set_color": "Mudei a cor de",
         "set_speed": "Ajustei a velocidade de",
     }
     return mapping.get(action, action)

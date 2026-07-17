@@ -183,3 +183,90 @@ def delete_smart_device(device_id: int, db: Session = Depends(get_db)):
     db.delete(dev)
     db.commit()
     return {"status": "deleted"}
+
+
+# ── Endpoint offline / direto (sem LLM) ────────────────────────────────
+
+class SmartHomeOfflineRequest(BaseModel):
+    """Requisição para controle direto de dispositivo inteligente.
+    
+    Bypassa completamente o LLM/Gemini — chamada REST direta ao Home Assistant.
+    Usado pelo satélite (modo offline) e pelo dashboard (modo rápido).
+    
+    Se `entity_id` for informado, controla apenas aquele device.
+    Se apenas `room_id` e `device_type` forem informados, busca no banco
+    e controla todos os devices do tipo na sala.
+    """
+    action: str = "turn_on"  # "turn_on" | "turn_off" | "toggle"
+    entity_id: Optional[str] = None
+    device_type: Optional[str] = None
+    room_id: Optional[str] = None
+
+
+@router.post("/smart-home/offline")
+def smart_home_offline(req: SmartHomeOfflineRequest, db: Session = Depends(get_db)):
+    """
+    ⚡ ENDPOINT OFFLINE — controle direto de dispositivos sem LLM.
+    
+    Se `entity_id` for fornecido, controla direto no Home Assistant.
+    Se não, busca os dispositivos pelo `room_id` + `device_type` no banco local.
+    
+    Retorna status imediato — sem TTS, sem resposta por voz.
+    O cliente (satélite/dashboard) decide se quer反馈 acionar um beep ou "ok".
+    """
+    from core.services.home_assistant import HomeAssistantManager
+
+    ha = HomeAssistantManager()
+    results = []
+
+    if req.entity_id:
+        # ── Modo direto: entity_id explícito ───────────────────────
+        entity_ids = [e.strip() for e in req.entity_id.split(",")]
+        for eid in entity_ids:
+            try:
+                if req.action == "turn_on":
+                    ha.turn_on(eid)
+                elif req.action == "turn_off":
+                    ha.turn_off(eid)
+                elif req.action == "toggle":
+                    ha.toggle(eid)
+                else:
+                    raise HTTPException(status_code=400, detail=f"Ação inválida: {req.action}")
+                results.append(eid)
+            except Exception as e:
+                logger = logging.getLogger("alfredo.api.smart_home")
+                logger.error(f"Erro offline ao controlar {eid}: {e}")
+    else:
+        # ── Modo banco: busca devices por room_id + device_type ────
+        if not req.room_id:
+            raise HTTPException(status_code=400, detail="Informe entity_id ou room_id.")
+        
+        q = db.query(models.SmartDevice).filter(
+            models.SmartDevice.room_id == req.room_id,
+            models.SmartDevice.is_active == True,
+        )
+        if req.device_type:
+            q = q.filter(models.SmartDevice.device_type == req.device_type)
+        
+        devices = q.all()
+        if not devices:
+            raise HTTPException(status_code=404, detail="Nenhum dispositivo encontrado.")
+        
+        for dev in devices:
+            try:
+                if req.action == "turn_on":
+                    ha.turn_on(dev.entity_id)
+                elif req.action == "turn_off":
+                    ha.turn_off(dev.entity_id)
+                elif req.action == "toggle":
+                    ha.toggle(dev.entity_id)
+                results.append(dev.friendly_name or dev.entity_id)
+            except Exception as e:
+                logger = logging.getLogger("alfredo.api.smart_home")
+                logger.error(f"Erro offline ao controlar {dev.entity_id}: {e}")
+
+    return {
+        "status": "ok",
+        "action": req.action,
+        "devices_controlled": results,
+    }
