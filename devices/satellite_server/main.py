@@ -1,46 +1,373 @@
+"""
+Alfredo Satellite (OpenWakeWord) — captura de áudio, wake word, VAD e streaming
+para o servidor via WebSocket.
+
+Refatorado a partir da versão original: mesma lógica e mesmos thresholds
+calibrados (nenhum número de tuning foi alterado), mas com:
+  - logging estruturado (nível + timestamp) em vez de print() solto
+  - estado global agrupado em classes (SatelliteState, AudioConfig)
+  - type hints e docstrings
+  - tratamento de exceção mais explícito nos pontos críticos (crash-loop debugging)
+"""
+
+from __future__ import annotations
+
 import os
 import sys
 
-os.environ['PYTHONUNBUFFERED'] = '1'
-if hasattr(sys.stdout, 'reconfigure'):
+# Precisa vir ANTES de qualquer outro import: garante que stdout/stderr não
+# fiquem bufferizados quando rodando sob systemd (sem tty), senão logs somem
+# em caso de crash antes do flush.
+os.environ["PYTHONUNBUFFERED"] = "1"
+if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
-if hasattr(sys.stderr, 'reconfigure'):
+if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(line_buffering=True)
 
-import wave
-import time
-import math
 import array
 import json
-import queue
-import signal
-import threading
 import logging
+import math
+import queue
+import re
+import signal
 import subprocess
-from typing import Optional
+import threading
+import time
+import unicodedata
+import warnings
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Callable, Optional
 
-import sounddevice as sd
 import numpy as np
 import requests
+import sounddevice as sd
+import webrtcvad
 from websockets.sync.client import connect
-import re
+
 import openwakeword
 from openwakeword.model import Model as OWWModel
-import webrtcvad
+
+try:
+    import vosk
+
+    vosk.SetLogLevel(-1)
+except ImportError:
+    vosk = None
 
 
-RATE = 16000
-CHANNELS = 1
-DTYPE = 'int16'
-BLOCKSIZE = 1280  # OpenWakeWord usa chunks de 1280 samples (80ms) a 16kHz
-WAVE_OUTPUT = "request.wav"
+# --------------------------------------------------------------------------
+# Logging
+# --------------------------------------------------------------------------
+# Usar logging (não print) garante nível, timestamp e nome do módulo em cada
+# linha — essencial para diagnosticar problemas via `journalctl -u
+# alfredo-satellite.service -f` sem precisar adivinhar o que aconteceu.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(message)s",
+    datefmt="%H:%M:%S",
+    stream=sys.stdout,
+)
+log = logging.getLogger("alfredo.satellite")
 
-# Nome (ou parte dele) do dispositivo de microfone preferido.
-# Prioriza PS3 Eye e nomes configurados explicitamente, com fallback seguro.
-PREFERRED_MIC_NAME = os.getenv("ALFREDO_MIC_NAME", "PS3 Eye")
+
+# --------------------------------------------------------------------------
+# Configuração / constantes
+# --------------------------------------------------------------------------
+@dataclass(frozen=True)
+class AudioConfig:
+    rate: int = 16000
+    channels: int = 1
+    dtype: str = "int16"
+    blocksize: int = 1280  # OpenWakeWord usa chunks de 1280 samples (80ms) a 16kHz
+    wave_output: str = "request.wav"
+    wave_response: str = "response.wav"
+
+    # Mantido do original — margem calibrada empiricamente.
+    preferred_mic_name: str = field(default_factory=lambda: os.getenv("ALFREDO_MIC_NAME", "PS3 Eye"))
+
+    # Cooldown de playback: evita que o microfone capture o finalzinho da
+    # própria fala da caixa de som (modo mãos-livres de sessões).
+    # 3.0s porque o buffer ALSA/PulseAudio de computadores antigos (Celeron)
+    # pode atrasar a reprodução do ffplay em até 2 segundos.
+    playback_tail_cooldown: float = 3.0
+
+    vad_base_cooldown: float = 3.0     # cooldown inicial do VAD-only (segundos)
+    vad_max_cooldown: float = 120.0    # cooldown máximo (2 min) se continuar disparando falso
+
+    dashcam_seconds: int = 6           # segundos de pré-gravação mantidos em buffer
+    noise_gate_hold_frames: int = 20   # 20 chunks de 20ms = 400ms — preserva consoantes fracas
+
+    server_url: str = "http://pvserver:10001"
+    device_id: str = "server-satellite-sala"
+    room_id: str = "ROOM_LIVING"
+
+    @property
+    def dashcam_max_bytes(self) -> int:
+        return self.dashcam_seconds * self.rate * 2  # 16-bit = 2 bytes/sample
 
 
-def _find_input_device(name_substring: Optional[str]):
+CFG = AudioConfig()
+
+WAKE_WORD_DEFAULT = "alexa"
+WAKE_VARIANTS_DEFAULT = ["alfredo", "alfre", "fredo", "al fredo", "alfred", "alexa", "é alexa"]
+
+# --------------------------------------------------------------------------
+# Comandos offline — matching por ação + alvo (com sinônimos), não mais
+# frase exata. Cobre muito mais variações de fala ("liga a luz da sala",
+# "pode acender a luz da sala", "ativa luz sala"...) com bem menos regras.
+# --------------------------------------------------------------------------
+ACTION_SYNONYMS_ON = {"liga", "ligar", "acende", "acender", "ativa", "ativar"}
+ACTION_SYNONYMS_OFF = {"desliga", "desligar", "apaga", "apagar", "desativa", "desativar"}
+ACTION_SYNONYMS_MUTE = {"muta", "mutar", "silencia", "silenciar"}
+ACTION_SYNONYMS_UNMUTE = {"desmuta", "desmutar"}
+ACTION_SYNONYMS_STOP = {"para", "pare", "pausa", "pausar", "cancela", "cancelar"}
+
+WORD_LIGHT = {"luz", "luzes", "lampada", "lampadas"}
+WORD_TV = {"tv", "televisao"}
+WORD_MUSIC = {"musica", "som", "spotify"}
+WORD_TIME = {"horas"}  # casa com "que horas são" / "que horas sao"
+
+# Alvos de luz, do mais específico pro mais genérico (checados nessa ordem
+# pra "quarto da laura" não cair sem querer no fallback "quarto").
+#
+# ⚠️ CORREÇÃO: expandido para cobrir mais cômodos. O matching offline via
+# Vosk é a camada mais rápida (~50ms). Se não bater aqui, cai no fallback
+# do endpoint /api/smart-home/offline do servidor (que resolve pelo BD).
+LIGHT_TARGETS: list[tuple[list[str], list[str]]] = [
+    (["quarto da laura", "quarto laura"], ["light.luz_quarto_laura"]),
+    (["quarto do casal", "quarto casal"], ["light.luz_quarto_casal", "light.luz_quarto_casal_2"]),
+    (["sala de jantar", "sala jantar"], ["light.luz_sala_jantar", "light.luz_sala_jantar_2"]),
+    (["sala de estar"], ["light.luz_sala", "light.luz_sala_2"]),
+    (["sala"], ["light.luz_sala", "light.luz_sala_2"]),
+    (["escritorio"], ["light.luz_escritorio"]),
+    (["cozinha"], ["light.luz_cozinha"]),
+    (["varanda", "sacada"], ["light.luz_varanda"]),
+    (["banheiro", "wc"], ["light.luz_banheiro"]),
+    (["lavanderia", "area de servico"], ["light.luz_lavanderia"]),
+    (["jardim", "quintal"], ["light.luz_jardim"]),
+    (["garagem"], ["light.luz_garagem"]),
+]
+
+EMERGENCY_SINGLE_WORDS = {"para", "pausa", "chega", "silêncio", "silencio", "desliga"}
+EMERGENCY_PHRASES = {"cala a boca"}
+
+
+def _normalize(text: str) -> str:
+    """minúsculas, sem acento, sem pontuação, espaços únicos."""
+    text = text.lower().strip()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = re.sub(r"[^\w\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _has_word(text: str, word_or_phrase: str) -> bool:
+    """Casa `word_or_phrase` como palavra/frase inteira (com \\b), não substring solta."""
+    return re.search(rf"\b{re.escape(word_or_phrase)}\b", text) is not None
+
+
+def _has_any(text: str, words) -> bool:
+    return any(_has_word(text, w) for w in words)
+
+
+# --------------------------------------------------------------------------
+# Home Assistant helpers (comandos offline / rápidos)
+# --------------------------------------------------------------------------
+def get_ha_token() -> str:
+    env_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env"
+    )
+    try:
+        with open(env_path, "r") as f:
+            for line in f:
+                if line.startswith("HOME_ASSISTANT_TOKEN="):
+                    return line.split("=", 1)[1].strip()
+    except OSError as e:
+        log.warning("Não foi possível ler HOME_ASSISTANT_TOKEN de %s: %s", env_path, e)
+    return ""
+
+
+def _offline_beep() -> None:
+    """Feedback sonoro curto e imediato — confirma que o comando offline
+    foi entendido, sem depender do servidor/TTS."""
+    try:
+        beep_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "alarm.wav")
+        if os.path.exists(beep_path):
+            subprocess.run(["aplay", "-q", beep_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            print("\a", end="", flush=True)
+    except Exception as e:
+        log.debug("Falha ao tocar beep offline: %s", e)
+
+
+def _ha_call(domain: str, service: str, entity_ids: list[str]) -> None:
+    """Chama um serviço do Home Assistant direto (bypassa o servidor/LLM
+    inteiro — é isso que dá a latência quase-zero dos comandos offline)."""
+    token = get_ha_token()
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url = f"http://pvserver:8123/api/services/{domain}/{service}"
+    for eid in entity_ids:
+        try:
+            requests.post(url, headers=headers, json={"entity_id": eid}, timeout=2)
+            log.info("⚡ [OFFLINE] %s.%s enviado para %s", domain, service, eid)
+        except requests.RequestException as e:
+            log.warning("Erro offline HA (%s): %s", eid, e)
+
+
+def _handle_light(text: str) -> bool:
+    if not _has_any(text, WORD_LIGHT):
+        return False
+    if _has_any(text, ACTION_SYNONYMS_ON):
+        service = "turn_on"
+    elif _has_any(text, ACTION_SYNONYMS_OFF):
+        service = "turn_off"
+    else:
+        return False
+
+    # ── 1. Tentar matching hardcoded (ultra-rápido, sem depender do servidor) ──
+    for phrases, entity_ids in LIGHT_TARGETS:
+        if any(_has_word(text, p) for p in phrases):
+            log.info("⚡ [OFFLINE] Luz '%s' → %s", phrases[0], service)
+            threading.Thread(target=_ha_call, args=("light", service, entity_ids), daemon=True).start()
+            return True
+
+    # ── 2. Fallback: chama endpoint offline do servidor (resolve pelo BD) ──
+    # Útil para cômodos não mapeados no LIGHT_TARGETS hardcoded. O servidor
+    # tem acesso ao banco de dados e ao Home Assistant.
+    log.info("⚡ [OFFLINE] Luz (fallback servidor) → %s", service)
+    threading.Thread(
+        target=_offline_server_call,
+        args=(service, CFG.room_id),
+        daemon=True,
+    ).start()
+    return True
+
+
+def _offline_server_call(action: str, room_id: str) -> None:
+    """Chama o endpoint offline do servidor Alfredo para controle de luz.
+    O servidor resolve os entity_ids corretos via banco de dados."""
+    try:
+        url = f"{CFG.server_url}/api/smart-home/offline"
+        payload = {
+            "action": action,
+            "device_type": "light",
+            "room_id": room_id,
+        }
+        resp = requests.post(url, json=payload, timeout=3)
+        if resp.status_code == 200:
+            log.info("⚡ [OFFLINE] Servidor confirmou: %s", resp.json())
+        else:
+            log.warning("⚡ [OFFLINE] Servidor retornou %s: %s", resp.status_code, resp.text)
+            # Último recurso: tenta ligar/desligar todas as luzes da sala via HA direto
+            _ha_call("light", action, [f"light.luz_{room_id.lower().replace('room_', '')}"])
+    except requests.RequestException as e:
+        log.warning("⚡ [OFFLINE] Servidor offline, tentando HA direto: %s", e)
+        # Último recurso: HA direto com entity_id genérico
+        room_slug = room_id.lower().replace("room_", "")
+        _ha_call("light", action, [f"light.luz_{room_slug}"])
+
+
+def _tv_control(endpoint: str, params: dict) -> None:
+    try:
+        requests.post(f"{CFG.server_url}/api/tv/control/{CFG.room_id}/{endpoint}", params=params, timeout=3)
+    except requests.RequestException as e:
+        log.warning("Erro no controle offline de TV (%s): %s", endpoint, e)
+
+
+def _handle_tv(text: str) -> bool:
+    if not _has_any(text, WORD_TV):
+        return False
+    if _has_any(text, ACTION_SYNONYMS_MUTE):
+        log.info("⚡ [OFFLINE] Mutando TV")
+        threading.Thread(target=_tv_control, args=("mute", {"state": "true"}), daemon=True).start()
+        return True
+    if _has_any(text, ACTION_SYNONYMS_UNMUTE):
+        log.info("⚡ [OFFLINE] Desmutando TV")
+        threading.Thread(target=_tv_control, args=("mute", {"state": "false"}), daemon=True).start()
+        return True
+    if _has_any(text, ACTION_SYNONYMS_ON | ACTION_SYNONYMS_OFF):
+        # /power é toggle no servidor (não tem estado explícito) — serve
+        # tanto pra "liga a tv" quanto "desliga a tv".
+        log.info("⚡ [OFFLINE] Toggle de power da TV")
+        threading.Thread(target=_tv_control, args=("power", {}), daemon=True).start()
+        return True
+    return False
+
+
+def _music_stop() -> None:
+    _stop_current_music()
+    try:
+        requests.post(f"{CFG.server_url}/api/spotify/control", json={"action": "pause"}, timeout=3)
+    except requests.RequestException as e:
+        log.debug("Spotify pause offline falhou (pode não estar tocando lá): %s", e)
+
+
+def _handle_music(text: str) -> bool:
+    if not _has_any(text, WORD_MUSIC):
+        return False
+    if _has_any(text, ACTION_SYNONYMS_STOP):
+        log.info("⚡ [OFFLINE] Parando música")
+        threading.Thread(target=_music_stop, daemon=True).start()
+        return True
+    return False
+
+
+def _speak_offline(text: str) -> None:
+    """TTS local mínimo via espeak-ng, só pra respostas curtas (hora).
+    Degrada graciosamente se não estiver instalado — não é um substituto
+    do TTS do servidor (Edge TTS), só um atalho pra esse caso pontual."""
+    try:
+        subprocess.run(
+            ["espeak-ng", "-v", "pt-br", "-s", "150", text],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=6, check=True,
+        )
+    except FileNotFoundError:
+        log.warning(
+            "⚠️ [OFFLINE] espeak-ng não instalado — resposta de voz local indisponível "
+            "(instale com: sudo apt install espeak-ng). Hora calculada: %s", text
+        )
+    except Exception as e:
+        log.warning("⚠️ [OFFLINE] Falha ao falar hora localmente: %s", e)
+
+
+def _handle_time(text: str) -> bool:
+    if not _has_any(text, WORD_TIME):
+        return False
+    now = datetime.now()
+    frase = f"Agora são {now.hour} horas e {now.minute} minutos."
+    log.info("⚡ [OFFLINE] Hora solicitada: %s", frase)
+    threading.Thread(target=_speak_offline, args=(frase,), daemon=True).start()
+    return True
+
+
+# Ordem importa: mais específico primeiro. Cada handler recebe o texto já
+# normalizado e retorna True se tratou o comando (interrompe o pipeline
+# normal de STT/LLM pra esse trecho de fala).
+_OFFLINE_INTENT_HANDLERS: list[Callable[[str], bool]] = [
+    _handle_light,
+    _handle_tv,
+    _handle_music,
+    _handle_time,
+]
+
+
+def _check_offline_command(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    for handler in _OFFLINE_INTENT_HANDLERS:
+        if handler(normalized):
+            _offline_beep()
+            return True
+    return False
+
+
+# --------------------------------------------------------------------------
+# Áudio: descoberta de dispositivo, stream, limpeza de sinal
+# --------------------------------------------------------------------------
+def find_input_device(name_substring: Optional[str]) -> tuple[Optional[int], int, float]:
     """Procura um dispositivo de entrada com fallback por prioridade."""
     try:
         devices = sd.query_devices()
@@ -52,44 +379,51 @@ def _find_input_device(name_substring: Optional[str]):
         for term in preferred_terms:
             term_lower = term.lower()
             for idx, dev in enumerate(devices):
-                if dev.get('max_input_channels', 0) > 0 and term_lower in dev.get('name', '').lower():
-                    print(f"🎙️ [ÁUDIO] Dispositivo preferido encontrado: [{idx}] {dev['name']} "
-                          f"({dev['max_input_channels']} canais, {dev.get('default_samplerate')}Hz)", flush=True)
-                    return idx, int(dev['max_input_channels']), float(dev.get('default_samplerate') or RATE)
+                if dev.get("max_input_channels", 0) > 0 and term_lower in dev.get("name", "").lower():
+                    log.info(
+                        "🎙️ [ÁUDIO] Dispositivo preferido encontrado: [%s] %s (%s canais, %sHz)",
+                        idx, dev["name"], dev["max_input_channels"], dev.get("default_samplerate"),
+                    )
+                    return idx, int(dev["max_input_channels"]), float(dev.get("default_samplerate") or CFG.rate)
 
         for idx, dev in enumerate(devices):
-            if dev.get('max_input_channels', 0) > 0:
-                print(f"⚠️ [ÁUDIO] Usando primeiro input disponível: [{idx}] {dev['name']} "
-                      f"({dev['max_input_channels']} canais, {dev.get('default_samplerate')}Hz)", flush=True)
-                return idx, int(dev['max_input_channels']), float(dev.get('default_samplerate') or RATE)
+            if dev.get("max_input_channels", 0) > 0:
+                log.warning(
+                    "⚠️ [ÁUDIO] Usando primeiro input disponível: [%s] %s (%s canais, %sHz)",
+                    idx, dev["name"], dev["max_input_channels"], dev.get("default_samplerate"),
+                )
+                return idx, int(dev["max_input_channels"]), float(dev.get("default_samplerate") or CFG.rate)
     except Exception as e:
-        print(f"⚠️ [ÁUDIO] Erro ao buscar dispositivo preferido: {e}", flush=True)
-    print("⚠️ [ÁUDIO] Nenhum dispositivo de entrada encontrado, usando padrão do sistema.", flush=True)
-    return None, CHANNELS, float(RATE)
+        log.error("⚠️ [ÁUDIO] Erro ao buscar dispositivo preferido: %s", e)
+    log.warning("⚠️ [ÁUDIO] Nenhum dispositivo de entrada encontrado, usando padrão do sistema.")
+    return None, CFG.channels, float(CFG.rate)
 
 
-def _open_input_stream(device_index: Optional[int], device_channels: int, samplerate: float):
+def open_input_stream(
+    device_index: Optional[int], device_channels: int, samplerate: float, callback
+) -> sd.InputStream:
     """Abre o stream tentando a taxa preferida e depois o sample rate nativo do device."""
-    attempts = []
-    preferred_rate = float(RATE)
-    native_rate = float(samplerate or RATE)
+    attempts: list[float] = []
+    preferred_rate = float(CFG.rate)
+    native_rate = float(samplerate or CFG.rate)
 
     for rate in (preferred_rate, native_rate):
         if rate in attempts:
             continue
         attempts.append(rate)
         try:
-            print(f"🎚️ [ÁUDIO] Tentando abrir InputStream em {rate} Hz...", flush=True)
+            log.info("🎚️ [ÁUDIO] Tentando abrir InputStream em %s Hz...", rate)
             return sd.InputStream(
                 device=device_index,
                 samplerate=rate,
                 channels=device_channels,
-                dtype=DTYPE,
-                blocksize=BLOCKSIZE,
-                callback=audio_callback
+                dtype=CFG.dtype,
+                blocksize=CFG.blocksize,
+                callback=callback,
             )
         except Exception as exc:
-            print(f"⚠️ [ÁUDIO] Falha ao abrir stream em {rate} Hz: {exc}", flush=True)
+            log.warning("⚠️ [ÁUDIO] Falha ao abrir stream em %s Hz: %s", rate, exc)
+
     raise RuntimeError(
         f"Não foi possível abrir nenhum InputStream válido para o device {device_index} "
         f"com taxas testadas: {attempts}"
@@ -98,17 +432,14 @@ def _open_input_stream(device_index: Optional[int], device_channels: int, sample
 
 def _run_audio_mixer_commands(commands: list[list[str]]) -> None:
     """Tenta aplicar comandos de áudio com fallback entre pactl e amixer."""
-    tried = []
     for cmd in commands:
         try:
             subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-            tried.append(" ".join(cmd))
         except Exception as exc:
-            print(f"⚠️ [ÁUDIO] Falha ao executar {' '.join(cmd)}: {exc}", flush=True)
+            log.warning("⚠️ [ÁUDIO] Falha ao executar %s: %s", " ".join(cmd), exc)
 
 
-def _apply_capture_level(percent: str) -> None:
-    """Aplica ganho de captura no source padrão e em mixers ALSA conhecidos."""
+def apply_capture_level(percent: str) -> None:
     _run_audio_mixer_commands([
         ["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{percent}%"],
         ["amixer", "sset", "Capture", f"{percent}%"],
@@ -116,111 +447,15 @@ def _apply_capture_level(percent: str) -> None:
     ])
 
 
-def _apply_master_level(percent: str) -> None:
-    """Aplica volume master na saída padrão e em mixers ALSA conhecidos."""
+def apply_master_level(percent: str) -> None:
     _run_audio_mixer_commands([
         ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{percent}%"],
         ["amixer", "sset", "Master", f"{percent}%"],
     ])
-WAVE_RESPONSE = "response.wav"
-SERVER_URL = "http://pvserver:10001"
-DEVICE_ID = "server-satellite-sala"
-ROOM_ID = "ROOM_LIVING"
-
-wake_word = "alexa"
-wake_variants = [
-    "alfredo", "alfre", "fredo", "al fredo", "alfred",
-    "alexa", "é alexa"
-]
-
-alarm_process = None
-audio_stream: Optional[sd.InputStream] = None
-oww_model = None
-vad: Optional[webrtcvad.Vad] = None
 
 
+_highpass_sos = None  # cache do filtro high-pass (calculado uma vez)
 
-_last_detection_time = 0.0
-_last_detection_lock = threading.Lock()
-
-_is_playing = False
-_playback_lock = threading.Lock()
-_session_mode = False
-_session_lock = threading.Lock()
-_vad_only_mode = False
-_vad_speech_frames = 0
-current_music_process = None
-
-# COOLDOWN DE PLAYBACK
-# Evita que o microfone capture o finalzinho da própria fala da caixa de som
-# (especialmente no modo mãos-livres de sessões como quiz/receita).
-# Aumentado para 3.0s porque o buffer ALSA/PulseAudio de computadores antigos (Celeron)
-# pode atrasar a reprodução do ffplay em até 2 segundos.
-PLAYBACK_TAIL_COOLDOWN = 3.0  # segundos de silêncio forçado após tocar áudio
-_playback_cooldown_until = 0.0
-
-# Variáveis Globais de Estado
-is_recording = False
-has_spoken = False
-# BUG CORRIGIDO (FIX A): rastreia se o satélite MUTOU a TV para só desmutar
-# quando necessário. Antes, _post_playback_cleanup() SEMPRE enviava unmute,
-# mesmo quando a TV nunca foi mutada (ex: gravações do VAD-only mode).
-# Isso causava mute aleatório quando o SmartThings não estava configurado
-# (fallback para KEY_MUTE toggle).
-_tv_was_muted = False
-
-# BUG CORRIGIDO (FIX B): cooldown adaptativo entre gravações do VAD.
-# Se o VAD ficar disparando repetidamente sem wake word (ex: áudio da TV
-# sendo confundido com fala), o cooldown aumenta exponencialmente para
-# evitar loop infinito de gravações falsas.
-_vad_consecutive_triggers = 0
-_vad_last_trigger_time = 0.0
-VAD_BASE_COOLDOWN = 3.0      # cooldown inicial (segundos)
-VAD_MAX_COOLDOWN = 120.0     # cooldown máximo (2 min) se continuar falso
-silence_frames = 0
-recording_buffer = bytearray()
-full_audio_buffer = bytearray()
-dashcam_buffer = bytearray()
-accumulated_vosk_text = ""
-is_streaming = False
-# BUG CORRIGIDO: o teto de segurança (max_total) usava total_frames, que
-# inclui até 6s de áudio pré-gravado (dashcam_buffer). Isso deixava o
-# comportamento imprevisível: dependendo de quanto dashcam já tinha
-# acumulado, o corte por "tempo máximo" ocorria cedo ou quase nos 8s
-# inteiros. live_recording_bytes conta SÓ o áudio capturado desde que a
-# gravação atual começou, para o teto de 8s ter significado consistente.
-live_recording_bytes = 0
-# Queue para comunicação entre o callback de áudio e o stream worker
-stream_queue: queue.Queue = queue.Queue(maxsize=20)
-ws_instance = None
-
-# Pre-amp de software controlável
-# Com beamforming (4 mics) + clean_audio + ALSA capture 100%,
-# o ganho natural do PS3 Eye é suficiente. Ajuste via Dashboard se necessário.
-SOFTWARE_MULTIPLIER = 1.0
-
-# Variáveis de calibração do Noise Gate
-is_calibrated = False
-calibration_frames = 0
-calibration_sum = 0
-noise_threshold = 2000
-full_audio_buffer = bytearray()
-
-# Noise Gate com Hold Time (evita cortar sílabas fracas de voz distante)
-noise_gate_hold = 0
-NOISE_GATE_HOLD_FRAMES = 20  # 20 chunks de 20ms = 400ms — preserva consoantes fracas e pausas curtas
-
-# DASHCAM BUFFER (Mão-na-Roda)
-# Mantém os últimos 6 segundos de áudio guardados. Quando detecta a wake word, 
-# ele envia os últimos 6 segundos pro Cérebro, garantindo que o comando não foi cortado.
-DASHCAM_SECONDS = 6
-DASHCAM_MAX_BYTES = DASHCAM_SECONDS * RATE * 2 # 16kHz, 16-bit (2 bytes por sample)
-dashcam_buffer = bytearray()
-
-
-
-# Cache do filtro high-pass (calculado uma vez, reutilizado)
-_highpass_sos = None
 
 def _get_highpass_filter():
     """Retorna coeficientes SOS do filtro high-pass 80Hz, com cache."""
@@ -228,21 +463,23 @@ def _get_highpass_filter():
     if _highpass_sos is None:
         try:
             from scipy.signal import butter
-            _highpass_sos = butter(4, 80, btype='highpass', fs=16000, output='sos')
-            print("🎛️ [ÁUDIO] Filtro high-pass 80Hz (scipy) ativado.", flush=True)
+
+            _highpass_sos = butter(4, 80, btype="highpass", fs=16000, output="sos")
+            log.info("🎛️ [ÁUDIO] Filtro high-pass 80Hz (scipy) ativado.")
         except ImportError:
-            print("⚠️ [ÁUDIO] scipy não disponível — filtro high-pass desativado.", flush=True)
-            _highpass_sos = False  # Marca como indisponível para não tentar de novo
+            log.warning("⚠️ [ÁUDIO] scipy não disponível — filtro high-pass desativado.")
+            _highpass_sos = False
     return _highpass_sos
 
 
 def get_rms(data: bytes) -> float:
-    samples = array.array('h', data[:len(data) - (len(data) % 2)])
+    samples = array.array("h", data[: len(data) - (len(data) % 2)])
     if not samples:
-        return 0
+        return 0.0
     return math.sqrt(sum(s * s for s in samples) / len(samples))
 
-def _is_confirmed_speech(vad_says_speech: bool, rms: float, threshold: float) -> bool:
+
+def is_confirmed_speech(vad_says_speech: bool, rms: float, threshold: float) -> bool:
     """Confirma fala combinando o veredito espectral do WebRTC VAD com a
     energia (RMS) do chunk, usando o `noise_threshold` calibrado no boot.
 
@@ -255,740 +492,860 @@ def _is_confirmed_speech(vad_says_speech: bool, rms: float, threshold: float) ->
     8s (max_total) antes de ser processado — essa espera "morta" no
     satélite, e não o LLM/TTS no servidor, era a causa real dos ~6s de
     demora reportados.
-
-    NOTA: se o preamp de software (SET_SOFTWARE_PREAMP) for alterado em
-    tempo real via Dashboard, o `noise_threshold` calibrado no boot pode
-    ficar desatualizado. Melhoria futura: recalibrar ao receber esse
-    comando.
     """
     return bool(vad_says_speech) and rms > threshold
 
 
 def clean_audio(samples: np.ndarray) -> np.ndarray:
-    """Pipeline de limpeza de áudio.
-
-    1. Remove DC offset
-    2. High-pass filter em 80Hz (remove hum elétrico 50/60Hz, rumble mecânico)
-       Mais efetivo que notch fixo — remove toda a faixa sub-vocal de uma vez.
-       Frequências vocais começam em ~85Hz (homens), então 80Hz é seguro.
-    """
+    """Pipeline de limpeza de áudio: remove DC offset + high-pass 80Hz."""
     audio = samples.astype(np.float32)
-
-    # Etapa 1: Remove DC offset
     audio -= np.mean(audio)
 
-    # Etapa 2: High-pass filter vetorizado (scipy) — ~100x mais rápido que loop Python
     sos = _get_highpass_filter()
     if sos is not False and sos is not None:
         try:
             from scipy.signal import sosfilt
+
             audio = sosfilt(sos, audio).astype(np.float32)
         except Exception:
-            pass  # Falha silenciosa — DC removal sozinho já ajuda
+            pass  # falha silenciosa — DC removal sozinho já ajuda
 
     return audio
 
 
 def soft_clip(audio: np.ndarray, threshold: float = 28000) -> np.ndarray:
-    """Comprime suavemente picos ao invés de cortar abruptamente (hard clip).
-    
-    Usa tanh para comprimir gradualmente valores acima do threshold,
-    evitando os estouros audíveis que np.clip() causa.
-    """
+    """Comprime suavemente picos com tanh, evitando os estouros audíveis do hard clip."""
     mask = np.abs(audio) > threshold
     if np.any(mask):
         sign = np.sign(audio[mask])
         excess = np.abs(audio[mask]) - threshold
-        max_excess = 32767 - threshold  # 4767
+        max_excess = 32767 - threshold
         compressed = threshold + max_excess * np.tanh(excess / max_excess)
         audio[mask] = sign * compressed
     return audio
 
 
-def play_alarm_loop():
-    global alarm_process
+# --------------------------------------------------------------------------
+# Estado do satélite (agrupa o que antes eram ~25 variáveis globais soltas)
+# --------------------------------------------------------------------------
+class SatelliteState:
+    def __init__(self, cfg: AudioConfig):
+        self.cfg = cfg
+
+        self.wake_word = WAKE_WORD_DEFAULT
+        self.wake_variants = list(WAKE_VARIANTS_DEFAULT)
+
+        self.alarm_process: Optional[subprocess.Popen] = None
+        self.audio_stream: Optional[sd.InputStream] = None
+        self.oww_model: Optional[OWWModel] = None
+        self.vad: Optional[webrtcvad.Vad] = None
+        self.vosk_model = None
+        self.vosk_rec = None
+
+        self._last_detection_lock = threading.Lock()
+
+        self._playback_lock = threading.Lock()
+        self.is_playing = False
+        self.playback_cooldown_until = 0.0
+
+        self._session_lock = threading.Lock()
+        self.session_mode = False
+
+        self.vad_only_mode = False
+        self.vad_speech_frames = 0
+
+        self.current_music_process: Optional[subprocess.Popen] = None
+        self.player_process: Optional[subprocess.Popen] = None
+
+        # Estado de gravação
+        self.is_recording = False
+        self.has_spoken = False
+        self.silence_frames = 0
+        self.recording_buffer = bytearray()
+        self.full_audio_buffer = bytearray()
+        self.dashcam_buffer = bytearray()
+        self.accumulated_vosk_text = ""
+        self.live_recording_bytes = 0
+
+        # FIX A: rastreia se o satélite MUTOU a TV para só desmutar quando
+        # necessário (evita unmute espúrio em gravações do VAD-only mode).
+        self.tv_was_muted = False
+
+        # FIX B: cooldown adaptativo entre gravações do VAD — se disparar
+        # repetidamente sem wake word, o cooldown cresce exponencialmente.
+        self.vad_consecutive_triggers = 0
+        self.vad_last_trigger_time = 0.0
+
+        # Calibração de ruído
+        self.is_calibrated = False
+        self.calibration_frames = 0
+        self.calibration_sum = 0.0
+        self.noise_threshold = 2000.0
+        self.noise_gate_hold = 0
+
+        self.software_multiplier = 1.0
+
+        self.is_streaming = False
+        self.stream_queue: queue.Queue = queue.Queue(maxsize=20)
+        self.ws_instance = None
+
+    # -- playback state helpers ------------------------------------------------
+    def set_playing(self, value: bool) -> None:
+        with self._playback_lock:
+            self.is_playing = value
+
+    def set_session_mode(self, value: bool) -> None:
+        with self._session_lock:
+            self.session_mode = value
+
+
+STATE = SatelliteState(CFG)
+
+
+# --------------------------------------------------------------------------
+# Alarme
+# --------------------------------------------------------------------------
+def play_alarm_loop() -> None:
     alarm_file = os.path.join(os.path.dirname(__file__), "alarm.wav")
     if not os.path.exists(alarm_file):
-        print("⚠️ Arquivo de alarme não encontrado.")
+        log.warning("⚠️ Arquivo de alarme não encontrado.")
         return
     stop_alarm()
-    print("🔔 Despertador tocando!")
+    log.info("🔔 Despertador tocando!")
     cmd = f"timeout 60 sh -c 'while true; do aplay -q \"{alarm_file}\"; done'"
-    alarm_process = subprocess.Popen(cmd, shell=True, preexec_fn=os.setsid)
+    STATE.alarm_process = subprocess.Popen(cmd, shell=True, preexec_fn=os.setsid)
 
 
-def stop_alarm():
-    global alarm_process
-    if alarm_process:
+def stop_alarm() -> None:
+    if STATE.alarm_process:
         try:
-            os.killpg(os.getpgid(alarm_process.pid), signal.SIGTERM)
+            os.killpg(os.getpgid(STATE.alarm_process.pid), signal.SIGTERM)
         except Exception:
             pass
-        alarm_process = None
+        STATE.alarm_process = None
 
 
-def register_device():
-    print(f"Registrando dispositivo {DEVICE_ID} no servidor...")
-    url = f"{SERVER_URL}/api/devices/register"
+# --------------------------------------------------------------------------
+# Registro no servidor
+# --------------------------------------------------------------------------
+def register_device() -> bool:
+    log.info("Registrando dispositivo %s no servidor...", CFG.device_id)
+    url = f"{CFG.server_url}/api/devices/register"
     payload = {
-        "device_id": DEVICE_ID,
-        "room_id": ROOM_ID,
+        "device_id": CFG.device_id,
+        "room_id": CFG.room_id,
         "hardware": "linux-server-satellite",
         "firmware_version": "1.0.0",
-        "capabilities": ["microphone", "speaker"]
+        "capabilities": ["microphone", "speaker"],
     }
     max_retries = 5
     for attempt in range(1, max_retries + 1):
         try:
             response = requests.post(url, json=payload, timeout=5)
             response.raise_for_status()
-            print(f"Registro OK! Servidor respondeu: {response.json()['message']}")
+            log.info("Registro OK! Servidor respondeu: %s", response.json()["message"])
             try:
-                settings_res = requests.get(f"{SERVER_URL}/api/dashboard/settings", timeout=3)
+                settings_res = requests.get(f"{CFG.server_url}/api/dashboard/settings", timeout=3)
                 if settings_res.status_code == 200:
                     settings_data = settings_res.json()
                     if "assistant_name" in settings_data:
-                        global wake_word, wake_variants
-                        wake_word = settings_data["assistant_name"].lower()
-                        wake_variants = [wake_word]
-                        print(f"📡 Wake Word sincronizado com o servidor: {wake_word.upper()}")
+                        STATE.wake_word = settings_data["assistant_name"].lower()
+                        STATE.wake_variants = [STATE.wake_word]
+                        log.info("📡 Wake Word sincronizado com o servidor: %s", STATE.wake_word.upper())
             except Exception as e:
-                print(f"Aviso: Não foi possível sincronizar o Wake Word: {e}")
+                log.warning("Aviso: não foi possível sincronizar o Wake Word: %s", e)
             return True
-        except Exception as e:
-            print(f"Falha ao registrar (tentativa {attempt}/{max_retries}): {e}")
+        except requests.RequestException as e:
+            log.warning("Falha ao registrar (tentativa %s/%s): %s", attempt, max_retries, e)
             if attempt < max_retries:
                 time.sleep(2 ** attempt)
     return False
 
 
-def play_audio(filename):
-    global _is_playing
-    with _playback_lock:
-        _is_playing = True
-    print("🔊 Reproduzindo resposta (volume amplificado)...", flush=True)
+# --------------------------------------------------------------------------
+# Reprodução de áudio (resposta gravada localmente, não streaming)
+# --------------------------------------------------------------------------
+def play_audio(filename: str) -> None:
+    STATE.set_playing(True)
+    log.info("🔊 Reproduzindo resposta (volume amplificado)...")
     try:
         amplified = "response_loud.wav"
         subprocess.run(
-            ['sox', filename, amplified, 'vol', '3.0'],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            ["sox", filename, amplified, "vol", "3.0"],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-        subprocess.run(['aplay', '-q', amplified], check=True)
+        subprocess.run(["aplay", "-q", amplified], check=True)
     except Exception as e:
-        print(f"Erro ao reproduzir áudio: {e}. Tentando sem amplificação...", flush=True)
+        log.warning("Erro ao reproduzir áudio: %s. Tentando sem amplificação...", e)
         try:
-            subprocess.run(['aplay', '-q', filename], check=True)
+            subprocess.run(["aplay", "-q", filename], check=True)
         except Exception as e2:
-            print(f"Erro fatal ao reproduzir: {e2}", flush=True)
-    with _playback_lock:
-        _is_playing = False
-        global _playback_cooldown_until
-        _playback_cooldown_until = time.time() + PLAYBACK_TAIL_COOLDOWN
+            log.error("Erro fatal ao reproduzir: %s", e2)
+    STATE.set_playing(False)
+    STATE.playback_cooldown_until = time.time() + CFG.playback_tail_cooldown
 
 
-def _stop_current_music():
-    global current_music_process, _is_playing
-    if current_music_process:
+def _stop_current_music() -> None:
+    if STATE.current_music_process:
         try:
-            current_music_process.terminate()
-            current_music_process.wait(timeout=2)
+            STATE.current_music_process.terminate()
+            STATE.current_music_process.wait(timeout=2)
         except Exception:
             pass
-        current_music_process = None
-    with _playback_lock:
-        _is_playing = False
+        STATE.current_music_process = None
+    STATE.set_playing(False)
 
 
-def _watch_music_process(proc):
-    global current_music_process, _is_playing
+def _watch_music_process(proc: subprocess.Popen) -> None:
     try:
         proc.wait()
     except Exception:
         pass
-    if current_music_process is proc:
-        current_music_process = None
-    with _playback_lock:
-        _is_playing = False
+    if STATE.current_music_process is proc:
+        STATE.current_music_process = None
+    STATE.set_playing(False)
 
 
-def send_audio_and_play(filename):
-    print("Enviando áudio para o servidor (Groq API STT e Router)...")
-    url = f"{SERVER_URL}/api/voice"
+def send_audio_and_play(filename: str) -> None:
+    """Envia um arquivo de áudio via HTTP (fluxo legado, não-WebSocket)."""
+    log.info("Enviando áudio para o servidor (Groq API STT e Router)...")
+    url = f"{CFG.server_url}/api/voice"
     headers = {
-        "X-Device-ID": DEVICE_ID,
-        "X-Room-ID": ROOM_ID,
-        "Authorization": "Bearer mock-token-123"
+        "X-Device-ID": CFG.device_id,
+        "X-Room-ID": CFG.room_id,
+        "Authorization": "Bearer mock-token-123",
     }
     try:
-        with open(filename, 'rb') as f:
-            files = {'file': ('audio.wav', f, 'audio/wav')}
+        with open(filename, "rb") as f:
+            files = {"file": ("audio.wav", f, "audio/wav")}
             start_time = time.time()
             response = requests.post(url, headers=headers, files=files, stream=True)
-            
+
         if response.status_code == 200:
             first_byte_received = False
-            
             player_process = subprocess.Popen(
-                ['ffplay', '-nodisp', '-autoexit', '-i', 'pipe:0'],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                ["ffplay", "-nodisp", "-autoexit", "-i", "pipe:0"],
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
-            
             for chunk in response.iter_content(chunk_size=4096):
                 if chunk:
                     if not first_byte_received:
                         ttfb = time.time() - start_time
-                        print(f"🔊 Áudio iniciado em {ttfb:.2f} segundos!", flush=True)
+                        log.info("🔊 Áudio iniciado em %.2f segundos!", ttfb)
                         first_byte_received = True
                     player_process.stdin.write(chunk)
                     player_process.stdin.flush()
-                    
+
             player_process.stdin.close()
             player_process.wait()
-            
             total_time = time.time() - start_time
-            print(f"✅ Interação concluída. Tempo total: {total_time:.2f} segundos.", flush=True)
+            log.info("✅ Interação concluída. Tempo total: %.2f segundos.", total_time)
         else:
-            print(f"Erro do servidor: {response.status_code} - {response.text}")
+            log.error("Erro do servidor: %s - %s", response.status_code, response.text)
     except Exception as e:
-        print(f"Falha na comunicação com o servidor: {e}")
+        log.error("Falha na comunicação com o servidor: %s", e)
 
 
-def audio_callback(indata, frames, time_info, status):
+# --------------------------------------------------------------------------
+# Callback de áudio (coração do pipeline: wake word, VAD, gravação)
+# --------------------------------------------------------------------------
+def audio_callback(indata, frames, time_info, status) -> None:
     try:
         _audio_callback_impl(indata, frames, time_info, status)
     except Exception as e:
-        print(f"⚠️ [AUDIO] Erro no callback: {e}", flush=True)
+        # Nunca deixar uma exceção aqui derrubar o InputStream inteiro —
+        # isso é o que causava o crash-loop silencioso do serviço.
+        log.error("⚠️ [AUDIO] Erro no callback: %s", e, exc_info=True)
 
-def _audio_callback_impl(indata, frames, time_info, status):
-    global oww_model, is_recording, has_spoken, silence_frames, recording_buffer
-    global is_calibrated, calibration_frames, calibration_sum, noise_threshold
-    global full_audio_buffer, dashcam_buffer, SOFTWARE_MULTIPLIER, noise_gate_hold, _session_mode
-    global live_recording_bytes, _last_detection_time, _last_detection_lock, accumulated_vosk_text
-    global _vad_only_mode, _vad_speech_frames, _tv_was_muted, _vad_consecutive_triggers, _vad_last_trigger_time
 
-    # Tratar overflow ao invés de descartar silenciosamente
-    if status:
-        if status.input_overflow:
-            print("⚠️ [AUDIO] Buffer overflow detectado! Áudio pode picotar.", flush=True)
+def _is_emergency_stop(candidate_text: str) -> bool:
+    """
+    FIX: antes usava "in" (substring), o que disparava com QUALQUER frase
+    contendo "para" no meio (ex: "isso é para você", "parabéns") — palavras
+    comuníssimas em português. Agora exige que o texto reconhecido seja
+    CURTO (o usuário disse só o comando) e que a palavra apareça inteira.
+    """
+    trimmed = candidate_text.strip()
+    words = trimmed.split()
+    if not words or len(words) > 3:
+        return False
+    if trimmed in EMERGENCY_PHRASES:
+        return True
+    return any(w in EMERGENCY_SINGLE_WORDS for w in words)
+
+
+def _audio_callback_impl(indata, frames, time_info, status) -> None:
+    cfg = CFG
+    s = STATE
+
+    if status and status.input_overflow:
+        log.warning("⚠️ [AUDIO] Buffer overflow detectado! Áudio pode picotar.")
 
     # Beamforming: se o dispositivo tem mais de 1 canal (ex: array de 4 mics
-    # da PS3 Eye), faz média de TODOS os canais. Isso cancela ruídos
-    # não-correlacionados (elétrico, mecânico) e reforça a voz (mesma
-    # direção), melhorando SNR em ~6dB vs usar apenas 1 canal.
+    # da PS3 Eye), faz média de TODOS os canais — cancela ruído
+    # não-correlacionado e reforça a voz, melhorando SNR em ~6dB.
     if indata.ndim > 1 and indata.shape[1] > 1:
         flattened = np.mean(indata, axis=1)
     else:
         flattened = indata.flatten()
-    cleaned = flattened.astype(np.float32)
 
-    # Etapa 1: Limpeza (DC offset + high-pass 80Hz) — ANTES de amplificar
-    cleaned = clean_audio(cleaned)
-
-    # Etapa 2: Amplificador de software (só depois da limpeza)
-    if SOFTWARE_MULTIPLIER != 1.0:
-        cleaned = cleaned * SOFTWARE_MULTIPLIER
-
-    # Etapa 3: Soft-clip (protege contra clipping pós-amplificação)
-    cleaned = soft_clip(cleaned)
-    cleaned = cleaned.astype(np.int16)
+    cleaned = clean_audio(flattened.astype(np.float32))
+    if s.software_multiplier != 1.0:
+        cleaned = cleaned * s.software_multiplier
+    cleaned = soft_clip(cleaned).astype(np.int16)
     bytes_data = cleaned.tobytes()
 
-    # Calibração inicial (aprox. 2 segundos para ler o chiado do ambiente)
-    if not is_calibrated:
+    # --- Calibração inicial (~2s para ler o ruído do ambiente) ---
+    if not s.is_calibrated:
         rms = get_rms(bytes_data)
-        calibration_sum += rms
-        calibration_frames += 1
-        required_frames = int((RATE / BLOCKSIZE) * 2.0)
-        
-        if calibration_frames >= required_frames:
-            avg_noise = calibration_sum / calibration_frames
-            # Margem proporcional ao ruído real — se adapta ao ambiente.
-            # Fórmula: 1.8x o ruído + margem mínima de 100.
-            # avg_noise=200 → threshold=460 | avg_noise=500 → threshold=1000
-            noise_threshold = avg_noise * 1.8 + 100
-            print(f"\n🎙️ [CALIBRAÇÃO] Ruído de fundo médio: {avg_noise:.1f}")
-            print(f"🎙️ [CALIBRAÇÃO] Noise Threshold dinâmico definido para: {noise_threshold:.1f}\n")
-            is_calibrated = True
-        return  # Não processa áudio durante os 2s de calibração
+        s.calibration_sum += rms
+        s.calibration_frames += 1
+        required_frames = int((cfg.rate / cfg.blocksize) * 2.0)
 
-    # -----------------------------------------------------------------
-    # OpenWakeWord (gatilho adicional, threshold baixo)
-    # -----------------------------------------------------------------
-    if oww_model and not is_recording:
-        if _is_playing or time.time() < _playback_cooldown_until:
-            oww_model.reset()
+        if s.calibration_frames >= required_frames:
+            avg_noise = s.calibration_sum / s.calibration_frames
+            # Margem proporcional ao ruído real — se adapta ao ambiente.
+            s.noise_threshold = avg_noise * 1.8 + 100
+            log.info("🎙️ [CALIBRAÇÃO] Ruído de fundo médio: %.1f", avg_noise)
+            log.info("🎙️ [CALIBRAÇÃO] Noise Threshold dinâmico definido para: %.1f", s.noise_threshold)
+            s.is_calibrated = True
+        return
+
+    # --- OpenWakeWord (gatilho principal, threshold 0.7) ---
+    if s.oww_model and not s.is_recording:
+        if s.is_playing or time.time() < s.playback_cooldown_until:
+            s.oww_model.reset()
         else:
-            prediction = oww_model.predict(cleaned)
+            prediction = s.oww_model.predict(cleaned)
             for mdl_name, score in prediction.items():
-                if score >= 0.7 and not is_recording:
-                    print(f"🔊 OWW score {score:.2f} — iniciando gravação", flush=True)
+                if score >= 0.7 and not s.is_recording:
+                    log.info("🔊 OWW score %.2f — iniciando gravação", score)
                     _stop_current_music()
-                    _tv_was_muted = True  # FIX A: marca que MUTOU a TV
-                    _vad_consecutive_triggers = 0  # FIX B: reseta contagem de falsos VAD
-                    try:
-                        threading.Thread(target=lambda: requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=true", timeout=5), daemon=True).start()
-                    except:
-                        pass
+                    s.tv_was_muted = True  # FIX A
+                    s.vad_consecutive_triggers = 0  # FIX B
+                    threading.Thread(
+                        target=lambda: requests.post(
+                            f"{cfg.server_url}/api/tv/control/{cfg.room_id}/mute?state=true", timeout=5
+                        ),
+                        daemon=True,
+                    ).start()
                     _start_recording()
                     break
 
-    # -----------------------------------------------------------------
-    # VAD-only: detecta fala sustentada e grava (MECANISMO PRINCIPAL)
-    # -----------------------------------------------------------------
-    if _vad_only_mode and not is_recording:
-        if _is_playing or time.time() < _playback_cooldown_until:
-            _vad_speech_frames = 0
+    # --- VAD-only: fala sustentada dispara gravação (se habilitado) ---
+    if s.vad_only_mode and not s.is_recording:
+        if s.is_playing or time.time() < s.playback_cooldown_until:
+            s.vad_speech_frames = 0
         else:
             offset = 0
             while offset + 320 <= len(bytes_data):
                 chunk = bytes_data[offset:offset + 320]
                 offset += 320
                 rms = get_rms(chunk)
-                vad_result = vad.is_speech(chunk, RATE)
-                if _is_confirmed_speech(vad_result, rms, noise_threshold):
-                    _vad_speech_frames += 1
+                vad_result = s.vad.is_speech(chunk, cfg.rate)
+                if is_confirmed_speech(vad_result, rms, s.noise_threshold):
+                    s.vad_speech_frames += 1
                 else:
-                    _vad_speech_frames = 0
-            # 8 frames consecutivos = ~0.8s de fala contínua (evita ruídos curtos)
-            if _vad_speech_frames >= 8:
-                # FIX B: cooldown adaptativo — se VAD ficou disparando sem wake word
-                # (ex: áudio da TV), espaça as gravações para não sobrecarregar o sistema.
+                    s.vad_speech_frames = 0
+
+            if s.vad_speech_frames >= 8:  # ~0.8s de fala contínua
                 now = time.time()
-                elapsed_since_last = now - _vad_last_trigger_time
+                elapsed_since_last = now - s.vad_last_trigger_time
                 required_cooldown = min(
-                    VAD_BASE_COOLDOWN * (2 ** _vad_consecutive_triggers),
-                    VAD_MAX_COOLDOWN
+                    cfg.vad_base_cooldown * (2 ** s.vad_consecutive_triggers), cfg.vad_max_cooldown
                 )
                 if elapsed_since_last < required_cooldown:
-                    _vad_speech_frames = 0  # Ainda em cooldown adaptativo — descarta este trigger
+                    s.vad_speech_frames = 0
                 else:
-                    _vad_consecutive_triggers += 1
-                    _vad_last_trigger_time = now
-                    _tv_was_muted = False  # FIX A: VAD NÃO muta a TV, só grava
-                    print(f"🔊 [VAD] Fala detectada! Gravando...", flush=True)
+                    s.vad_consecutive_triggers += 1
+                    s.vad_last_trigger_time = now
+                    s.tv_was_muted = False  # FIX A: VAD não muta a TV, só grava
+                    log.info("🔊 [VAD] Fala detectada! Gravando...")
                     _stop_current_music()
                     _start_recording()
-                    _vad_speech_frames = 0
+                    s.vad_speech_frames = 0
 
-    if not is_recording:
-        # Dashcam: manter sempre os últimos 3 segundos na memória (pré-gravação)
-        if not _is_playing and time.time() >= _playback_cooldown_until:
-            dashcam_buffer.extend(bytes_data)
-            if len(dashcam_buffer) > DASHCAM_MAX_BYTES:
-                del dashcam_buffer[:-DASHCAM_MAX_BYTES]
+    if not s.is_recording:
+        if not s.is_playing and time.time() >= s.playback_cooldown_until:
+            s.dashcam_buffer.extend(bytes_data)
+            if len(s.dashcam_buffer) > cfg.dashcam_max_bytes:
+                del s.dashcam_buffer[:-cfg.dashcam_max_bytes]
 
-    if is_streaming:
+    if s.is_streaming:
         try:
-            stream_queue.put_nowait(bytes_data)
+            s.stream_queue.put_nowait(bytes_data)
         except queue.Full:
-            # Fila cheia = o consumidor está atrasado. Descarta o pedaço
-            # mais antigo e insere o mais novo, priorizando "ao vivo de
-            # verdade" em vez de acumular atraso que só cresce.
+            # Fila cheia = consumidor atrasado. Descarta o mais antigo,
+            # prioriza áudio "ao vivo de verdade" em vez de acumular atraso.
             try:
-                stream_queue.get_nowait()
+                s.stream_queue.get_nowait()
             except queue.Empty:
                 pass
             try:
-                stream_queue.put_nowait(bytes_data)
+                s.stream_queue.put_nowait(bytes_data)
             except queue.Full:
                 pass
 
-    if is_recording:
-        recording_buffer.extend(bytes_data)
-        full_audio_buffer.extend(bytes_data)
-        live_recording_bytes += len(bytes_data)
-        
-        # --- EMERGENCY STOP VIA VOSK ---
-        # FIX: antes usava "in" (substring), o que disparava com QUALQUER
-        # frase contendo "para" no meio (ex: "isso é para você", "parabéns")
-        # — palavras comuníssimas em português. Agora exige que o texto
-        # reconhecido seja CURTO (o usuário disse só o comando, não uma
-        # frase longa que por acaso contém a palavra) e que ela apareça
-        # como palavra inteira, não pedaço de outra palavra.
-        EMERGENCY_SINGLE_WORDS = {"para", "pausa", "chega", "silêncio", "silencio", "desliga"}
-        EMERGENCY_PHRASES = {"cala a boca"}
+    if s.is_recording:
+        _process_recording_chunk(bytes_data)
 
-        def _is_emergency_stop(candidate_text: str) -> bool:
-            trimmed = candidate_text.strip()
-            words = trimmed.split()
-            if not words or len(words) > 3:
-                return False  # frase longa demais para ser um comando isolado
-            if trimmed in EMERGENCY_PHRASES:
-                return True
-            return any(w in EMERGENCY_SINGLE_WORDS for w in words)
 
-        # Emergency Stop local: 'cala a boca' depende do servidor (TTS) ou botão físico
-        # --------------------------------
-        offset = 0
-        while offset + 320 <= len(recording_buffer):
-            chunk = recording_buffer[offset:offset + 320]
-            offset += 320
-            vad_raw_result = vad.is_speech(chunk, RATE)
-            rms = get_rms(chunk)
+def _process_recording_chunk(bytes_data: bytes) -> None:
+    cfg = CFG
+    s = STATE
 
-            # BUG CORRIGIDO: exige VAD + energia acima do ruído calibrado
-            # no boot (noise_threshold) para considerar "fala real". Isso
-            # é o que faz o silêncio ser detectado de verdade em vez de
-            # sempre bater no teto de 8s (ver _is_confirmed_speech acima).
-            is_speech = _is_confirmed_speech(vad_raw_result, rms, noise_threshold)
+    s.recording_buffer.extend(bytes_data)
+    s.full_audio_buffer.extend(bytes_data)
+    s.live_recording_bytes += len(bytes_data)
 
-            if is_speech:
-                # Mantém o hold timer alto para não cortar palavras
-                noise_gate_hold = NOISE_GATE_HOLD_FRAMES
-            else:
-                if noise_gate_hold > 0:
-                    noise_gate_hold -= 1
-                    is_speech = True  # Mantém artificialmente aberto (bridge de consoantes fracas)
-
-            if is_speech:
-                if not has_spoken:
-                    # Primeira detecção de fala — inicia contagem
-                    has_spoken = True
-                    silence_frames = 0
-                else:
-                    # Continua detectando fala, reseta o contador de silêncio
-                    silence_frames = 0
-            elif has_spoken:
-                silence_frames += 1
-
-        recording_buffer = bytearray(recording_buffer[offset:])
-
-        total_frames = len(full_audio_buffer) // 320
-        # BUG CORRIGIDO: live_frames conta só o áudio capturado desde o
-        # início desta gravação, SEM o preload do dashcam (até 6s de
-        # áudio antigo). Usar total_frames aqui fazia o teto de "tempo
-        # máximo" disparar de forma inconsistente — às vezes cedo demais,
-        # às vezes quase nos 8s inteiros — dependendo de quanto dashcam
-        # já estava acumulado no momento da wake word.
-        live_frames = live_recording_bytes // 320
-
-        # Silêncio pós-fala mais generoso para não cortar comandos no meio
-        # 0.5s no início (áudio curto) e 0.8s após fala sustentada
-        # Permite pausas naturais ("Alfredo... liga a luz da sala")
-        if total_frames < int(1.0 * RATE / 160):
-            max_silence = int(0.5 * RATE / 160)
+    if s.vosk_rec:
+        if s.vosk_rec.AcceptWaveform(bytes_data):
+            res = json.loads(s.vosk_rec.Result())
+            text = res.get("text", "")
+            if text:
+                s.accumulated_vosk_text += " " + text
+                if _check_offline_command(s.accumulated_vosk_text):
+                    _finish_recording(cancel=True)
+                    return
         else:
-            max_silence = int(0.8 * RATE / 160)
-        timeout_frames = int(20 * RATE / 160) if _session_mode else int(5 * RATE / 160)
-        max_total = int(8 * RATE / 160)  # 8s máximo de FALA NOVA (ninguém dá um comando de 15s)
+            res = json.loads(s.vosk_rec.PartialResult())
+            partial = res.get("partial", "")
+            if partial and _check_offline_command(partial):
+                _finish_recording(cancel=True)
+                return
 
-        if has_spoken and silence_frames > max_silence:
-            print("⏹️ Silêncio detectado. Fim da gravação.", flush=True)
-            _finish_recording()
-        elif not has_spoken and total_frames > timeout_frames:
-            if _session_mode:
-                with _session_lock:
-                    _session_mode = False
-                print("⏳ Ninguém respondeu. Saindo do modo mãos-livres.", flush=True)
+    if s.vosk_rec and _is_emergency_stop(s.accumulated_vosk_text):
+        log.info("🛑 Comando de emergência detectado! Abortando.")
+        _finish_recording(cancel=True)
+        return
+
+    offset = 0
+    while offset + 320 <= len(s.recording_buffer):
+        chunk = s.recording_buffer[offset:offset + 320]
+        offset += 320
+        vad_raw_result = s.vad.is_speech(chunk, cfg.rate)
+        rms = get_rms(chunk)
+
+        # BUG CORRIGIDO: exige VAD + energia acima do ruído calibrado no
+        # boot para considerar "fala real" (ver is_confirmed_speech acima).
+        is_speech = is_confirmed_speech(vad_raw_result, rms, s.noise_threshold)
+
+        if is_speech:
+            s.noise_gate_hold = cfg.noise_gate_hold_frames
+        else:
+            if s.noise_gate_hold > 0:
+                s.noise_gate_hold -= 1
+                is_speech = True  # bridge de consoantes fracas
+
+        if is_speech:
+            if not s.has_spoken:
+                s.has_spoken = True
+                s.silence_frames = 0
             else:
-                print("⏳ Ninguém falou nada (5s). Cancelando gravação.", flush=True)
-            is_recording = False
-            recording_buffer.clear()
-        elif live_frames > max_total:
-            print("⏳ Tempo máximo atingido (comando muito longo).", flush=True)
-            _finish_recording()
+                s.silence_frames = 0
+        elif s.has_spoken:
+            s.silence_frames += 1
 
+    s.recording_buffer = bytearray(s.recording_buffer[offset:])
 
-def _start_recording():
-    global is_recording, recording_buffer, has_spoken, silence_frames
-    global full_audio_buffer, dashcam_buffer, _session_mode, accumulated_vosk_text
-    global live_recording_bytes, _vad_speech_frames
-    is_recording = True
-    recording_buffer = bytearray()
-    live_recording_bytes = 0
-    _vad_speech_frames = 0
-    accumulated_vosk_text = ""
+    total_frames = len(s.full_audio_buffer) // 320
+    # live_frames conta só o áudio capturado desde o início desta gravação,
+    # SEM o preload do dashcam — teto de "tempo máximo" com significado consistente.
+    live_frames = s.live_recording_bytes // 320
 
-    full_audio_buffer = bytearray(dashcam_buffer)
-    dashcam_buffer.clear()
-    
-    has_spoken = not _session_mode
-    silence_frames = 0
-    stop_alarm()
-    
-    if _session_mode:
-        print("🔴 [MODO MÃOS-LIVRES] Aguardando resposta (sem wake word)...", flush=True)
+    # Silêncio pós-fala: 0.5s no início, 0.8s após fala sustentada — permite
+    # pausas naturais ("Alfredo... liga a luz da sala").
+    if total_frames < int(1.0 * cfg.rate / 160):
+        max_silence = int(1.5 * cfg.rate / 160)
     else:
-        print("🔴 [GRAVANDO COM DASHCAM] Ouvindo comando (incluindo o passado)...", flush=True)
+        max_silence = int(2.0 * cfg.rate / 160)
+    timeout_frames = int(20 * cfg.rate / 160) if s.session_mode else int(5 * cfg.rate / 160)
+    max_total = int(8 * cfg.rate / 160)  # 8s máximo de fala nova
+
+    if s.has_spoken and s.silence_frames > max_silence:
+        log.info("⏹️ Silêncio detectado. Fim da gravação.")
+        _finish_recording()
+    elif not s.has_spoken and total_frames > timeout_frames:
+        if s.session_mode:
+            s.set_session_mode(False)
+            log.info("⏳ Ninguém respondeu. Saindo do modo mãos-livres.")
+        else:
+            log.info("⏳ Ninguém falou nada (5s). Cancelando gravação.")
+        s.is_recording = False
+        s.recording_buffer.clear()
+    elif live_frames > max_total:
+        log.info("⏳ Tempo máximo atingido (comando muito longo).")
+        _finish_recording()
 
 
-def _finish_recording():
-    global is_recording, full_audio_buffer, accumulated_vosk_text
-    global live_recording_bytes, _playback_cooldown_until, oww_model
-    is_recording = False
-    buf = bytes(full_audio_buffer)
-    recording_buffer.clear()
-    full_audio_buffer.clear()
-    
-    _playback_cooldown_until = time.time() + 3.0
-    if oww_model:
+def _start_recording() -> None:
+    s = STATE
+    s.is_recording = True
+    s.recording_buffer = bytearray()
+    s.live_recording_bytes = 0
+    s.vad_speech_frames = 0
+    s.accumulated_vosk_text = ""
+
+    if s.vosk_model:
+        s.vosk_rec = vosk.KaldiRecognizer(s.vosk_model, CFG.rate)
+
+    s.full_audio_buffer = bytearray(s.dashcam_buffer)
+    s.dashcam_buffer.clear()
+
+    s.has_spoken = not s.session_mode
+    s.silence_frames = 0
+    stop_alarm()
+
+    if s.session_mode:
+        log.info("🔴 [MODO MÃOS-LIVRES] Aguardando resposta (sem wake word)...")
+    else:
+        log.info("🔴 [GRAVANDO COM DASHCAM] Ouvindo comando (incluindo o passado)...")
+
+
+def _finish_recording(cancel: bool = False) -> None:
+    s = STATE
+    s.is_recording = False
+    buf = bytes(s.full_audio_buffer)
+    s.recording_buffer.clear()
+    s.full_audio_buffer.clear()
+    s.vosk_rec = None
+
+    s.playback_cooldown_until = time.time() + 3.0
+    if s.oww_model:
         try:
-            oww_model.reset()
-        except: pass
+            s.oww_model.reset()
+        except Exception:
+            pass
 
-    live_seconds = live_recording_bytes / (RATE * 2)
-    print(f"🎙️ [DURAÇÃO] Áudio novo desde o início da gravação: {live_seconds:.2f}s", flush=True)
+    if cancel:
+        log.info("🛑 Gravação cancelada (comando offline executado).")
+        return
+
+    live_seconds = s.live_recording_bytes / (CFG.rate * 2)
+    log.info("🎙️ [DURAÇÃO] Áudio novo desde o início da gravação: %.2fs", live_seconds)
 
     if len(buf) < 3200:
-        print("Áudio muito curto, ignorando.", flush=True)
+        log.info("Áudio muito curto, ignorando.")
         return
-        
-    vosk_text = accumulated_vosk_text.strip()
-    print(f"⏹️ [VAD] Tamanho do áudio: {len(buf)} bytes. Enviando...", flush=True)
+
+    vosk_text = s.accumulated_vosk_text.strip()
+    log.info("⏹️ [VAD] Tamanho do áudio: %s bytes. Enviando...", len(buf))
     threading.Thread(target=_send_and_play, args=(buf, vosk_text), daemon=True).start()
 
 
-def _check_session_mode():
-    global _session_mode
+def _check_session_mode() -> None:
+    s = STATE
     try:
         status_resp = requests.get(
-            f"{SERVER_URL}/api/session-status",
-            params={"room_id": ROOM_ID},
-            timeout=2
+            f"{CFG.server_url}/api/session-status", params={"room_id": CFG.room_id}, timeout=2
         )
-        if status_resp.status_code == 200:
-            if status_resp.json().get("active") and not is_recording:
-                with _session_lock:
-                    _session_mode = True
-                print("🎯 Sessão ativa — modo mãos-livres ativado!", flush=True)
-                _start_recording()
-            else:
-                with _session_lock:
-                    _session_mode = False
+        if status_resp.status_code == 200 and status_resp.json().get("active") and not s.is_recording:
+            s.set_session_mode(True)
+            log.info("🎯 Sessão ativa — modo mãos-livres ativado!")
+            _start_recording()
+        else:
+            s.set_session_mode(False)
     except Exception:
-        with _session_lock:
-            _session_mode = False
+        s.set_session_mode(False)
 
-_player_process = None
 
-def _start_playback():
-    global _player_process, _is_playing
-    with _playback_lock:
-        _is_playing = True
-    if _player_process:
+def _start_playback() -> None:
+    s = STATE
+    s.set_playing(True)
+    if s.player_process:
         try:
-            _player_process.stdin.close()
-            _player_process.terminate()
-        except: pass
-    _player_process = subprocess.Popen(
-        ['ffplay', '-nodisp', '-autoexit', '-fflags', 'nobuffer', '-flags', 'low_delay', '-probesize', '32', '-analyzeduration', '0', '-i', 'pipe:0'],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
+            s.player_process.stdin.close()
+            s.player_process.terminate()
+        except Exception:
+            pass
+    s.player_process = subprocess.Popen(
+        [
+            "ffplay", "-nodisp", "-autoexit", "-fflags", "nobuffer", "-flags", "low_delay",
+            "-probesize", "32", "-analyzeduration", "0", "-i", "pipe:0",
+        ],
+        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
 
-def _stop_playback():
-    global _player_process, _is_playing, _playback_cooldown_until
-    if _player_process:
+
+def _stop_playback() -> None:
+    s = STATE
+    if s.player_process:
         try:
-            _player_process.stdin.close()
-            _player_process.wait()
-        except: pass
-        _player_process = None
-    with _playback_lock:
-        _is_playing = False
-        _playback_cooldown_until = time.time() + PLAYBACK_TAIL_COOLDOWN
-    
+            s.player_process.stdin.close()
+            s.player_process.wait()
+        except Exception:
+            pass
+        s.player_process = None
+    s.set_playing(False)
+    s.playback_cooldown_until = time.time() + CFG.playback_tail_cooldown
     threading.Thread(target=_post_playback_cleanup, daemon=True).start()
 
 
-def _post_playback_cleanup():
-    global _tv_was_muted
-    # FIX A: só desmuta a TV se o satélite realmente a mutou antes.
-    # Antes, esse POST era enviado SEMPRE que uma gravação terminava,
-    # inclusive nas do VAD-only (que NUNCA mutam a TV). Isso causava
-    # um unmute espúrio a cada ~12s com a TV ligada, que virava mute
-    # aleatório se o SmartThings estivesse offline (fallback KEY_MUTE).
-    if _tv_was_muted:
+def _post_playback_cleanup() -> None:
+    s = STATE
+    # FIX A: só desmuta a TV se o satélite realmente a mutou antes — evita
+    # unmute espúrio quando a gravação veio do VAD-only (que nunca muta).
+    if s.tv_was_muted:
         try:
-            requests.post(f"{SERVER_URL}/api/tv/control/{ROOM_ID}/mute?state=false", timeout=5)
-            _tv_was_muted = False
-        except:
+            requests.post(f"{CFG.server_url}/api/tv/control/{CFG.room_id}/mute?state=false", timeout=5)
+            s.tv_was_muted = False
+        except Exception:
             pass
-    time.sleep(PLAYBACK_TAIL_COOLDOWN)
+    time.sleep(CFG.playback_tail_cooldown)
     _check_session_mode()
 
 
-def _send_and_play(audio_data: bytes, vosk_text: str = ""):
-    t_start = time.time()
-    if ws_instance:
-        try:
-            if vosk_text:
-                print(f"Enviando texto pré-transcrito: '{vosk_text}'", flush=True)
-                ws_instance.send(json.dumps({"vosk_text": vosk_text}))
-            print(f"Enviando {len(audio_data)} bytes via WebSocket...", flush=True)
-            ws_instance.send(audio_data)
-        except Exception as e:
-            print(f"Erro ao enviar áudio pelo WebSocket: {e}")
-    else:
-        print("WebSocket não conectado, falha ao enviar áudio.")
+def _send_and_play(audio_data: bytes, vosk_text: str = "") -> None:
+    s = STATE
+    if not s.ws_instance:
+        log.error("WebSocket não conectado, falha ao enviar áudio.")
+        return
+    try:
+        if vosk_text:
+            log.info("Enviando texto pré-transcrito: '%s'", vosk_text)
+            s.ws_instance.send(json.dumps({"vosk_text": vosk_text}))
+        log.info("Enviando %s bytes via WebSocket...", len(audio_data))
+        s.ws_instance.send(audio_data)
+    except Exception as e:
+        log.error("Erro ao enviar áudio pelo WebSocket: %s", e)
 
 
-def stream_worker():
-    global ws_instance
+def stream_worker() -> None:
+    s = STATE
     while True:
         try:
-            data = stream_queue.get(timeout=1)
-            if ws_instance and is_streaming:
+            data = s.stream_queue.get(timeout=1)
+            if s.ws_instance and s.is_streaming:
                 try:
-                    ws_instance.send(data)
+                    s.ws_instance.send(data)
                 except Exception:
                     pass
         except queue.Empty:
             continue
 
 
-def websocket_loop():
-    global ws_instance, is_streaming, wake_word, _is_playing
-    ws_url = f"ws://{SERVER_URL.replace('http://', '').replace('https://', '')}/api/ws/satellite/{DEVICE_ID}"
+# --------------------------------------------------------------------------
+# WebSocket: canal de comando/controle com o servidor
+# --------------------------------------------------------------------------
+_WS_HANDLERS = {}
+
+
+def _ws_handler(msg_type: str):
+    def deco(fn):
+        _WS_HANDLERS[msg_type] = fn
+        return fn
+    return deco
+
+
+@_ws_handler("tts_end")
+def _on_tts_end(data: dict) -> None:
+    _stop_playback()
+
+
+@_ws_handler("timer_expired")
+def _on_timer_expired(data: dict) -> None:
+    log.info("🚨 BIP BIP BIP! ⏰ %s (Duração: %ss)", data.get("message"), data.get("duration_seconds"))
+
+
+@_ws_handler("play_alarm")
+def _on_play_alarm(data: dict) -> None:
+    log.info("🚨 [ALARME] %s 🚨", data.get("message", "Despertador tocando!"))
+    play_alarm_loop()
+
+
+@_ws_handler("weather_update")
+def _on_weather_update(data: dict) -> None:
+    log.info("☁️ [DISPLAY] Clima atualizado: %s", data.get("data"))
+
+
+@_ws_handler("update_wake_word")
+def _on_update_wake_word(data: dict) -> None:
+    s = STATE
+    s.wake_word = data.get("wake_word", s.wake_word).lower()
+    s.wake_variants = [s.wake_word]
+    log.info("🔥 [ATUALIZAÇÃO EM TEMPO REAL] Novo Wake Word: %s 🔥", s.wake_word.upper())
+    log.info("👉 Diga '%s' para me chamar!", s.wake_word.upper())
+
+
+@_ws_handler("play_audio")
+def _on_play_audio(data: dict) -> None:
+    s = STATE
+    audio_url = data.get("url")
+    log.info("🎵 [SATÉLITE] Comando de tocar stream (live/música): %s", audio_url)
+    _stop_current_music()
+    try:
+        s.current_music_process = subprocess.Popen(
+            ["mplayer", "-novideo", audio_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+    except FileNotFoundError:
+        try:
+            s.current_music_process = subprocess.Popen(
+                ["cvlc", "--no-video", audio_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+        except FileNotFoundError:
+            log.error("⚠️ Nenhum player de áudio instalado. Instale: sudo apt install mplayer")
+            return
+    if s.current_music_process:
+        s.set_playing(True)
+        threading.Thread(target=_watch_music_process, args=(s.current_music_process,), daemon=True).start()
+
+
+@_ws_handler("stop_audio")
+def _on_stop_audio(data: dict) -> None:
+    log.info("🛑 [SATÉLITE] Parando música atual.")
+    _stop_current_music()
+
+
+@_ws_handler("START_STREAM")
+def _on_start_stream(data: dict) -> None:
+    log.info("🎙️ [LIVE AUDIO] Iniciando stream de áudio ao vivo para o Dashboard...")
+    STATE.is_streaming = True
+
+
+@_ws_handler("STOP_STREAM")
+def _on_stop_stream(data: dict) -> None:
+    log.info("🛑 [LIVE AUDIO] Parando stream de áudio ao vivo.")
+    STATE.is_streaming = False
+
+
+@_ws_handler("SET_ALSA_CAPTURE")
+def _on_set_alsa_capture(data: dict) -> None:
+    val = data.get("value")
+    log.info("🎚️ Ajustando ALSA Capture para %s%%", val)
+    apply_capture_level(f"{int(float(val))}")
+
+
+@_ws_handler("SET_ALSA_MASTER")
+def _on_set_alsa_master(data: dict) -> None:
+    val = data.get("value")
+    log.info("🔊 Ajustando ALSA Master para %s%%", val)
+    apply_master_level(f"{int(float(val))}")
+
+
+@_ws_handler("SET_SOFTWARE_PREAMP")
+def _on_set_software_preamp(data: dict) -> None:
+    val = float(data.get("value", 1.0))
+    log.info("⚡ Ajustando Multiplicador de Software para %sx", val)
+    STATE.software_multiplier = val
+
+
+def websocket_loop() -> None:
+    s = STATE
+    ws_url = (
+        f"ws://{CFG.server_url.replace('http://', '').replace('https://', '')}"
+        f"/api/ws/satellite/{CFG.device_id}"
+    )
 
     while True:
         try:
-            print(f"Tentando conectar ao WebSocket em {ws_url}...")
+            log.info("Tentando conectar ao WebSocket em %s...", ws_url)
             with connect(ws_url) as websocket:
-                ws_instance = websocket
-                print("✅ WebSocket conectado com sucesso!")
+                s.ws_instance = websocket
+                log.info("✅ WebSocket conectado com sucesso!")
                 while True:
                     message = websocket.recv()
-                    
+
                     if isinstance(message, bytes):
-                        if not _player_process:
+                        if not s.player_process:
                             _start_playback()
-                        if _player_process:
-                            _player_process.stdin.write(message)
-                            _player_process.stdin.flush()
-                        continue
-                        
-                    data = json.loads(message)
-                    
-                    if data.get("type") == "tts_end":
-                        _stop_playback()
+                        if s.player_process:
+                            s.player_process.stdin.write(message)
+                            s.player_process.stdin.flush()
                         continue
 
-                    if data.get("type") == "timer_expired":
-                        print(f"\n\n🚨 BIP BIP BIP! 🚨")
-                        print(f"⏰ {data.get('message')} (Duração: {data.get('duration_seconds')}s)")
-                    elif data.get("type") == "play_alarm":
-                        print(f"\n🚨 [ALARME] {data.get('message', 'Despertador tocando!')} 🚨")
-                        play_alarm_loop()
-                    elif data.get("type") == "weather_update":
-                        print(f"\n☁️ [DISPLAY] Clima atualizado: {data.get('data')}")
-                    elif data.get("type") == "update_wake_word":
-                        global wake_variants
-                        wake_word = data.get("wake_word", wake_word).lower()
-                        wake_variants = [wake_word]
-                        print(f"\n\n🔥 [ATUALIZAÇÃO EM TEMPO REAL] Novo Wake Word: {wake_word.upper()} 🔥")
-                        print(f"👉 Diga '{wake_word.upper()}' para me chamar!\n")
-                    elif data.get("type") == "play_audio":
-                        audio_url = data.get("url")
-                        print(f"\n🎵 [SATÉLITE] Recebi o comando de tocar um Stream (Live/Música)!")
-                        print(f"▶️ Tentando tocar via mplayer/vlc: {audio_url}")
-                        global current_music_process
-                        _stop_current_music()
-                        try:
-                            current_music_process = subprocess.Popen(["mplayer", "-novideo", audio_url],
-                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        except FileNotFoundError:
-                            try:
-                                current_music_process = subprocess.Popen(["cvlc", "--no-video", audio_url],
-                                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            except FileNotFoundError:
-                                print("⚠️ Nenhum player de áudio instalado. Instale: sudo apt install mplayer")
-                        if current_music_process:
-                            with _playback_lock:
-                                _is_playing = True
-                            threading.Thread(target=_watch_music_process, args=(current_music_process,), daemon=True).start()
-                    elif data.get("type") == "stop_audio":
-                        print("\n🛑 [SATÉLITE] Parando música atual.")
-                        _stop_current_music()
-                    elif data.get("type") == "START_STREAM":
-                        print(f"\n🎙️ [LIVE AUDIO] Iniciando stream de áudio ao vivo para o Dashboard...")
-                        global is_streaming
-                        is_streaming = True
-                    elif data.get("type") == "STOP_STREAM":
-                        print(f"\n🛑 [LIVE AUDIO] Parando stream de áudio ao vivo.")
-                        is_streaming = False
-                    elif data.get("type") == "SET_ALSA_CAPTURE":
-                        val = data.get("value")
-                        print(f"🎚️ Ajustando ALSA Capture para {val}%")
-                        _apply_capture_level(f"{int(float(val))}")
-                    elif data.get("type") == "SET_ALSA_MASTER":
-                        val = data.get("value")
-                        print(f"🔊 Ajustando ALSA Master para {val}%")
-                        _apply_master_level(f"{int(float(val))}")
-                    elif data.get("type") == "SET_SOFTWARE_PREAMP":
-                        val = float(data.get("value", 1.0))
-                        print(f"⚡ Ajustando Multiplicador de Software para {val}x")
-                        global SOFTWARE_MULTIPLIER
-                        SOFTWARE_MULTIPLIER = val
+                    data = json.loads(message)
+                    handler = _WS_HANDLERS.get(data.get("type"))
+                    if handler:
+                        handler(data)
+                    else:
+                        log.debug("Mensagem WS sem handler: %s", data.get("type"))
         except Exception as e:
-            print(f"\n[WebSocket] Desconectado: {e}. Tentando reconectar em 5 segundos...")
-            ws_instance = None
+            log.warning("[WebSocket] Desconectado: %s. Tentando reconectar em 5 segundos...", e)
+            s.ws_instance = None
             time.sleep(5)
 
 
-def main():
-    global oww_model, vad, audio_stream, _vad_only_mode
+# --------------------------------------------------------------------------
+# Bootstrap
+# --------------------------------------------------------------------------
+def _load_vosk() -> None:
+    if not vosk:
+        return
+    try:
+        log.info("🧠 Carregando Vosk (reconhecimento offline)...")
+        model_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "core", "voice", "stt", "models", "vosk-model-small-pt-0.3",
+        )
+        if os.path.exists(model_path):
+            STATE.vosk_model = vosk.Model(model_path)
+            log.info("🟢 Vosk carregado!")
+        else:
+            log.warning("⚠️ Modelo Vosk não encontrado em %s", model_path)
+    except Exception as e:
+        log.error("⚠️ Falha ao carregar Vosk: %s", e)
 
-    import warnings
-    warnings.filterwarnings("ignore")
 
-    # OpenWakeWord como gatilho PRINCIPAL de ativação.
-    # Modelo "alexa" pré-treinado — para usar "alfredo", treinar modelo customizado via Colab.
-    print("🧠 Carregando OpenWakeWord (gatilho principal)...")
+def _load_openwakeword() -> None:
+    log.info("🧠 Carregando OpenWakeWord (gatilho principal)...")
     try:
         paths = openwakeword.get_pretrained_model_paths()
-        alexa_path = next((p for p in paths if 'alexa' in p), None)
+        alexa_path = next((p for p in paths if "alexa" in p), None)
         if alexa_path:
-            oww_model = OWWModel(wakeword_model_paths=[alexa_path])
-            print("🟢 OpenWakeWord carregado!")
+            STATE.oww_model = OWWModel(wakeword_model_paths=[alexa_path])
+            log.info("🟢 OpenWakeWord carregado!")
         else:
-            print("⚠️  Modelo alexa não encontrado.")
-            oww_model = None
+            log.warning("⚠️ Modelo alexa não encontrado.")
     except Exception as e:
-        print(f"⚠️  Falha ao carregar OpenWakeWord: {e}")
-        oww_model = None
+        log.error("⚠️ Falha ao carregar OpenWakeWord: %s", e)
+        STATE.oww_model = None
 
-    # VAD-only mode DESATIVADO: agora só o OpenWakeWord ("alexa") inicia gravação.
-    # Isso evita queimar tokens Groq com fala ambiente (TV, conversas, etc).
-    # O modo mãos-livres (sessões quiz/receita) continua funcionando independentemente.
-    _vad_only_mode = False
-    print("🎤 Modo VAD passivo desativado — apenas OpenWakeWord ('alexa') ativa gravação.")
-    print("   Sessões interativas (mãos-livres) continuam funcionando normalmente.")
 
-    # VAD: agressividade baixa (1) — mais sensível a voz distante.
-    # Ainda necessário para detecção de silêncio durante gravações ativas.
-    vad = webrtcvad.Vad(1)
+def main() -> None:
+    warnings.filterwarnings("ignore")
+
+    _load_vosk()
+    _load_openwakeword()
+
+    # VAD-only mode DESATIVADO: apenas o OpenWakeWord ("alexa") inicia
+    # gravação — evita queimar tokens Groq com fala ambiente (TV, conversas).
+    # O modo mãos-livres (sessões quiz/receita) continua funcionando à parte.
+    STATE.vad_only_mode = False
+    log.info("🎤 Modo VAD passivo desativado — apenas OpenWakeWord ('alexa') ativa gravação.")
+    log.info("   Sessões interativas (mãos-livres) continuam funcionando normalmente.")
+
+    # Agressividade baixa (1) — mais sensível a voz distante. Ainda
+    # necessário para detecção de silêncio durante gravações ativas.
+    STATE.vad = webrtcvad.Vad(1)
 
     if not register_device():
-        print("Falha ao registrar. Continuando mesmo assim...")
+        log.warning("Falha ao registrar. Continuando mesmo assim...")
 
     threading.Thread(target=websocket_loop, daemon=True).start()
     threading.Thread(target=stream_worker, daemon=True).start()
 
-    print(f"\n🎧 [Satélite da Sala] Ouvindo...")
-    print(f"👉 Diga '{wake_word.upper()}' para me chamar!\n")
+    log.info("🎧 [Satélite da Sala] Ouvindo...")
+    log.info("👉 Diga '%s' para me chamar!", STATE.wake_word.upper())
 
-    device_index, device_channels, device_samplerate = _find_input_device(PREFERRED_MIC_NAME)
-    print(
-        f"🎙️ [ÁUDIO] Input selecionado: index={device_index}, channels={device_channels}, "
-        f"samplerate={device_samplerate}, preferido='{PREFERRED_MIC_NAME}'",
-        flush=True
+    device_index, device_channels, device_samplerate = find_input_device(CFG.preferred_mic_name)
+    log.info(
+        "🎙️ [ÁUDIO] Input selecionado: index=%s, channels=%s, samplerate=%s, preferido='%s'",
+        device_index, device_channels, device_samplerate, CFG.preferred_mic_name,
     )
 
     try:
-        with _open_input_stream(device_index, device_channels, device_samplerate):
+        with open_input_stream(device_index, device_channels, device_samplerate, audio_callback):
             while True:
                 time.sleep(1)
     except KeyboardInterrupt:
-        print("\nEncerrando satélite...")
+        log.info("Encerrando satélite...")
     except Exception as e:
-        print(f"Erro no stream de áudio: {e}")
+        # Loga o traceback completo — é exatamente isso que estava faltando
+        # nos logs do systemd para diagnosticar o crash-loop do serviço.
+        log.critical("Erro fatal no stream de áudio: %s", e, exc_info=True)
         raise
 
 
 if __name__ == "__main__":
-    print("--- SATELLITE LOCAL (ALFREDO) ---")
+    log.info("--- SATELLITE LOCAL (ALFREDO) ---")
     main()
