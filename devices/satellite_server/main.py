@@ -218,12 +218,16 @@ def _ha_call(domain: str, service: str, entity_ids: list[str]) -> None:
 
 def _handle_light(text: str) -> bool:
     if not _has_any(text, WORD_LIGHT):
+        log.debug("[DIAG] _handle_light: texto '%s' não contém palavra de luz", text)
         return False
     if _has_any(text, ACTION_SYNONYMS_ON):
         service = "turn_on"
+        log.info("[DIAG] _handle_light: ação LIGAR detectada em '%s'", text)
     elif _has_any(text, ACTION_SYNONYMS_OFF):
         service = "turn_off"
+        log.info("[DIAG] _handle_light: ação DESLIGAR detectada em '%s'", text)
     else:
+        log.debug("[DIAG] _handle_light: texto '%s' não tem ação on/off", text)
         return False
 
     # ── 1. Tentar matching hardcoded (ultra-rápido, sem depender do servidor) ──
@@ -232,6 +236,9 @@ def _handle_light(text: str) -> bool:
             log.info("⚡ [OFFLINE] Luz '%s' → %s", phrases[0], service)
             threading.Thread(target=_ha_call, args=("light", service, entity_ids), daemon=True).start()
             return True
+
+    # Se chegou aqui, é comando de luz mas o cômodo não está nos targets hardcoded
+    log.info("[DIAG] _handle_light: cômodo não identificado em '%s', indo para fallback servidor", text)
 
     # ── 2. Fallback: chama endpoint offline do servidor (resolve pelo BD) ──
     # Útil para cômodos não mapeados no LIGHT_TARGETS hardcoded. O servidor
@@ -357,10 +364,15 @@ def _check_offline_command(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
         return False
+    log.info("[DIAG] _check_offline_command testando: '%s'", normalized)
     for handler in _OFFLINE_INTENT_HANDLERS:
         if handler(normalized):
+            log.info("⚡ [OFFLINE] Handler %s executou para: '%s'", handler.__name__, normalized)
             _offline_beep()
             return True
+        else:
+            log.debug("[DIAG] Handler %s não匹配 para: '%s'", handler.__name__, normalized)
+    log.debug("[DIAG] Nenhum handler offline匹配 para: '%s'", normalized)
     return False
 
 
@@ -904,15 +916,18 @@ def _process_recording_chunk(bytes_data: bytes) -> None:
             text = res.get("text", "")
             if text:
                 s.accumulated_vosk_text += " " + text
+                log.info("🧠 [VOSK] Texto final: '%s' (acumulado: '%s')", text, s.accumulated_vosk_text.strip())
                 if _check_offline_command(s.accumulated_vosk_text):
                     _finish_recording(cancel=True)
                     return
         else:
             res = json.loads(s.vosk_rec.PartialResult())
             partial = res.get("partial", "")
-            if partial and _check_offline_command(partial):
-                _finish_recording(cancel=True)
-                return
+            if partial:
+                log.info("🧠 [VOSK] Parcial: '%s'", partial)
+                if _check_offline_command(partial):
+                    _finish_recording(cancel=True)
+                    return
 
     if s.vosk_rec and _is_emergency_stop(s.accumulated_vosk_text):
         log.info("🛑 Comando de emergência detectado! Abortando.")
