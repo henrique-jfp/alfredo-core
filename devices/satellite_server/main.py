@@ -1290,7 +1290,9 @@ def _load_vosk() -> None:
         log.info("🧠 Carregando Vosk (reconhecimento offline)...")
         model_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "core", "voice", "stt", "models", "vosk-model-small-pt-0.3",
+            # TROCAdo para modelo FULL (~840MB) — small (~40MB) errava
+            # metade dos comandos de luz ("apaga" virava "a", "liga" virava "a").
+            "core", "voice", "stt", "models", "vosk-model-pt-fb-v0.1.1-20220516_2113",
         )
         if os.path.exists(model_path):
             STATE.vosk_model = vosk.Model(model_path)
