@@ -60,6 +60,23 @@ sudo systemctl restart alfredo-satellite.service
 
 ---
 
+### 🧟‍♂️ 2.3 Matando Processos Fantasmas (Zumbis)
+
+Às vezes, quando você reinicia ou fecha a conexão SSH abruptamente, processos soltos podem ficar rodando no fundo consumindo CPU e duplicando respostas (por exemplo, dois satélites ouvindo ao mesmo tempo). Se o Alfredo estiver respondendo duas vezes ou travado, limpe tudo à força:
+
+```bash
+# 1. Matar qualquer processo python solto relacionado ao Alfredo:
+pkill -9 -f 'uvicorn|alfredo|satellite|main.py'
+
+# 2. Limpar sessões antigas do 'screen' (se você testou coisas manualmente):
+screen -wipe
+
+# 3. Subir os serviços limpos pelo systemd novamente:
+sudo systemctl restart alfredo-api.service alfredo-satellite.service
+```
+
+---
+
 ## 🕵️ 3. Como ver os Logs (O que ele está fazendo?)
 
 Se deu algum erro ou você quer ver a transcrição do que ele entendeu, você precisa olhar os logs.
