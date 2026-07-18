@@ -113,9 +113,11 @@ class AudioConfig:
 
     # Ganho de software aplicado ANTES do OWW/VAD (não afeta gravação enviada).
     # Ajuda quando o usuário está distante do microfone (sofá x TV).
-    # Ajustável via .env: ALFREDO_SOFTWARE_GAIN=2.0
+    # 2.0x é um bom equilíbrio entre captar voz distante e não saturar
+    # com o som da TV. Se a TV ficar muito alta, reduzir via .env.
+    # Ajustável via .env: ALFREDO_SOFTWARE_GAIN=1.5
     software_gain: float = field(
-        default_factory=lambda: float(os.getenv("ALFREDO_SOFTWARE_GAIN", "3.0"))
+        default_factory=lambda: float(os.getenv("ALFREDO_SOFTWARE_GAIN", "2.0"))
     )
 
     server_url: str = "http://pvserver:10001"

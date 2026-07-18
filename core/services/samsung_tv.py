@@ -292,82 +292,89 @@ class SamsungTVManager:
         logger.info(f"Enviando tecla {key} para a TV {self.ip}")
         return await self._run_local_command(self.tv.send_key, key)
         
+    async def _st_command(self, capability: str, command: str, arguments: list) -> bool:
+        """Envia um comando SmartThings e retorna True se HTTP 200."""
+        if not await self._ensure_smartthings():
+            return False
+        url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
+        headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
+        payload = {
+            "commands": [{
+                "component": "main",
+                "capability": capability,
+                "command": command,
+                "arguments": arguments,
+            }]
+        }
+        try:
+            r = await asyncio.to_thread(
+                requests.post, url, headers=headers, json=payload, timeout=5
+            )
+            return r.status_code == 200
+        except Exception:
+            return False
+
     async def open_app(self, app_id: str, app_name: str = ""):
         """Abre um aplicativo na TV — tenta múltiplas estratégias em ordem.
 
         Estratégias:
-          1. SmartThings custom.launchapp (nuvem, funciona em alguns modelos)
-          2. Tecla de atalho dedicada (KEY_NETFLIX, KEY_YOUTUBE etc.)
-          3. run_app DEEP_LINK via WebSocket local
-          4. run_app NATIVE_LAUNCH via WebSocket local
+          1. SmartThings mediaInputSource (std) — YouTube
+          2. SmartThings samsungvd.mediaInputSource — Netflix e outros
+          3. SmartThings custom.launchapp — fallback genérico
+          4. Tecla de atalho Samsung (KEY_NETFLIX, KEY_YOUTUBE)
+          5. run_app DEEP_LINK via WebSocket local
+          6. run_app NATIVE_LAUNCH via WebSocket local
         """
-        logger.info("Abrindo app id=%s name=%s na TV %s", app_id, app_name or "?", self.ip)
+        name = app_name.lower() if app_name else ""
+        logger.info("Abrindo app id=%s name=%s na TV %s", app_id, name or "?", self.ip)
 
-        # ── Estratégia 1: SmartThings (nuvem) ──────────────────────────────
-        # Rápido e pode funcionar em TVs que aceitam launchapp pela nuvem.
-        # IMPORTANTE: em alguns modelos (Crystal UHD), o SmartThings retorna
-        # COMPLETED mas a TV ignora — por isso continuamos pras próximas
-        # estratégias mesmo se o HTTP for 200.
-        _st_succeeded = False
-        if await self._ensure_smartthings():
-            url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
-            headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
-            for capability_name in (
-                "custom.launchapp",
-                "x.com.samsung.da.launchapp",
-                "samsungvd.launchService",
-            ):
-                if _st_succeeded:
-                    break
-                for args in (
-                    [app_id],
-                    [{"appId": app_id, "metaData": {}}],
-                    [{"appId": app_id, "metaData": {"app_type": "DEEP_LINK"}}],
-                ):
-                    try:
-                        payload = {
-                            "commands": [
-                                {
-                                    "component": "main",
-                                    "capability": capability_name,
-                                    "command": "launchApp",
-                                    "arguments": args,
-                                }
-                            ]
-                        }
-                        response = await asyncio.to_thread(
-                            requests.post, url, headers=headers, json=payload, timeout=5
-                        )
-                        if response.status_code == 200:
-                            logger.info(
-                                "App %s: SmartThings %s aceitou (args=%s).",
-                                app_id, capability_name, args,
-                            )
-                            _st_succeeded = True
-                            break
-                    except Exception:
-                        pass
+        # ── Estratégia 1: mediaInputSource (comando padrão SmartThings) ────
+        # YouTube está no enum oficial do mediaInputSource nesta TV.
+        if name == "youtube":
+            ok = await self._st_command(
+                "mediaInputSource", "setInputSource", ["YouTube"]
+            )
+            if ok:
+                logger.info("App %s: mediaInputSource YouTube aceito.", app_id)
+                return True
 
-        # ── Estratégia 2: Tecla de atalho dedicada ─────────────────────────
-        # Controles Samsung têm botões diretos para apps populares.
-        # Esta é a forma MAIS CONFIÁVEL de abrir apps nestas TVs.
-        shortcut_key = _APP_SHORTCUTS.get(app_name.lower()) if app_name else None
+        # ── Estratégia 2: samsungvd.mediaInputSource ───────────────────────
+        # Capability Samsung que aceita nomes de app como argumento.
+        source_name = name.replace(" tv+", "").replace("tv", "").strip()
+        if not source_name:
+            source_name = name
+        ok = await self._st_command(
+            "samsungvd.mediaInputSource", "setInputSource", [source_name]
+        )
+        if ok:
+            logger.info("App %s: samsungvd.mediaInputSource='%s' aceito.", app_id, source_name)
+            return True
+
+        # ── Estratégia 3: custom.launchapp ─────────────────────────────────
+        for args in (
+            [app_id],
+            [{"appId": app_id, "metaData": {}}],
+        ):
+            ok = await self._st_command("custom.launchapp", "launchApp", args)
+            if ok:
+                logger.info("App %s: custom.launchapp aceitou (args=%s).", app_id, args)
+                break
+
+        # ── Estratégia 4: Tecla de atalho Samsung ──────────────────────────
+        shortcut_key = _APP_SHORTCUTS.get(name) if name else None
         if shortcut_key:
             result = await self._run_local_command(self.tv.send_key, shortcut_key)
             if result is not self._LOCAL_FAIL:
                 logger.info("App %s: tecla de atalho %s enviada.", app_id, shortcut_key)
                 return True
-            logger.warning("App %s: tecla %s falhou (TV offline?).", app_id, shortcut_key)
-        else:
-            logger.info("App %s: sem tecla de atalho para '%s'.", app_id, app_name)
 
-        # ── Estratégia 3: run_app DEEP_LINK ────────────────────────────────
+        # ── Estratégia 5: DEEP_LINK ────────────────────────────────────────
         result = await self._run_local_command(self.tv.run_app, app_id, "DEEP_LINK")
         if result is not self._LOCAL_FAIL:
             logger.info("App %s: DEEP_LINK enviado (sem garantia).", app_id)
             return True
 
-        # ── Estratégia 4: run_app NATIVE_LAUNCH ────────────────────────────
+        # ── Estratégia 6: NATIVE_LAUNCH ────────────────────────────────────
         result = await self._run_local_command(self.tv.run_app, app_id, "NATIVE_LAUNCH")
         if result is not self._LOCAL_FAIL:
             logger.info("App %s: NATIVE_LAUNCH enviado (sem garantia).", app_id)
