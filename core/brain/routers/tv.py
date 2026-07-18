@@ -20,8 +20,13 @@ ROUTES = [
           "manage_tv", {"action": "mute"}, None, True),
 
     # ---- VOLUME ----
+    # "coloca o volume no 30", "ajusta o volume pra 50", "muda o volume"
     Route(_and("coloca|colocar|ajusta|ajustar|deixa|deixar|poe|por|muda|mudar", "volume")
           + r"(?=.*\b(?P<level>\d{1,3})\b)",
+          "manage_tv", {"action": "volume_set"}, None, True),
+
+    # "volume no 30", "volume 30" (sem verbo — fallback para qdo o Gemini não pega)
+    Route(r"(?=.*\bvolume\b)" + r"(?=.*\b(?P<level>\d{1,3})\b)",
           "manage_tv", {"action": "volume_set"}, None, True),
 
     Route(_and("aumenta|aumentar|sobe|subir", "volume|som"),
