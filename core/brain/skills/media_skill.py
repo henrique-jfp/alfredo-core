@@ -31,14 +31,19 @@ class MediaSkill(Skill):
                 for r in data["results"]:
                     title = r.get("title", "Título não disponível")
                     rating = r.get("rating", "N/A")
-                    synopsis = r.get("synopsis", "Sinopse não disponível")
-                    watch = r.get("where_to_watch", "Não informado")
+                    # Usa 'overview' como sinopse fallback, pois nem todas as APIs retornam 'synopsis'
+                    synopsis = r.get("synopsis") or r.get("overview", "Sinopse não disponível")
+                    # Tenta obter a plataforma de streaming; se não houver, usa 'Não informado'
+                    watch = r.get("where_to_watch") or r.get("streaming_platforms", "Não informado")
                     lines.append(f"{title} - Nota: {rating}\nSinopse: {synopsis}\nOnde assistir: {watch}")
                 data["direct_response"] = "\n\n".join(lines)
             elif "message" in data:
                 data["direct_response"] = data["message"]
             else:
                 data["direct_response"] = "Nenhum resultado encontrado."
+            
+            # Loga o conteúdo gerado para depuração (mantém o log dentro do limite de tamanho)
+            logger.debug(f"MediaSkill direct_response gerado: {data['direct_response'][:200]}")
             return data
         except Exception as e:
             logger.error(f"Erro no execute_tool do MediaSkill: {e}")
