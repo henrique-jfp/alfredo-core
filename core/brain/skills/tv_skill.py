@@ -266,7 +266,7 @@ def _resolve_app_id(tv: SamsungTVManager, app_name: str) -> Optional[str]:
 def _open_app_by_name(tv: SamsungTVManager, app_name: str) -> bool:
     app_id = _resolve_app_id(tv, app_name)
     if app_id:
-        _run_async(tv.open_app(app_id))
+        _run_async(tv.open_app(app_id, app_name=app_name))
         return True
     return False
 

@@ -10,6 +10,25 @@ from samsungtvws.exceptions import ConnectionFailure
 
 logger = logging.getLogger("alfredo.samsung_tv")
 
+# Mapeamento de apps para teclas de atalho do controle Samsung.
+# Estas são as teclas dedicadas presentes nos controles remotos
+# originais — muito mais confiáveis que launchApp via API para
+# TVs Tizen 6.0+ (Crystal UHD, Series 7+).
+_APP_SHORTCUTS = {
+    "netflix": "KEY_NETFLIX",
+    "net flix": "KEY_NETFLIX",
+    "youtube": "KEY_YOUTUBE",
+    "you tube": "KEY_YOUTUBE",
+    "prime video": "KEY_PRIME_VIRTUAL",
+    "prime": "KEY_PRIME_VIRTUAL",
+    "amazon prime": "KEY_PRIME_VIRTUAL",
+    "amazon": "KEY_PRIME_VIRTUAL",
+    "spotify": "KEY_SPOTIFY",
+    "disney": "KEY_DISNEY_PLUS",
+    "disney plus": "KEY_DISNEY_PLUS",
+    "disney+": "KEY_DISNEY_PLUS",
+}
+
 class SamsungTVManager:
     def __init__(self, ip: str, mac: str = None, smartthings_pat: str = None, smartthings_device_id: str = None):
         self.ip = ip
@@ -273,20 +292,23 @@ class SamsungTVManager:
         logger.info(f"Enviando tecla {key} para a TV {self.ip}")
         return await self._run_local_command(self.tv.send_key, key)
         
-    async def open_app(self, app_id: str):
-        """Abre um aplicativo na TV pelo ID — tenta múltiplas estratégias.
+    async def open_app(self, app_id: str, app_name: str = ""):
+        """Abre um aplicativo na TV — tenta múltiplas estratégias em ordem.
 
-        NOTA: O comando DEEP_LINK via samsungtvws (local) frequentemente
-        retorna sucesso (None) mesmo quando a TV ignora o app — é um falso
-        positivo do protocolo WebSocket em TVs Tizen 6.0+. Por isso a
-        PRIORIDADE é SmartThings quando disponível.
+        Estratégias:
+          1. SmartThings custom.launchapp (nuvem, funciona em alguns modelos)
+          2. Tecla de atalho dedicada (KEY_NETFLIX, KEY_YOUTUBE etc.)
+          3. run_app DEEP_LINK via WebSocket local
+          4. run_app NATIVE_LAUNCH via WebSocket local
         """
-        logger.info(f"Abrindo app {app_id} na TV {self.ip}")
+        logger.info("Abrindo app id=%s name=%s na TV %s", app_id, app_name or "?", self.ip)
 
         # ── Estratégia 1: SmartThings (nuvem) ──────────────────────────────
-        # Prioridade máxima: a TV tem custom.launchapp (confirmado em
-        # diagnose_smartthings); a nuvem SmartThings é o único método
-        # confiável em TVs Tizen 6.0+ (2021+).
+        # Rápido e pode funcionar em TVs que aceitam launchapp pela nuvem.
+        # IMPORTANTE: em alguns modelos (Crystal UHD), o SmartThings retorna
+        # COMPLETED mas a TV ignora — por isso continuamos pras próximas
+        # estratégias mesmo se o HTTP for 200.
+        _st_succeeded = False
         if await self._ensure_smartthings():
             url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
             headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
@@ -295,11 +317,12 @@ class SamsungTVManager:
                 "x.com.samsung.da.launchapp",
                 "samsungvd.launchService",
             ):
-                # Variações de argumento: diferentes TVs aceitam formatos diferentes
+                if _st_succeeded:
+                    break
                 for args in (
+                    [app_id],
                     [{"appId": app_id, "metaData": {}}],
                     [{"appId": app_id, "metaData": {"app_type": "DEEP_LINK"}}],
-                    [app_id],
                 ):
                     try:
                         payload = {
@@ -317,32 +340,40 @@ class SamsungTVManager:
                         )
                         if response.status_code == 200:
                             logger.info(
-                                "App %s aberto via SmartThings (%s, args=%s).",
+                                "App %s: SmartThings %s aceitou (args=%s).",
                                 app_id, capability_name, args,
                             )
-                            return True
-                        logger.warning(
-                            "SmartThings %s args=%s falhou. HTTP %s: %s",
-                            capability_name, args,
-                            response.status_code,
-                            response.text[:200],
-                        )
-                    except Exception as e:
-                        logger.error(
-                            "Erro no SmartThings (%s, args=%s): %s",
-                            capability_name, args, e,
-                        )
+                            _st_succeeded = True
+                            break
+                    except Exception:
+                        pass
 
-        # ── Estratégia 2: run_app local (fallback se SmartThings falhou) ──
-        # Historicamente o DEEP_LINK retorna sucesso falso em TVs recentes,
-        # mas em modelos mais antigos (Tizen 5.x) ainda funciona de verdade.
-        for app_type in ("DEEP_LINK", "NATIVE_LAUNCH"):
-            result = await self._run_local_command(self.tv.run_app, app_id, app_type)
+        # ── Estratégia 2: Tecla de atalho dedicada ─────────────────────────
+        # Controles Samsung têm botões diretos para apps populares.
+        # Esta é a forma MAIS CONFIÁVEL de abrir apps nestas TVs.
+        shortcut_key = _APP_SHORTCUTS.get(app_name.lower()) if app_name else None
+        if shortcut_key:
+            result = await self._run_local_command(self.tv.send_key, shortcut_key)
             if result is not self._LOCAL_FAIL:
-                logger.info("App %s: comando %s enviado (sem garantia de execução).", app_id, app_type)
+                logger.info("App %s: tecla de atalho %s enviada.", app_id, shortcut_key)
                 return True
+            logger.warning("App %s: tecla %s falhou (TV offline?).", app_id, shortcut_key)
+        else:
+            logger.info("App %s: sem tecla de atalho para '%s'.", app_id, app_name)
 
-        logger.error(f"Todas as estratégias falharam para abrir app {app_id}.")
+        # ── Estratégia 3: run_app DEEP_LINK ────────────────────────────────
+        result = await self._run_local_command(self.tv.run_app, app_id, "DEEP_LINK")
+        if result is not self._LOCAL_FAIL:
+            logger.info("App %s: DEEP_LINK enviado (sem garantia).", app_id)
+            return True
+
+        # ── Estratégia 4: run_app NATIVE_LAUNCH ────────────────────────────
+        result = await self._run_local_command(self.tv.run_app, app_id, "NATIVE_LAUNCH")
+        if result is not self._LOCAL_FAIL:
+            logger.info("App %s: NATIVE_LAUNCH enviado (sem garantia).", app_id)
+            return True
+
+        logger.error("Todas as estratégias falharam para abrir app %s.", app_id)
         return False
 
     async def get_status(self):
