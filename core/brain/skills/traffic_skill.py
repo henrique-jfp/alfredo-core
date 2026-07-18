@@ -123,7 +123,7 @@ class TrafficSkill(Skill):
                     },
                     "travelMode": "DRIVE",
                     "routingPreference": "TRAFFIC_AWARE",
-                    "departureTime": "now",
+                    "departureTime": __import__('datetime').datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
                 }
 
                 response = requests.post(url, headers=req_headers, json=body, timeout=8)
