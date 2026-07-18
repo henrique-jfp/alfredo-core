@@ -1100,11 +1100,9 @@ def _start_playback() -> None:
             s.player_process.terminate()
         except Exception:
             pass
-    # ── ffplay otimizado para baixa latência ───────────────────────────────────
-    # -vn:           desabilita decodificação de vídeo (elimina overhead de detecção)
-    # -af volume=3:  amplificação inline — elimina a etapa sox pós-processamento (-200ms)
+    # ── ffplay otimizado para baixa latência (Compatível com Windows/Linux) ────
     # nobuffer+fastseek: buffer mínimo do demuxer
-    # probesize 32:  detecta o formato MP3 com menos dados (mais rápido para iniciar)
+    # probesize 32: detecta o formato MP3 com menos dados
     s.player_process = subprocess.Popen(
         [
             "ffplay", "-nodisp", "-autoexit",
@@ -1112,8 +1110,6 @@ def _start_playback() -> None:
             "-flags", "low_delay",
             "-probesize", "32",
             "-analyzeduration", "0",
-            "-vn",
-            "-af", "volume=3.0",
             "-i", "pipe:0",
         ],
         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

@@ -103,8 +103,10 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
     try:
         vosk_text_cache = ""
         while True:
-            # Pega a mensagem como dict para saber se é texto ou binário
             message = await websocket.receive()
+            
+            if message.get("type") == "websocket.disconnect":
+                raise WebSocketDisconnect(message.get("code", 1000))
             
             if "text" in message:
                 import json
