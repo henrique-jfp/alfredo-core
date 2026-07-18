@@ -748,7 +748,7 @@ class AgentRouter:
                     
                     sentences = self._extract_sentences(buffer)
                     for sentence in sentences:
-                        yield sentence
+                        yield sentence + " "
                     buffer = self._get_remainder(buffer)
                     
             if buffer.strip():
@@ -1221,10 +1221,10 @@ class AgentRouter:
                 # O direct_response pode ser feito no yield, mas se precisar chamar a skill:
                 if direct_response:
                     for sentence in self._extract_sentences(direct_response):
-                        yield sentence
+                        yield sentence + " "
                     remainder = self._get_remainder(direct_response)
                     if remainder.strip():
-                        yield remainder.strip()
+                        yield remainder.strip() + " "
                     
                     # Chama a tool async pra executar a ação por trás dos panos (TV, música)
                     skill = self.skills.get(tool_name)
@@ -1253,20 +1253,19 @@ class AgentRouter:
                         else:
                             result = await asyncio.to_thread(skill.execute, text, context)
                             
-                        # Manda o resultado (string direta ou do dict direct_response)
                         if isinstance(result, str):
                             for sentence in self._extract_sentences(result):
-                                yield sentence
+                                yield sentence + " "
                             remainder = self._get_remainder(result)
                             if remainder.strip():
-                                yield remainder.strip()
+                                yield remainder.strip() + " "
                             return
                         elif isinstance(result, dict) and result.get("direct_response"):
                             for sentence in self._extract_sentences(result["direct_response"]):
-                                yield sentence
+                                yield sentence + " "
                             remainder = self._get_remainder(result["direct_response"])
                             if remainder.strip():
-                                yield remainder.strip()
+                                yield remainder.strip() + " "
                             return
 
         # ──────────────────────────────────────────────────────────────
@@ -1418,7 +1417,7 @@ class AgentRouter:
                     # STREAMING REAL: yield frases completas imediatamente
                     # para que o TTS comece a falar enquanto o Gemini gera o resto
                     for sentence in self._extract_sentences(buffer):
-                        yield sentence
+                        yield sentence + " "
                     buffer = self._get_remainder(buffer)
         except Exception as e:
             err_str = str(e).lower()
@@ -1522,7 +1521,7 @@ class AgentRouter:
                         buffer += chunk_text
                         # Streaming real também na segunda chamada
                         for sentence in self._extract_sentences(buffer):
-                            yield sentence
+                            yield sentence + " "
                         buffer = self._get_remainder(buffer)
 
         # Yield qualquer sobra restante no buffer
