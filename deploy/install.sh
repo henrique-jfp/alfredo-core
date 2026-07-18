@@ -60,7 +60,7 @@ After=network.target
 User=$USER
 WorkingDirectory=$(pwd)
 Environment="PATH=$(pwd)/venv/bin"
-ExecStart=$(pwd)/venv/bin/uvicorn core.api.main:app --host 0.0.0.0 --port 10001
+ExecStart=$(pwd)/venv/bin/uvicorn core.api.main:app --host 0.0.0.0 --port 10001 --loop uvloop --log-level warning
 Restart=always
 
 [Install]

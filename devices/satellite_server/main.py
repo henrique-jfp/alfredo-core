@@ -968,12 +968,26 @@ def _process_recording_chunk(bytes_data: bytes) -> None:
     # SEM o preload do dashcam — teto de "tempo máximo" com significado consistente.
     live_frames = s.live_recording_bytes // 320
 
-    # Silêncio pós-fala: 0.5s no início, 0.8s após fala sustentada — permite
-    # pausas naturais ("Alfredo... liga a luz da sala").
-    if total_frames < int(1.0 * cfg.rate / 160):
-        max_silence = int(1.5 * cfg.rate / 160)
+    # ── VAD Adaptativo: corte de silêncio baseado na duração da fala ──────────
+    # Quanto mais longa a fala, mais tempo de pausa natural permitimos.
+    # live_frames = frames capturados DESTA gravação (sem o dashcam buffer).
+    #
+    # Nível 1 (< 0.5s de fala): corte rápido em 400ms — "liga a luz" não tem pausa.
+    # Nível 2 (0.5-2s):  pausa natural de 600ms — frases médias.
+    # Nível 3 (2-5s):    pausa de 800ms — perguntas mais longas.
+    # Nível 4 (> 5s):    pausa de 1.0s — relatos longos (quiz, receitas).
+    # Ganho vs antes (1.5-2.0s fixo): economiza 600ms a 1.4s por interação.
+    if not s.has_spoken:
+        # Nunca falou ainda — timeout longo para quem demorou a começar
+        max_silence = int(4.0 * cfg.rate / 160)  # 4s sem fala = cancela
+    elif live_frames < int(0.5 * cfg.rate / 160):
+        max_silence = int(0.4 * cfg.rate / 160)  # 400ms para frases curtíssimas
+    elif live_frames < int(2.0 * cfg.rate / 160):
+        max_silence = int(0.6 * cfg.rate / 160)  # 600ms para frases normais
+    elif live_frames < int(5.0 * cfg.rate / 160):
+        max_silence = int(0.8 * cfg.rate / 160)  # 800ms para perguntas longas
     else:
-        max_silence = int(2.0 * cfg.rate / 160)
+        max_silence = int(1.0 * cfg.rate / 160)  # 1.0s máximo absoluto
     timeout_frames = int(20 * cfg.rate / 160) if s.session_mode else int(5 * cfg.rate / 160)
     max_total = int(8 * cfg.rate / 160)  # 8s máximo de fala nova
 
@@ -1011,6 +1025,13 @@ def _start_recording() -> None:
     s.silence_frames = 0
     stop_alarm()
 
+    # ── VAD mode 2 durante gravação ────────────────────────────────────────────
+    # Mode 2 é mais agressivo na detecção de silêncio → corta mais rápido.
+    # Mode 1 (sensível) é mantido fora de gravação para não perder wake words.
+    if s.vad:
+        s.vad.set_mode(2)
+        log.debug("VAD: modo 2 (agressivo) ativado para gravação")
+
     if s.session_mode:
         log.info("🔴 [MODO MÃOS-LIVRES] Aguardando resposta (sem wake word)...")
     else:
@@ -1024,6 +1045,12 @@ def _finish_recording(cancel: bool = False) -> None:
     s.recording_buffer.clear()
     s.full_audio_buffer.clear()
     s.vosk_rec = None
+
+    # ── VAD volta ao mode 1 (sensível) após a gravação ─────────────────────────
+    # Garante que o OWW / VAD-only detection continua funcionando entre interações.
+    if s.vad:
+        s.vad.set_mode(1)
+        log.debug("VAD: modo 1 (sensível) restaurado pós-gravação")
 
     s.playback_cooldown_until = time.time() + 3.0
     if s.oww_model:
@@ -1073,10 +1100,21 @@ def _start_playback() -> None:
             s.player_process.terminate()
         except Exception:
             pass
+    # ── ffplay otimizado para baixa latência ───────────────────────────────────
+    # -vn:           desabilita decodificação de vídeo (elimina overhead de detecção)
+    # -af volume=3:  amplificação inline — elimina a etapa sox pós-processamento (-200ms)
+    # nobuffer+fastseek: buffer mínimo do demuxer
+    # probesize 32:  detecta o formato MP3 com menos dados (mais rápido para iniciar)
     s.player_process = subprocess.Popen(
         [
-            "ffplay", "-nodisp", "-autoexit", "-fflags", "nobuffer", "-flags", "low_delay",
-            "-probesize", "32", "-analyzeduration", "0", "-i", "pipe:0",
+            "ffplay", "-nodisp", "-autoexit",
+            "-fflags", "nobuffer",
+            "-flags", "low_delay",
+            "-probesize", "32",
+            "-analyzeduration", "0",
+            "-vn",
+            "-af", "volume=3.0",
+            "-i", "pipe:0",
         ],
         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )

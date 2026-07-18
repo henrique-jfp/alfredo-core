@@ -916,31 +916,23 @@ class AgentRouter:
             long_term_memory = ""
             session_context = ""
 
+        # ── System Prompt compacto e otimizado para voz ───────────────────────
+        # Regras de ouro para reduzir TTFT:
+        # 1. Prompt curto = menos tokens de input = primeiro token mais rápido.
+        # 2. Instruções diretas de "chame a tool JA" evitam o loop de raciocínio.
+        # 3. Proibir preâmbulos ("Claro!", "Certamente!") economiza TTS + WS bytes.
         system_prompt = (
-            "Você é o Alfredo, assistente residencial amigável e natural. "
-            "Respostas utilitárias (horas/clima) sejam diretas. Respostas criativas (piadas/histórias) sejam variadas e surpreendentes — NUNCA repita a mesma piada. "
-            "NUNCA use emojis. "
-            "Se o usuário te chamar de Alexa, não corrija — é apenas a wake word do sistema. "
-            "Traduções: use <lang=\"LOCALE\">texto</lang> (ex: <lang=\"en-US\">apple</lang>). "
-            "Quiz ativo: valide, corrija e faça nova pergunta. "
-            "Receita ativa: UM passo por vez, sempre cite o prato. "
-            "REGRA CRÍTICA: se existe uma ferramenta para a ação pedida (lista, timer/despertador, TV, música, agenda, memória), você DEVE chamá-la. "
-            "NUNCA diga que vai fazer algo (ex: 'vou adicionar', 'configurando o alarme') sem de fato invocar a function correspondente — isso engana o usuário, pois nada é executado."
+            "Você é Alfredo, assistente residencial de voz.\n"
+            "REGRAS (não negocie):\n"
+            "- Respostas FALADAS: sem markdown, listas, asteriscos ou emojis.\n"
+            "- 1-2 frases no máximo. Sem introducões ('Claro!', 'Certamente!').\n"
+            "- Existe tool para a ação? CHAME IMEDIATAMENTE, sem texto antes.\n"
+            "- Confirme ações concluídas em até 3 palavras: 'Feito.', 'Pronto!'.\n"
+            "- Wake word do sistema é 'alexa' — não corrija o usuário.\n"
+            "- Traduções: use <lang=\"LOCALE\">texto</lang>.\n"
+            "Quiz ativo: valide, corrija e faça nova pergunta.\n"
+            "Receita ativa: UM passo por vez."
         )
-        
-        if long_term_memory:
-            system_prompt += f"\n{long_term_memory}"
-            
-        if session_context:
-            system_prompt += session_context
-
-        if history_str:
-            system_prompt += f"\n\nHistórico recente:\n{history_str}"
-            
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-        now = datetime.now(ZoneInfo("America/Sao_Paulo"))
-        system_prompt += f"\n\nContexto Oculto do Sistema:\n- Horário e data atual exatos: {now.strftime('%d/%m/%Y %H:%M:%S')}"
         tools = self._get_tools_schema()
         model = genai.GenerativeModel(
             model_name='gemini-3.1-flash-lite',
@@ -1345,26 +1337,31 @@ class AgentRouter:
                     f"Continue naturalmente de onde parou. Se o usuário quiser encerrar, finalize a sessão."
                 )
 
+        # ── System Prompt compacto (streaming) ──────────────────────────────────
         system_prompt = (
-            "Você é o Alfredo, um assistente virtual ultra avançado para automação residencial. "
-            "Responda sempre de forma natural, amigável e conversacional. Seja breve, no máximo 2 frases. "
-            "NUNCA utilize emojis ou símbolos complexos nas suas respostas. "
-            "Se o usuário te chamar de Alexa, não corrija — é apenas a wake word do sistema. "
-            "Traduções: use <lang=\"LOCALE\">texto</lang> (ex: <lang=\"en-US\">apple</lang>). "
-            "REGRA CRÍTICA: se existe uma ferramenta para a ação pedida (lista, timer/despertador, TV, música, agenda, memória), você DEVE chamá-la. "
-            "NUNCA diga que vai fazer algo sem de fato invocar a function correspondente."
+            "Você é Alfredo, assistente residencial de voz.\n"
+            "REGRAS (não negocie):\n"
+            "- Respostas FALADAS: sem markdown, listas, asteriscos ou emojis.\n"
+            "- 1-2 frases no máximo. Sem introducões ('Claro!', 'Certamente!').\n"
+            "- Existe tool para a ação? CHAME IMEDIATAMENTE, sem texto antes.\n"
+            "- Confirme ações concluídas em até 3 palavras: 'Feito.', 'Pronto!'.\n"
+            "- Wake word do sistema é 'alexa' — não corrija o usuário.\n"
+            "- Traduções: use <lang=\"LOCALE\">texto</lang>.\n"
+            "Quiz ativo: valide, corrija e faça nova pergunta.\n"
+            "Receita ativa: UM passo por vez."
         )
         if long_term_memory: system_prompt += f"\n{long_term_memory}"
         if session_context: system_prompt += session_context
         if history_str: system_prompt += f"\n\nHistórico recente:\n{history_str}"
-        
-        # Forçamos a injeção do horário atual
+
+        # Horario atual injetado de forma compacta
         from datetime import datetime
-        now = datetime.now()
-        system_prompt += f"\n\nContexto Oculto do Sistema:\n- Horário e data atual exatos: {now.strftime('%d/%m/%Y %H:%M:%S')}"
-        
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("America/Sao_Paulo"))
+        system_prompt += f"\nHorario: {now.strftime('%d/%m/%Y %H:%M')}"
+
         tools = self._get_tools_schema()
-        
+
         model = genai.GenerativeModel(
             model_name='gemini-3.1-flash-lite',
             system_instruction=system_prompt,

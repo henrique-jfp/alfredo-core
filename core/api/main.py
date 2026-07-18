@@ -11,6 +11,16 @@ import asyncio
 from typing import Dict, Any
 import urllib.parse
 
+# ── uvloop: event loop 2x mais rápido (Linux only) ───────────────────────────
+# No servidor Celeron (Linux), instalado via: pip install uvloop
+# No ambiente Windows de desenvolvimento, ignorado silenciosamente.
+try:
+    import uvloop
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    logging.getLogger("alfredo.startup").info("⚡ uvloop ativado como event loop policy")
+except ImportError:
+    pass  # Windows dev environment — asyncio padrão usado
+
 # Carrega as variáveis de ambiente (Groq, Auth, etc) ANTES de inicializar o resto
 load_dotenv()
 
@@ -131,7 +141,23 @@ scheduler = SchedulerManager(get_active_connections)
 
 @app.on_event("startup")
 async def startup_event():
+    import concurrent.futures
+
+    # ── Thread Pool explícito para operações bloqueantes ─────────────────────
+    # Skills síncronas (Home Assistant, Spotify, DB queries) rodam em threads.
+    # Celeron N2830 tem 2 cores físicos (4 hyperthreaded) → 4 workers é o ideal:
+    # suficiente para paralelizar I/O de rede sem thrash de context-switch.
+    loop = asyncio.get_event_loop()
+    loop.set_default_executor(
+        concurrent.futures.ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="alfredo-worker",
+        )
+    )
+    logger.info("⚡ Thread pool configurado: 4 workers (Celeron N2830 optimized)")
+
     asyncio.create_task(scheduler.start())
+
     # Warm up TTS cache for fast routing responses
     from core.brain.routers import ROUTES
     from core.voice.tts.engine import get_tts_engine
