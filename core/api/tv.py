@@ -63,12 +63,26 @@ async def tv_mute(room_id: str, state: bool, db: Session = Depends(get_db)):
     return {"status": "success"}
 
 @router.post("/control/{room_id}/power")
-async def tv_power(room_id: str, db: Session = Depends(get_db)):
+async def tv_power(room_id: str, state: str = "toggle", db: Session = Depends(get_db)):
+    """
+    Controla o estado de energia da TV.
+    
+    - state='on':  KEY_POWER (toggle) + power_on (WOL/SmartThings). Funciona para ligar.
+    - state='off': power_off() via SmartThings (comando absoluto) ou KEY_POWER (toggle).
+                   NÃO chama power_on depois — evita o bug "desliga e liga".
+    - state='toggle' (padrão): apenas KEY_POWER (toggle puro).
+    """
     tv = _get_tv_manager(room_id, db)
-    # sending POWER key usually toggles power on modern samsungs, or use WOL
-    await tv.send_key("KEY_POWER")
-    await tv.power_on()
-    return {"status": "success"}
+
+    if state == "on":
+        await tv.send_key("KEY_POWER")
+        await tv.power_on()
+    elif state == "off":
+        await tv.power_off()
+    else:
+        await tv.send_key("KEY_POWER")
+
+    return {"status": "success", "state": state}
 
 @router.post("/control/{room_id}/app")
 async def tv_open_app(room_id: str, app_id: str, db: Session = Depends(get_db)):

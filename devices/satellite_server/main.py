@@ -294,11 +294,13 @@ def _handle_tv(text: str) -> bool:
         log.info("⚡ [OFFLINE] Desmutando TV")
         threading.Thread(target=_tv_control, args=("mute", {"state": "false"}), daemon=True).start()
         return True
-    if _has_any(text, ACTION_SYNONYMS_ON | ACTION_SYNONYMS_OFF):
-        # /power é toggle no servidor (não tem estado explícito) — serve
-        # tanto pra "liga a tv" quanto "desliga a tv".
-        log.info("⚡ [OFFLINE] Toggle de power da TV")
-        threading.Thread(target=_tv_control, args=("power", {}), daemon=True).start()
+    if _has_any(text, ACTION_SYNONYMS_ON):
+        log.info("⚡ [OFFLINE] Ligando TV")
+        threading.Thread(target=_tv_control, args=("power", {"state": "on"}), daemon=True).start()
+        return True
+    if _has_any(text, ACTION_SYNONYMS_OFF):
+        log.info("⚡ [OFFLINE] Desligando TV (comando absoluto, sem toggle)")
+        threading.Thread(target=_tv_control, args=("power", {"state": "off"}), daemon=True).start()
         return True
     return False
 
