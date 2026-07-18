@@ -90,81 +90,106 @@ class TrafficSkill(Skill):
         return self._format_route_response(result, orig_name, dest_name)
 
     def _get_route(self, orig_lat: str, orig_lon: str, dest_lat: str, dest_lon: str, gmaps_key: Optional[str]) -> dict:
-        """Consulta API de rotas. Retorna dict com distance, duration, provider, ou error."""
+        """Consulta Routes API v2 do Google (com trânsito real) ou OSRM como fallback.
+
+        Usa a Routes API v2 (routes.googleapis.com) que é a API ativa no projeto,
+        substituta da Distance Matrix legada (bloqueada por padrão em projetos novos).
+        """
         try:
             if gmaps_key:
-                import time
-                logger.info("Buscando rota na API do Google Maps (com Trânsito)...")
-                
-                origins = f"{orig_lat},{orig_lon}" if orig_lon else orig_lat
-                destinations = f"{dest_lat},{dest_lon}" if dest_lon else dest_lat
-                
-                url = "https://maps.googleapis.com/maps/api/distancematrix/json"
-                params = {
-                    "origins": origins,
-                    "destinations": destinations,
-                    "mode": "driving",
-                    "departure_time": "now",
-                    "key": gmaps_key,
-                    "language": "pt-BR",
-                    "traffic_model": "best_guess"
+                logger.info("Buscando rota na Routes API v2 do Google (com Trânsito)...")
+
+                try:
+                    orig_lat_f = float(orig_lat)
+                    orig_lon_f = float(orig_lon)
+                    dest_lat_f = float(dest_lat)
+                    dest_lon_f = float(dest_lon)
+                except (ValueError, TypeError):
+                    logger.warning("Coordenadas inválidas para Routes API.")
+                    return {"error": "Coordenadas inválidas para calcular rota."}
+
+                url = "https://routes.googleapis.com/directions/v2:computeRoutes"
+                req_headers = {
+                    "Content-Type": "application/json",
+                    "X-Goog-Api-Key": gmaps_key,
+                    "X-Goog-FieldMask": "routes.duration,routes.staticDuration,routes.distanceMeters",
                 }
-                response = requests.get(url, params=params, timeout=5)
+                body = {
+                    "origin": {
+                        "location": {"latLng": {"latitude": orig_lat_f, "longitude": orig_lon_f}}
+                    },
+                    "destination": {
+                        "location": {"latLng": {"latitude": dest_lat_f, "longitude": dest_lon_f}}
+                    },
+                    "travelMode": "DRIVE",
+                    "routingPreference": "TRAFFIC_AWARE",
+                    "departureTime": "now",
+                }
+
+                response = requests.post(url, headers=req_headers, json=body, timeout=8)
                 data = response.json()
+                logger.info(f"Routes API v2 HTTP status: {response.status_code}")
 
-                logger.info(f"Google Maps API status: {data.get('status')}")
+                if response.status_code == 200 and data.get("routes"):
+                    route = data["routes"][0]
+                    distance_m = route.get("distanceMeters", 0)
+                    distance_km = round(distance_m / 1000, 1)
+                    dist_str = str(distance_km).replace(".", ",") + " km"
 
-                if data.get("status") != "OK":
-                    err_msg = data.get("error_message", "sem detalhes")
-                    logger.warning(f"Google Maps API retornou erro: {data['status']} — {err_msg}")
-                    return {"error": f"API Google Maps retornou: {data['status']}. {err_msg}"}
+                    def _secs(s: str) -> int:
+                        """Converte '1234s' → 1234."""
+                        try:
+                            return int(str(s).rstrip("s"))
+                        except Exception:
+                            return 0
 
-                if data["rows"][0]["elements"][0]["status"] != "OK":
-                    elem_status = data["rows"][0]["elements"][0]["status"]
-                    logger.warning(f"Google Maps element status: {elem_status}")
-                    return {"error": f"Não foi possível calcular rota entre esses locais ({elem_status})."}
+                    def _fmt(secs: int) -> str:
+                        mins = max(secs // 60, 1)
+                        return f"{mins} min" if mins < 60 else f"{mins // 60}h{mins % 60:02d} min"
 
-                element = data["rows"][0]["elements"][0]
-                dist_str = element["distance"]["text"]
+                    duration_secs = _secs(route.get("duration", "0s"))
+                    static_secs = _secs(route.get("staticDuration", "0s"))
+                    duration_traffic = _fmt(duration_secs)
+                    duration_no_traffic = _fmt(static_secs)
+                    has_traffic = abs(duration_secs - static_secs) > 60
 
-                has_traffic = "duration_in_traffic" in element
-                duration_no_traffic = element["duration"]["text"]
-                if has_traffic:
-                    duration_traffic = element["duration_in_traffic"]["text"]
-                    logger.info(f"Google Maps respondeu: {dist_str}, {duration_traffic} (sem trânsito: {duration_no_traffic})")
+                    logger.info(
+                        f"Routes API v2: {dist_str}, com trânsito={duration_traffic}, "
+                        f"sem trânsito={duration_no_traffic}"
+                    )
+                    return {
+                        "distance": dist_str,
+                        "duration": duration_traffic,
+                        "duration_no_traffic": duration_no_traffic,
+                        "has_traffic": has_traffic,
+                        "provider": "google_maps",
+                    }
                 else:
-                    duration_traffic = duration_no_traffic
-                    logger.info(f"Google Maps respondeu: {dist_str}, {duration_traffic} (sem dados de trânsito)")
+                    err = data.get("error", {})
+                    err_msg = err.get("message", "sem detalhes")
+                    logger.warning(f"Routes API v2 erro {response.status_code}: {err_msg}")
+                    # Cai no OSRM abaixo
 
+            logger.warning("Google Maps API key não configurada ou falhou — usando fallback OSRM (sem trânsito)")
+            # FALLBACK: OSRM público (sem dados de trânsito em tempo real)
+            osrm_url = (
+                f"http://router.project-osrm.org/route/v1/driving/"
+                f"{orig_lon},{orig_lat};{dest_lon},{dest_lat}?overview=false"
+            )
+            osrm_headers = {"User-Agent": "AlfredoHomeOS/1.0"}
+            osrm_resp = requests.get(osrm_url, headers=osrm_headers, timeout=5)
+            osrm_resp.raise_for_status()
+            osrm_data = osrm_resp.json()
+
+            if osrm_data.get("code") == "Ok" and osrm_data.get("routes"):
+                r = osrm_data["routes"][0]
+                km = round(r.get("distance", 0) / 1000, 1)
+                mins = int(r.get("duration", 0) / 60)
                 return {
-                    "distance": dist_str,
-                    "duration": duration_traffic,
-                    "duration_no_traffic": duration_no_traffic,
-                    "has_traffic": has_traffic,
-                    "provider": "google_maps"
-                }
-
-            logger.warning("Google Maps API key não configurada no banco — usando fallback OSRM (sem trânsito)")
-            # FALLBACK: OSRM
-            url = f"http://router.project-osrm.org/route/v1/driving/{orig_lon},{orig_lat};{dest_lon},{dest_lat}?overview=false"
-            headers = {'User-Agent': 'AlfredoHomeOS/1.0'}
-            response = requests.get(url, headers=headers, timeout=5)
-            response.raise_for_status()
-            data = response.json()
-
-            if data.get("code") == "Ok" and data.get("routes"):
-                route = data["routes"][0]
-                distance_meters = route.get("distance", 0)
-                duration_seconds = route.get("duration", 0)
-                distance_km = round(distance_meters / 1000, 1)
-                dist_str = str(distance_km).replace(".", ",")
-                duration_mins = int(duration_seconds / 60)
-
-                return {
-                    "distance": f"{dist_str} km",
-                    "duration": f"{duration_mins} min" if duration_mins < 60 else f"{duration_mins // 60}h{duration_mins % 60} min",
+                    "distance": f"{str(km).replace('.', ',')} km",
+                    "duration": f"{mins} min" if mins < 60 else f"{mins // 60}h{mins % 60:02d} min",
                     "has_traffic": False,
-                    "provider": "osrm"
+                    "provider": "osrm",
                 }
 
             return {"error": "Não consegui traçar uma rota entre esses lugares no momento."}
