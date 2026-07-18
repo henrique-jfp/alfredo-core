@@ -29,11 +29,16 @@ class MediaSkill(Skill):
             if "results" in data and data["results"]:
                 lines = []
                 for r in data["results"]:
-                    watch = r.get("where_to_watch", "")
-                    lines.append(f"{r['title']} (nota {r['rating']})")
-                data["direct_response"] = f"Recomendo: {'; '.join(lines)}."
+                    title = r.get("title", "Título não disponível")
+                    rating = r.get("rating", "N/A")
+                    synopsis = r.get("synopsis", "Sinopse não disponível")
+                    watch = r.get("where_to_watch", "Não informado")
+                    lines.append(f"{title} - Nota: {rating}\nSinopse: {synopsis}\nOnde assistir: {watch}")
+                data["direct_response"] = "\n\n".join(lines)
             elif "message" in data:
                 data["direct_response"] = data["message"]
+            else:
+                data["direct_response"] = "Nenhum resultado encontrado."
             return data
         except Exception as e:
             logger.error(f"Erro no execute_tool do MediaSkill: {e}")
