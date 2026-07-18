@@ -8,24 +8,66 @@ logger = logging.getLogger("alfredo.media_service")
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 BASE_URL = "https://api.themoviedb.org/3"
 
+# Mapa estático de temas → IDs TMDB (fallback para temas que não existem
+# como gênero oficial na TMDB, ex: "inspiration", "family").
+# Usado pelo get_genre_id() antes de consultar a API.
+GENRE_ID_MAP: Dict[str, str] = {
+    "action": "28",
+    "adventure": "12",
+    "animation": "16",
+    "comedy": "35",
+    "crime": "80",
+    "documentary": "99",
+    "drama": "18",
+    "family": "10751",
+    "fantasy": "14",
+    "horror": "27",
+    "inspiration": "10749",       # TV Movie – mais próximo de inspiracional
+    "music": "10402",
+    "romance": "10749",
+    "science fiction": "878",
+    "fiction": "878",
+    "ficção científica": "878",
+    "thriller": "53",
+    "war": "10752",
+    "western": "37",
+}
+
+
 def _get_headers() -> Dict[str, str]:
     return {
         "accept": "application/json"
     }
 
 def get_genre_id(genre_name: str, media_type: str = "movie") -> int:
-    """Busca o ID do gênero correspondente na TMDB API."""
+    """Busca o ID do gênero correspondente na TMDB API.
+
+    Usa o mapa estático GENRE_ID_MAP como fallback principal e,
+    se não encontrar, consulta a TMDB API dinamicamente.
+    """
+    if not genre_name:
+        return None
+
+    name_lower = genre_name.lower().strip()
+
+    # 1ª tentativa: mapa estático (rápido e cobre temas especiais)
+    static_id = GENRE_ID_MAP.get(name_lower)
+    if static_id:
+        return int(static_id)
+
+    # 2ª tentativa: consulta dinâmica na TMDB API
     if not TMDB_API_KEY:
         logger.warning("TMDB_API_KEY não configurada.")
         return None
-        
+
     url = f"{BASE_URL}/genre/{media_type}/list?language=pt-BR&api_key={TMDB_API_KEY}"
     try:
-        res = requests.get(url, headers=_get_headers(), timeout=5)
+        import requests as req
+        res = req.get(url, headers=_get_headers(), timeout=5)
         if res.status_code == 200:
             genres = res.json().get("genres", [])
             for g in genres:
-                if g["name"].lower() == genre_name.lower() or genre_name.lower() in g["name"].lower():
+                if name_lower == g["name"].lower() or name_lower in g["name"].lower():
                     return g["id"]
     except Exception as e:
         logger.error(f"Erro ao buscar gênero no TMDB: {e}")
@@ -109,7 +151,7 @@ def discover_media(media_type: str = "movie", genre: str = None, year: str = Non
             suggestions.append({
                 "title": title,
                 "rating": round(rating, 1),
-                "overview": overview[:150] + "..." if len(overview) > 150 else overview,
+                "synopsis": overview[:150] + "..." if len(overview) > 150 else overview,
                 "where_to_watch": provider_str
             })
             
