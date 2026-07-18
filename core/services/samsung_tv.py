@@ -274,28 +274,33 @@ class SamsungTVManager:
         return await self._run_local_command(self.tv.send_key, key)
         
     async def open_app(self, app_id: str):
-        """Abre um aplicativo na TV pelo ID — tenta múltiplas estratégias."""
+        """Abre um aplicativo na TV pelo ID — tenta múltiplas estratégias.
+
+        NOTA: O comando DEEP_LINK via samsungtvws (local) frequentemente
+        retorna sucesso (None) mesmo quando a TV ignora o app — é um falso
+        positivo do protocolo WebSocket em TVs Tizen 6.0+. Por isso a
+        PRIORIDADE é SmartThings quando disponível.
+        """
         logger.info(f"Abrindo app {app_id} na TV {self.ip}")
 
-        # Estratégia 1: run_app com DEEP_LINK (padrão, funciona na maioria das TVs)
-        result = await self._run_local_command(self.tv.run_app, app_id, "DEEP_LINK")
-        if result is not self._LOCAL_FAIL:
-            logger.info(f"App {app_id} aberto via DEEP_LINK.")
-            return True
-
-        # Estratégia 2: run_app com NATIVE_LAUNCH (alguns modelos Tizen precisam)
-        result = await self._run_local_command(self.tv.run_app, app_id, "NATIVE_LAUNCH")
-        if result is not self._LOCAL_FAIL:
-            logger.info(f"App {app_id} aberto via NATIVE_LAUNCH.")
-            return True
-
-        # Estratégia 3: SmartThings launchApp
+        # ── Estratégia 1: SmartThings (nuvem) ──────────────────────────────
+        # Prioridade máxima: a TV tem custom.launchapp (confirmado em
+        # diagnose_smartthings); a nuvem SmartThings é o único método
+        # confiável em TVs Tizen 6.0+ (2021+).
         if await self._ensure_smartthings():
             url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
             headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
-            for capability_name in ("x.com.samsung.da.launchapp", "custom.launchapp"):
-                # 3a: Formato objeto (appId + metaData) — TVs Tizen 6.0+
-                for args in ([{"appId": app_id, "metaData": {}}], [app_id]):
+            for capability_name in (
+                "custom.launchapp",
+                "x.com.samsung.da.launchapp",
+                "samsungvd.launchService",
+            ):
+                # Variações de argumento: diferentes TVs aceitam formatos diferentes
+                for args in (
+                    [{"appId": app_id, "metaData": {}}],
+                    [{"appId": app_id, "metaData": {"app_type": "DEEP_LINK"}}],
+                    [app_id],
+                ):
                     try:
                         payload = {
                             "commands": [
@@ -327,6 +332,15 @@ class SamsungTVManager:
                             "Erro no SmartThings (%s, args=%s): %s",
                             capability_name, args, e,
                         )
+
+        # ── Estratégia 2: run_app local (fallback se SmartThings falhou) ──
+        # Historicamente o DEEP_LINK retorna sucesso falso em TVs recentes,
+        # mas em modelos mais antigos (Tizen 5.x) ainda funciona de verdade.
+        for app_type in ("DEEP_LINK", "NATIVE_LAUNCH"):
+            result = await self._run_local_command(self.tv.run_app, app_id, app_type)
+            if result is not self._LOCAL_FAIL:
+                logger.info("App %s: comando %s enviado (sem garantia de execução).", app_id, app_type)
+                return True
 
         logger.error(f"Todas as estratégias falharam para abrir app {app_id}.")
         return False
