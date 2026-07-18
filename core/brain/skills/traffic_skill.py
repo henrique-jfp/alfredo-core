@@ -103,7 +103,8 @@ class TrafficSkill(Skill):
                 params = {
                     "origins": origins,
                     "destinations": destinations,
-                    "departure_time": int(time.time()),
+                    "mode": "driving",
+                    "departure_time": "now",
                     "key": gmaps_key,
                     "language": "pt-BR",
                     "traffic_model": "best_guess"
