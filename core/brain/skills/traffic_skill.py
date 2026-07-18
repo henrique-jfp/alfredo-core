@@ -123,7 +123,8 @@ class TrafficSkill(Skill):
                     },
                     "travelMode": "DRIVE",
                     "routingPreference": "TRAFFIC_AWARE",
-                    "departureTime": __import__('datetime').datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    # Routes API exige timestamp futuro; adiciona 2s de margem
+                    "departureTime": (__import__('datetime').datetime.utcnow() + __import__('datetime').timedelta(seconds=2)).strftime('%Y-%m-%dT%H:%M:%SZ'),
                 }
 
                 response = requests.post(url, headers=req_headers, json=body, timeout=8)
