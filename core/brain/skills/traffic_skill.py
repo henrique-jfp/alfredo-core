@@ -178,8 +178,12 @@ class TrafficSkill(Skill):
 
     def _format_route_response(self, result: dict, orig_name: str, dest_name: str) -> str:
         """Formata o resultado da rota em texto para TTS."""
-        dist = result["distance"]
-        duration = result["duration"]
+        dist = result["distance"].replace(" km", " quilômetros").replace(" m", " metros")
+        duration = result["duration"].replace(" min", " minutos").replace(" h", " horas")
+        
+        if result.get("duration_no_traffic"):
+            result["duration_no_traffic"] = result["duration_no_traffic"].replace(" min", " minutos").replace(" h", " horas")
+
         orig = orig_name.capitalize()
         dest = dest_name.capitalize()
 
@@ -284,20 +288,29 @@ class TrafficSkill(Skill):
 
         if result.get("has_traffic"):
             response["duration_no_traffic"] = result["duration_no_traffic"]
+            
+            clean_dist = result['distance'].replace(" km", " quilômetros").replace(" m", " metros")
+            clean_dur = result['duration'].replace(" min", " minutos").replace(" h", " horas")
+            clean_dur_no = result['duration_no_traffic'].replace(" min", " minutos").replace(" h", " horas")
+            
             response["direct_response"] = (
-                f"De {origin} até {destination} são {result['distance']}. "
-                f"Com o trânsito atual, a viagem vai levar {result['duration']}. "
-                f"Sem trânsito seriam {result['duration_no_traffic']}."
+                f"De {origin} até {destination} são {clean_dist}. "
+                f"Com o trânsito atual, a viagem vai levar {clean_dur}. "
+                f"Sem trânsito seriam {clean_dur_no}."
             )
         elif result["provider"] == "google_maps":
+            clean_dist = result['distance'].replace(" km", " quilômetros").replace(" m", " metros")
+            clean_dur = result['duration'].replace(" min", " minutos").replace(" h", " horas")
             response["direct_response"] = (
-                f"De {origin} até {destination} são {result['distance']}. "
-                f"A viagem leva aproximadamente {result['duration']}."
+                f"De {origin} até {destination} são {clean_dist}. "
+                f"A viagem leva aproximadamente {clean_dur}."
             )
         else:
+            clean_dist = result['distance'].replace(" km", " quilômetros").replace(" m", " metros")
+            clean_dur = result['duration'].replace(" min", " minutos").replace(" h", " horas")
             response["direct_response"] = (
-                f"De {origin} até {destination} são {result['distance']} de distância, "
-                f"cerca de {result['duration']} de viagem (sem trânsito em tempo real)."
+                f"De {origin} até {destination} são {clean_dist} de distância, "
+                f"cerca de {clean_dur} de viagem (sem trânsito em tempo real)."
             )
 
         return response
