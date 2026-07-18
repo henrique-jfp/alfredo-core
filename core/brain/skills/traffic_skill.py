@@ -111,27 +111,40 @@ class TrafficSkill(Skill):
                 response = requests.get(url, params=params, timeout=5)
                 data = response.json()
 
-                if data.get("status") == "OK" and data["rows"][0]["elements"][0]["status"] == "OK":
-                    element = data["rows"][0]["elements"][0]
-                    dist_str = element["distance"]["text"]
+                logger.info(f"Google Maps API status: {data.get('status')}")
 
-                    has_traffic = "duration_in_traffic" in element
-                    duration_no_traffic = element["duration"]["text"]
-                    if has_traffic:
-                        duration_traffic = element["duration_in_traffic"]["text"]
-                    else:
-                        duration_traffic = duration_no_traffic
+                if data.get("status") != "OK":
+                    err_msg = data.get("error_message", "sem detalhes")
+                    logger.warning(f"Google Maps API retornou erro: {data['status']} — {err_msg}")
+                    return {"error": f"API Google Maps retornou: {data['status']}. {err_msg}"}
 
-                    return {
-                        "distance": dist_str,
-                        "duration": duration_traffic,
-                        "duration_no_traffic": duration_no_traffic,
-                        "has_traffic": has_traffic,
-                        "provider": "google_maps"
-                    }
+                if data["rows"][0]["elements"][0]["status"] != "OK":
+                    elem_status = data["rows"][0]["elements"][0]["status"]
+                    logger.warning(f"Google Maps element status: {elem_status}")
+                    return {"error": f"Não foi possível calcular rota entre esses locais ({elem_status})."}
 
+                element = data["rows"][0]["elements"][0]
+                dist_str = element["distance"]["text"]
+
+                has_traffic = "duration_in_traffic" in element
+                duration_no_traffic = element["duration"]["text"]
+                if has_traffic:
+                    duration_traffic = element["duration_in_traffic"]["text"]
+                    logger.info(f"Google Maps respondeu: {dist_str}, {duration_traffic} (sem trânsito: {duration_no_traffic})")
+                else:
+                    duration_traffic = duration_no_traffic
+                    logger.info(f"Google Maps respondeu: {dist_str}, {duration_traffic} (sem dados de trânsito)")
+
+                return {
+                    "distance": dist_str,
+                    "duration": duration_traffic,
+                    "duration_no_traffic": duration_no_traffic,
+                    "has_traffic": has_traffic,
+                    "provider": "google_maps"
+                }
+
+            logger.warning("Google Maps API key não configurada no banco — usando fallback OSRM (sem trânsito)")
             # FALLBACK: OSRM
-            logger.info("Buscando rota na API pública do OSRM (Fallback)...")
             url = f"http://router.project-osrm.org/route/v1/driving/{orig_lon},{orig_lat};{dest_lon},{dest_lat}?overview=false"
             headers = {'User-Agent': 'AlfredoHomeOS/1.0'}
             response = requests.get(url, headers=headers, timeout=5)

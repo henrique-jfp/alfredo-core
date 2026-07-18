@@ -10,6 +10,27 @@ import time
 import asyncio
 from typing import Dict, Any
 import urllib.parse
+import sys as _sys
+
+# ── Atexit handler: captura crash silencioso e escreve no stderr ────────────
+# O systemd captura stderr mesmo se o logging não estiver configurado ainda.
+# Isso garante que QUALQUER traceback apareça no journalctl.
+import atexit as _atexit
+
+_last_exc = None
+
+def _install_excepthook():
+    """Redireciona exceções não tratadas para stderr ANTES do crash."""
+    def _excepthook(exc_type, exc_value, exc_tb):
+        import traceback as _tb
+        _sys.stderr.write("=" * 60 + "\n")
+        _sys.stderr.write(f"🔥 CRASH NAO TRATADO: {exc_type.__name__}: {exc_value}\n")
+        _tb.print_exception(exc_type, exc_value, exc_tb, file=_sys.stderr)
+        _sys.stderr.write("=" * 60 + "\n")
+        _sys.stderr.flush()
+    _sys.excepthook = _excepthook
+
+_install_excepthook()
 
 # ── uvloop: event loop 2x mais rápido (Linux only) ───────────────────────────
 # No servidor Celeron (Linux), instalado via: pip install uvloop
@@ -19,7 +40,9 @@ try:
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     logging.getLogger("alfredo.startup").info("⚡ uvloop ativado como event loop policy")
 except ImportError:
-    pass  # Windows dev environment — asyncio padrão usado
+    pass
+except Exception as e:
+    logging.getLogger("alfredo.startup").warning(f"uvloop não pôde ser ativado: {e} — usando asyncio padrão")
 
 # Carrega as variáveis de ambiente (Groq, Auth, etc) ANTES de inicializar o resto
 load_dotenv()
@@ -142,6 +165,7 @@ scheduler = SchedulerManager(get_active_connections)
 @app.on_event("startup")
 async def startup_event():
     import concurrent.futures
+    startup_logger = logging.getLogger("alfredo.startup")
 
     # ── Thread Pool explícito para operações bloqueantes ─────────────────────
     # Skills síncronas (Home Assistant, Spotify, DB queries) rodam em threads.
@@ -154,21 +178,53 @@ async def startup_event():
             thread_name_prefix="alfredo-worker",
         )
     )
-    logger.info("⚡ Thread pool configurado: 4 workers (Celeron N2830 optimized)")
+    startup_logger.info("⚡ Thread pool configurado: 4 workers (Celeron N2830 optimized)")
 
-    asyncio.create_task(scheduler.start())
+    # ── Asyncio exception handler (precisa ser no startup para pegar o loop correto)
+    def _async_exc_handler(loop, context):
+        exc = context.get("exception")
+        msg = context.get("message", "erro desconhecido")
+        tb = "".join(_traceback.format_exception(type(exc), exc, exc.__traceback__)) if exc else msg
+        _sys.stderr.write(f"🔥 ASYNCIO TASK CRASH: {msg}\n{tb}\n")
+        _sys.stderr.flush()
+        startup_logger.critical(f"🔥 ASYNCIO TASK CRASH: {msg}\n{tb}")
+    asyncio.get_running_loop().set_exception_handler(_async_exc_handler)
+
+    # ── Scheduler protegido contra crash ─────────────────────────────────────
+    try:
+        asyncio.create_task(scheduler.start())
+        startup_logger.info("Scheduler iniciado")
+    except Exception as e:
+        startup_logger.error(f"Falha ao iniciar scheduler: {e}")
 
     # Warm up TTS cache for fast routing responses
     from core.brain.routers import ROUTES
     from core.voice.tts.engine import get_tts_engine
     fixed_responses = [r.response for r in ROUTES if r.response]
     if fixed_responses:
-        logger.info("Aquecendo cache TTS para respostas rápidas...")
+        startup_logger.info("Aquecendo cache TTS para respostas rápidas...")
         tts_engine = get_tts_engine()
         asyncio.create_task(tts_engine.warm_cache(fixed_responses))
 @app.on_event("shutdown")
 def shutdown_event():
     scheduler.stop()
+
+# ── Global exception handler: captura QUALQUER exceção HTTP não tratada ────
+import traceback as _traceback
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    tb = "".join(_traceback.format_exception(type(exc), exc, exc.__traceback__))
+    logger.critical(f"🔥 EXCEÇÃO NÃO TRATADA em {request.method} {request.url}:\n{tb}")
+    _sys.stderr.write(f"🔥 HTTP CRASH: {exc}\n")
+    _sys.stderr.flush()
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Erro interno do assistente."},
+    )
+
+
 
 # Configurar o logger para aparecer junto com o Uvicorn
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:\t%(name)s - %(message)s", stream=sys.stdout)

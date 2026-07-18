@@ -1110,6 +1110,7 @@ def _start_playback() -> None:
             "-flags", "low_delay",
             "-probesize", "32",
             "-analyzeduration", "0",
+            "-vn",
             "-i", "pipe:0",
         ],
         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1121,7 +1122,11 @@ def _stop_playback() -> None:
     if s.player_process:
         try:
             s.player_process.stdin.close()
-            s.player_process.wait()
+            s.player_process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            log.warning("ffplay não finalizou em 3s — forçando kill")
+            s.player_process.kill()
+            s.player_process.wait(timeout=1)
         except Exception:
             pass
         s.player_process = None
