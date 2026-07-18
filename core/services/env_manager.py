@@ -65,4 +65,5 @@ def sync_env_to_db():
         "GOOGLE_CLIENT_ID": os.getenv("GOOGLE_CLIENT_ID", ""),
         "GOOGLE_CLIENT_SECRET": os.getenv("GOOGLE_CLIENT_SECRET", ""),
         "PUBLIC_URL": os.getenv("PUBLIC_URL", ""),
+        "GOOGLE_MAPS_API_KEY": os.getenv("GOOGLE_MAPS_API_KEY", ""),
     }

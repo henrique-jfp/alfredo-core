@@ -81,7 +81,7 @@ class TrafficSkill(Skill):
         if not dest_coords:
             return f"Não encontrei o destino '{dest_name}' nos lugares salvos. Cadastre ele no painel de configurações."
 
-        gmaps_key = config.get("google_maps_api_key")
+        gmaps_key = config.get("google_maps_api_key") or os.getenv("GOOGLE_MAPS_API_KEY")
         result = self._get_route(orig_coords[0], orig_coords[1], dest_coords[0], dest_coords[1], gmaps_key)
 
         if result.get("error"):
@@ -244,7 +244,7 @@ class TrafficSkill(Skill):
         if not trabalho:
             return "Você não tem um local de trabalho configurado. Adicione nos lugares salvos do painel."
 
-        gmaps_key = config.get("google_maps_api_key")
+        gmaps_key = config.get("google_maps_api_key") or os.getenv("GOOGLE_MAPS_API_KEY")
         route = self._get_route(casa.latitude, casa.longitude, trabalho.latitude, trabalho.longitude, gmaps_key)
         if route.get("error"):
             return route["error"]
@@ -274,7 +274,7 @@ class TrafficSkill(Skill):
         else:
             # Se não achou no banco, usa o texto bruto caso tenhamos a chave do Maps (que aceita texto)
             # ou retorna erro se for OSRM (que só aceita coordenadas)
-            if config.get("google_maps_api_key"):
+            if config.get("google_maps_api_key") or os.getenv("GOOGLE_MAPS_API_KEY"):
                 dest_lat = destination
                 dest_lon = ""
             else:
@@ -290,14 +290,14 @@ class TrafficSkill(Skill):
             orig_lat = orig_obj.latitude
             orig_lon = orig_obj.longitude
         else:
-            if config.get("google_maps_api_key"):
+            if config.get("google_maps_api_key") or os.getenv("GOOGLE_MAPS_API_KEY"):
                 orig_lat = origin
                 orig_lon = ""
             else:
                 orig_lat = os.getenv("WEATHER_LAT", "-23.550520")
                 orig_lon = os.getenv("WEATHER_LON", "-46.633308")
 
-        gmaps_key = config.get("google_maps_api_key")
+        gmaps_key = config.get("google_maps_api_key") or os.getenv("GOOGLE_MAPS_API_KEY")
         result = self._get_route(orig_lat, orig_lon, dest_lat, dest_lon, gmaps_key)
 
         if result.get("error"):

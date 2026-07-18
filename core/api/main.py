@@ -153,6 +153,27 @@ if _env_vars.get("SPOTIFY_CLIENT_ID") or _env_vars.get("SPOTIFY_CLIENT_SECRET"):
     finally:
         db_session.close()
 
+# Sincroniza GOOGLE_MAPS_API_KEY do .env → DB (Settings)
+_gmaps_key = _env_vars.get("GOOGLE_MAPS_API_KEY", "")
+if _gmaps_key:
+    db_session = next(get_db())
+    try:
+        existing = db_session.query(models.Setting).filter(
+            models.Setting.key == "google_maps_api_key"
+        ).first()
+        if not existing:
+            db_session.add(models.Setting(key="google_maps_api_key", value=_gmaps_key))
+            db_session.commit()
+            logger.info("GOOGLE_MAPS_API_KEY sincronizada do .env para Settings do DB")
+        elif existing.value != _gmaps_key:
+            existing.value = _gmaps_key
+            db_session.commit()
+            logger.info("GOOGLE_MAPS_API_KEY atualizada do .env para Settings do DB")
+    except Exception as e:
+        logging.getLogger("alfredo.startup").warning(f"Não foi possível sincronizar GOOGLE_MAPS_API_KEY: {e}")
+    finally:
+        db_session.close()
+
 app = FastAPI(title="Alfredo Home OS API", version="1.0.0")
 
 from core.api.satellite import manager
