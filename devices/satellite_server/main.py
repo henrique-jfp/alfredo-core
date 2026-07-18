@@ -46,6 +46,8 @@ import sounddevice as sd
 import webrtcvad
 from websockets.sync.client import connect
 
+from dotenv import load_dotenv
+
 import openwakeword
 from openwakeword.model import Model as OWWModel
 
@@ -71,6 +73,9 @@ logging.basicConfig(
 )
 log = logging.getLogger("alfredo.satellite")
 
+# Carrega variáveis do .env (ALFREDO_OWW_THRESHOLD, ALFREDO_SOFTWARE_GAIN etc.)
+# ANTES de instanciar AudioConfig, para que os field defaults funcionem.
+load_dotenv()
 
 # --------------------------------------------------------------------------
 # Configuração / constantes
@@ -98,6 +103,20 @@ class AudioConfig:
 
     dashcam_seconds: int = 6           # segundos de pré-gravação mantidos em buffer
     noise_gate_hold_frames: int = 20   # 20 chunks de 20ms = 400ms — preserva consoantes fracas
+
+    # Threshold do OpenWakeWord (0.4 para ambientes ruidosos/TV alta).
+    # Mais baixo → mais sensível, mas pode aumentar falsos positivos.
+    # Ajustável via .env: ALFREDO_OWW_THRESHOLD=0.35
+    oww_threshold: float = field(
+        default_factory=lambda: float(os.getenv("ALFREDO_OWW_THRESHOLD", "0.4"))
+    )
+
+    # Ganho de software aplicado ANTES do OWW/VAD (não afeta gravação enviada).
+    # Ajuda quando o usuário está distante do microfone (sofá x TV).
+    # Ajustável via .env: ALFREDO_SOFTWARE_GAIN=2.0
+    software_gain: float = field(
+        default_factory=lambda: float(os.getenv("ALFREDO_SOFTWARE_GAIN", "3.0"))
+    )
 
     server_url: str = "http://pvserver:10001"
     device_id: str = "server-satellite-sala"
@@ -597,7 +616,7 @@ class SatelliteState:
         self.noise_threshold = 2000.0
         self.noise_gate_hold = 0
 
-        self.software_multiplier = 1.0
+        self.software_multiplier = self.cfg.software_gain
 
         self.is_streaming = False
         self.stream_queue: queue.Queue = queue.Queue(maxsize=20)
@@ -825,14 +844,14 @@ def _audio_callback_impl(indata, frames, time_info, status) -> None:
             s.is_calibrated = True
         return
 
-    # --- OpenWakeWord (gatilho principal, threshold 0.7) ---
+    # --- OpenWakeWord (gatilho principal, threshold configurável) ---
     if s.oww_model and not s.is_recording:
         if s.is_playing or time.time() < s.playback_cooldown_until:
             s.oww_model.reset()
         else:
             prediction = s.oww_model.predict(cleaned)
             for mdl_name, score in prediction.items():
-                if score >= 0.7 and not s.is_recording:
+                if score >= cfg.oww_threshold and not s.is_recording:
                     log.info("🔊 OWW score %.2f — iniciando gravação", score)
                     _stop_current_music()
                     s.tv_was_muted = True  # FIX A
@@ -1378,6 +1397,17 @@ def main() -> None:
 
     if not register_device():
         log.warning("Falha ao registrar. Continuando mesmo assim...")
+
+    # ── Boost de captura + ganho de software ──────────────────────────────
+    # A PS3 Eye fica em cima da TV; com a TV alta o SNR cai. Aumentamos o
+    # ganho do PulseAudio/ALSA e o multiplicador de software para que o
+    # OpenWakeWord consiga detectar "alexa" mesmo com o usuário no sofá.
+    apply_capture_level("150")
+    log.info("🔊 [ÁUDIO] ALSA Capture ajustado para 150%%")
+    log.info(
+        "🔊 [ÁUDIO] Ganho de software: %.1fx | Threshold OWW: %.2f",
+        CFG.software_gain, CFG.oww_threshold,
+    )
 
     threading.Thread(target=websocket_loop, daemon=True).start()
     threading.Thread(target=stream_worker, daemon=True).start()
