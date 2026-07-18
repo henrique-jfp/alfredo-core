@@ -89,9 +89,22 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
                     if tts_chunk:
                         await websocket.send_bytes(tts_chunk)
             else:
+                total_bytes = 0
+                import time
+                t_start_tts = time.time()
                 async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False, vosk_text=vosk_text):
                     if tts_chunk:
+                        total_bytes += len(tts_chunk)
                         await websocket.send_bytes(tts_chunk)
+                
+                # O satélite pode abortar o áudio prematuramente se receber tts_end antes de terminar de tocar.
+                # Como o pipeline é muito rápido (especialmente para respostas diretas), o áudio é baixado
+                # muito antes de terminar de tocar. Calculamos a duração (48kbps = 6000 bytes/s) e esperamos.
+                expected_duration = total_bytes / 6000.0
+                elapsed = time.time() - t_start_tts
+                delay = expected_duration - elapsed + 0.5 # 500ms de margem
+                if delay > 0:
+                    await asyncio.sleep(delay)
                         
             import json
             await websocket.send_text(json.dumps({"type": "tts_end"}))
