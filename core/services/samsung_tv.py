@@ -116,18 +116,26 @@ class SamsungTVManager:
 
         capabilities = []
         try:
-            capabilities = [
-                item.get("id")
-                for item in data.get("components", [])
-                for item in item.get("capabilities", [])
-                if item.get("id")
-            ]
+            for component in data.get("components", []):
+                for cap in component.get("capabilities", []):
+                    cap_id = cap.get("id")
+                    if cap_id:
+                        capabilities.append(cap_id)
         except Exception:
             capabilities = []
 
         supports_switch = "switch" in capabilities
         supports_mute = "audioMute" in capabilities
         supports_volume = "audioVolume" in capabilities
+        has_launchapp = any(
+            "launchapp" in c.lower() or "launch" in c.lower()
+            for c in capabilities
+        )
+
+        # Loga todas as capabilities disponíveis para diagnóstico de abertura de apps
+        logger.info(
+            "SmartThings capabilities disponíveis na TV: %s", capabilities
+        )
 
         return {
             "configured": True,
@@ -143,6 +151,8 @@ class SamsungTVManager:
                 "switch": supports_switch,
                 "audioMute": supports_mute,
                 "audioVolume": supports_volume,
+                "launchapp": has_launchapp,
+                "all": capabilities,
             },
             "message": (
                 "SmartThings OK."
@@ -279,19 +289,44 @@ class SamsungTVManager:
             logger.info(f"App {app_id} aberto via NATIVE_LAUNCH.")
             return True
 
-        # Estratégia 3: voltar para o SmartThings Home (às vezes o app já está aberto)
+        # Estratégia 3: SmartThings launchApp
         if await self._ensure_smartthings():
-            try:
-                url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
-                headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
-                payload = {"commands": [{"component": "main", "capability": "custom.launchapp", "command": "launchApp", "arguments": [app_id]}]}
-                response = await asyncio.to_thread(requests.post, url, headers=headers, json=payload, timeout=5)
-                if response.status_code == 200:
-                    logger.info("App aberto via SmartThings.")
-                    return True
-                logger.warning(f"SmartThings falhou. Code: {response.status_code}")
-            except Exception as e:
-                logger.error(f"Erro no SmartThings: {e}")
+            url = f"https://api.smartthings.com/v1/devices/{self.smartthings_device_id}/commands"
+            headers = {"Authorization": f"Bearer {self.smartthings_pat}"}
+            for capability_name in ("x.com.samsung.da.launchapp", "custom.launchapp"):
+                # 3a: Formato objeto (appId + metaData) — TVs Tizen 6.0+
+                for args in ([{"appId": app_id, "metaData": {}}], [app_id]):
+                    try:
+                        payload = {
+                            "commands": [
+                                {
+                                    "component": "main",
+                                    "capability": capability_name,
+                                    "command": "launchApp",
+                                    "arguments": args,
+                                }
+                            ]
+                        }
+                        response = await asyncio.to_thread(
+                            requests.post, url, headers=headers, json=payload, timeout=5
+                        )
+                        if response.status_code == 200:
+                            logger.info(
+                                "App %s aberto via SmartThings (%s, args=%s).",
+                                app_id, capability_name, args,
+                            )
+                            return True
+                        logger.warning(
+                            "SmartThings %s args=%s falhou. HTTP %s: %s",
+                            capability_name, args,
+                            response.status_code,
+                            response.text[:200],
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "Erro no SmartThings (%s, args=%s): %s",
+                            capability_name, args, e,
+                        )
 
         logger.error(f"Todas as estratégias falharam para abrir app {app_id}.")
         return False
