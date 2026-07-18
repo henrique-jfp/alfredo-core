@@ -377,7 +377,7 @@ async def process_voice_text(
             "db": db,
             "ws_tasks": []
         }
-        response_text = router.process(payload.text, context)
+        response_text = await asyncio.to_thread(router.process, payload.text, context)
         
         for task in context["ws_tasks"]:
             target_ws = active_connections.get(task["device_id"])

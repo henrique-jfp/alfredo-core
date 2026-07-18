@@ -727,9 +727,18 @@ class AgentRouter:
             
             stream = await asyncio.to_thread(do_stream)
             
+            def get_next_chunk():
+                try:
+                    return next(stream)
+                except StopIteration:
+                    return None
+
             buffer = ""
             first_chunk = True
-            for chunk in stream:
+            while True:
+                chunk = await asyncio.to_thread(get_next_chunk)
+                if chunk is None:
+                    break
                 if chunk.choices[0].delta.content:
                     content = chunk.choices[0].delta.content
                     buffer += content
@@ -741,7 +750,6 @@ class AgentRouter:
                     for sentence in sentences:
                         yield sentence
                     buffer = self._get_remainder(buffer)
-                    await asyncio.sleep(0)  # Yield ao event loop
                     
             if buffer.strip():
                 yield buffer.strip()
