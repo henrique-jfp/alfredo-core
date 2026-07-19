@@ -172,6 +172,7 @@ ACTION_SYNONYMS_STOP = {"para", "pare", "pausa", "pausar", "cancela", "cancelar"
 
 WORD_LIGHT = {"luz", "luzes", "lampada", "lampadas"}
 WORD_TV = {"tv", "televisao"}
+WORD_VOLUME = {"volume"}  # usado em "volume no 15", "coloca o volume no 8"
 WORD_MUSIC = {"musica", "som", "spotify"}
 WORD_TIME = {"horas"}  # casa com "que horas são" / "que horas sao"
 
@@ -381,10 +382,13 @@ def _tv_volume_down() -> None:
 
     O delta é armazenado em STATE.tv_volume_delta para que o restore
     seja sempre pelo mesmo número de steps, eliminando drift.
+    A estimativa local (tv_estimated_volume) é atualizada para que o
+    handler offline 'volume no X' saiba o volume atual aproximado.
     """
     s = STATE
     _tv_control("volume-step", {"direction": "down", "steps": str(VOLUME_STEPS), "delay": "0.25"})
     s.tv_volume_delta -= VOLUME_STEPS
+    s.tv_estimated_volume = max(0, s.tv_estimated_volume - VOLUME_STEPS)
 
 
 def _tv_volume_up() -> None:
@@ -398,7 +402,36 @@ def _tv_volume_up() -> None:
     steps = abs(s.tv_volume_delta)
     if steps > 0:
         _tv_control("volume-step", {"direction": "up", "steps": str(steps), "delay": "0.25"})
+        s.tv_estimated_volume += steps
         s.tv_volume_delta = 0
+
+
+def _tv_volume_absolute(target: int) -> None:
+    """Ajusta o volume da TV para um valor absoluto (ex: 15).
+
+    Usado pelo handler offline 'volume no X'. Calcula a diferença
+    entre o volume estimado atual e o alvo, e envia a quantidade
+    necessária de VOLDOWN ou VOLUP — sem bottom-out, sem conflito
+    com o servidor.
+
+    Após a operação, zera o tv_volume_delta (o ducking original
+    foi substituído pelo novo volume).
+    """
+    s = STATE
+    current = s.tv_estimated_volume
+    diff = current - target  # positivo = precisa abaixar, negativo = subir
+    if diff > 0:
+        log.info("📺 Volume absoluto: %d → %d (VOLDOWN × %d)", current, target, diff)
+        _tv_control("volume-step", {"direction": "down", "steps": str(diff), "delay": "0.25"})
+    elif diff < 0:
+        steps = abs(diff)
+        log.info("📺 Volume absoluto: %d → %d (VOLUP × %d)", current, target, steps)
+        _tv_control("volume-step", {"direction": "up", "steps": str(steps), "delay": "0.25"})
+    else:
+        log.info("📺 Volume já está em %d, nenhum ajuste necessário.", target)
+        return
+    s.tv_estimated_volume = target
+    s.tv_volume_delta = 0  # volume absoluto substitui o ducking
 
 
 def _handle_tv(text: str) -> bool:
@@ -421,6 +454,25 @@ def _handle_tv(text: str) -> bool:
         threading.Thread(target=_tv_control, args=("power", {"state": "off"}), daemon=True).start()
         return True
     return False
+
+
+def _handle_volume(text: str) -> bool:
+    """Handler offline para 'volume no 15', 'coloca o volume no 8', etc.
+
+    Extrai o número do texto e ajusta o volume da TV localmente via
+    KEY_VOLDOWN/KEY_VOLUP, sem passar pelo servidor/LLM — resposta
+    quase instantânea e sem conflito com o ducking do OWW.
+    """
+    import re
+    m = re.search(r'volume\s*(?:no|em|para|deixar\s*em)?\s*(\d{1,3})', _normalize(text))
+    if not m:
+        return False
+    target = int(m.group(1))
+    if not (1 <= target <= 100):
+        return False
+    log.info("⚡ [OFFLINE] Volume absoluto detectado: %d", target)
+    threading.Thread(target=_tv_volume_absolute, args=(target,), daemon=True).start()
+    return True
 
 
 def _music_stop() -> None:
@@ -472,6 +524,7 @@ def _handle_time(text: str) -> bool:
 _OFFLINE_INTENT_HANDLERS: list[Callable[[str], bool]] = [
     _handle_light,
     _handle_tv,
+    _handle_volume,   # "volume no 15" — antes do handler de música
     _handle_music,
     _handle_time,
 ]
@@ -708,6 +761,11 @@ class SatelliteState:
         # Usado para restaurar exatamente o mesmo número, eliminando drift
         # entre ciclos mesmo que algumas teclas não sejam registradas pela TV.
         self.tv_volume_delta: int = 0
+
+        # Estimativa local do volume atual da TV — usada pelo handler offline
+        # de "volume no X" para calcular quantos VOLDOWN/VOLUP enviar sem
+        # precisar de bottom-out (que conflita com o servidor).
+        self.tv_estimated_volume: int = 25
 
         # FIX B: cooldown adaptativo entre gravações do VAD — se disparar
         # repetidamente sem wake word, o cooldown cresce exponencialmente.

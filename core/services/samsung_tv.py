@@ -278,14 +278,13 @@ class SamsungTVManager:
         """Ajusta o volume da TV.
 
         Estratégia:
-          1. SmartThings (comando absoluto 'setVolume') — rápido e preciso.
-          2. Fallback local: KEY_VOLDOWN × 100 (bottom-out) + KEY_VOLUP ×
-             target. Como não sabemos o volume atual, bottom-out é a única
-             forma de garantir um valor absoluto via teclas do controle.
+          Apenas SmartThings (comando absoluto 'setVolume').
+          **Não há fallback local** — o satélite já trata "volume no X"
+          offline via _handle_volume, que usa KEY_VOLDOWN/VOLUP sem
+          bottom-out (evita conflito com o ducking do OWW).
 
-        O fallback leva ~8s para volume 20 (120 teclas × 65ms). O SmartThings
-        demora <1s. A diferença é grande, mas o fallback é melhor que
-        simplesmente ignorar o comando do usuário.
+        Se o SmartThings falhar, o servidor retorna False (a LLM pode
+        informar que não foi possível ajustar o volume).
         """
         if await self._ensure_smartthings():
             try:
@@ -298,25 +297,9 @@ class SamsungTVManager:
             except Exception as e:
                 logger.error(f"Erro ao setar volume via SmartThings: {e}")
 
-        # ── Fallback local: bottom-out + target ──
-        logger.warning(f"Volume {volume}: SmartThings falhou, usando fallback local "
-                       f"(KEY_VOLDOWN × 100 + KEY_VOLUP × {volume})")
-        try:
-            saved = self.tv.key_press_delay
-            self.tv.key_press_delay = 0.065  # ~65ms entre teclas (rápido o suficiente)
-            await asyncio.to_thread(
-                self.tv.send_key, "KEY_VOLDOWN", times=100,
-            )
-            await asyncio.to_thread(
-                self.tv.send_key, "KEY_VOLUP", times=volume,
-            )
-            self.tv.key_press_delay = saved
-            logger.info(f"Fallback local: volume setado para ~{volume}.")
-            return True
-        except Exception as e:
-            logger.error(f"Erro no fallback local de volume: {e}")
-            self.tv.key_press_delay = saved
-            return False
+        logger.warning(f"Volume {volume}: SmartThings falhou. "
+                       "O satélite deve tratar este comando offline.")
+        return False
 
     async def send_key(self, key: str, times: int = 1, key_press_delay: float | None = None):
         """Envia um botão do controle remoto, opcionalmente múltiplas vezes.
