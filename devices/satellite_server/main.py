@@ -149,9 +149,10 @@ WAKE_VARIANTS_DEFAULT = ["alfredo", "alfre", "fredo", "al fredo", "alfred", "ale
 # Ajuste de volume da TV ao ouvir wake word
 # --------------------------------------------------------------------------
 # Número de pressões KEY_VOLDOWN/KEY_VOLUP ao iniciar/finalizar gravação.
-# 20 steps levam ~3s (com key_press_delay=0.15 no servidor) e reduzem de
-# um volume típico 30 para ~10. Ajuste conforme necessário.
-VOLUME_STEPS: int = 20
+# 8 steps levam ~1.2s e evitam ir a zero em volumes normais (15–30).
+# Ajuste conforme necessário (quanto maior, mais silêncio, mas vai a zero
+# se o volume inicial for baixo).
+VOLUME_STEPS: int = 8
 
 # Duração mínima (segundos) que o volume deve permanecer abaixado antes
 # de restaurar — evita toggle rápido em falsos positivos consecutivos.

@@ -63,7 +63,7 @@ async def tv_mute(room_id: str, state: bool, db: Session = Depends(get_db)):
     return {"status": "success"}
 
 @router.post("/control/{room_id}/volume-step")
-async def tv_volume_step(room_id: str, direction: str, steps: int = 10, db: Session = Depends(get_db)):
+async def tv_volume_step(room_id: str, direction: str, steps: int = 10, delay: float = 0.12, db: Session = Depends(get_db)):
     """Ajusta o volume da TV enviando múltiplas teclas VOLDOWN/VOLUP.
 
     Usado pelo satélite para abaixar o volume enquanto o usuário fala
@@ -72,12 +72,13 @@ async def tv_volume_step(room_id: str, direction: str, steps: int = 10, db: Sess
     Args:
         direction: 'down' ou 'up'.
         steps: Número de pressões de tecla (default 10).
+        delay: Atraso entre teclas em segundos (default 0.12).
     """
     key = "KEY_VOLDOWN" if direction == "down" else "KEY_VOLUP"
     tv = _get_tv_manager(room_id, db)
-    # key_press_delay=0.15 envia 20 steps em ~3s (vs 20s no default de 1s)
-    await tv.send_key(key, times=steps, key_press_delay=0.15)
-    return {"status": "success", "direction": direction, "steps": steps}
+    # delay=0.12 envia 8 steps em ~1s (vs 8s no default de 1s da lib)
+    await tv.send_key(key, times=steps, key_press_delay=delay)
+    return {"status": "success", "direction": direction, "steps": steps, "delay": delay}
 
 @router.post("/control/{room_id}/power")
 async def tv_power(room_id: str, state: str = "toggle", db: Session = Depends(get_db)):
