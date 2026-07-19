@@ -138,6 +138,9 @@ def discover_media(media_type: str = "movie", genre: str = None, year: str = Non
         if not results:
             return {"message": "Nenhum resultado encontrado para os filtros."}
             
+        import random
+        random.shuffle(results)
+        
         suggestions = []
         for item in results[:limit]:
             title = item.get("title") if media_type == "movie" else item.get("name")

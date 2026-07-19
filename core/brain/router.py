@@ -810,8 +810,7 @@ class AgentRouter:
             skill = self.skills.get(tool_name)
             if skill:
                 if hasattr(skill, "execute_tool"):
-                    if tool_name in ("manage_calendar",):
-                        tool_args["_text"] = text
+                    tool_args["_text"] = text
                     result = skill.execute_tool(tool_args, context)
                 else:
                     result = skill.execute(text, context)
@@ -1247,8 +1246,7 @@ class AgentRouter:
                     skill = self.skills.get(tool_name)
                     if skill:
                         if hasattr(skill, "execute_tool"):
-                            if tool_name in ("manage_calendar",):
-                                tool_args["_text"] = text
+                            tool_args["_text"] = text
                             result = await asyncio.to_thread(skill.execute_tool, tool_args, context)
                         else:
                             result = await asyncio.to_thread(skill.execute, text, context)

@@ -145,11 +145,19 @@ class ListSkill(Skill):
         db = context.get("db")
         room_id = context.get("room_id")
         action = kwargs.get("action")
-        list_type = self._normalize_list_type(kwargs.get("list_type", "tarefas"))
+        
+        _text = kwargs.get("_text", "")
+        if "list_type" in kwargs:
+            list_type = self._normalize_list_type(kwargs["list_type"])
+        elif _text:
+            list_type = self._normalize_list_type(_text)
+        else:
+            list_type = "tarefas"
+            
         items = kwargs.get("items", [])
         
         if not db or not room_id:
-            return {"error": "Sem contexto de banco ou sala"}
+            return {"error": "Sem contexto de banco ou sala", "direct_response": "Tive um problema ao acessar o banco de dados."}
             
         if action == "clear":
             items_db = db.query(models.ListItem).filter(
@@ -188,8 +196,18 @@ class ListSkill(Skill):
             
         elif action == "remove":
             item_name = kwargs.get("item", "").strip()
+            if not item_name and "item_name" in kwargs:
+                item_name = kwargs.get("item_name", "").strip()
+                
+            if not item_name and _text:
+                import re
+                match = re.search(r'(?:remova|remover|apague|apagar|tire|tirar|exclua|excluir)\s+(.*)', _text.lower())
+                if match:
+                    item_name = match.group(1).strip()
+                    item_name = re.sub(r'(na minha lista.*|da minha lista.*|da lista.*|de compras|de tarefas)$', '', item_name).strip()
+                    
             if not item_name:
-                return {"error": "Nenhum item fornecido para remover"}
+                return {"error": "Nenhum item fornecido para remover", "direct_response": "Não entendi o nome do item que você quer remover."}
             item = db.query(models.ListItem).filter(
                 models.ListItem.room_id == room_id,
                 models.ListItem.list_type == list_type,
@@ -203,8 +221,17 @@ class ListSkill(Skill):
                 return {"direct_response": f"Não encontrei {item_name} na sua lista de {list_type}.", "status": "fail"}
 
         elif action == "add":
+            if not items and "item_name" in kwargs:
+                import re
+                items_to_add = re.split(r'\s+e\s+também\s+|\s+e\s+tambem\s+|\s+e\s+|,\s*', kwargs["item_name"])
+                items = [i.strip() for i in items_to_add if i.strip()]
+                
+            if not items and _text:
+                direct = self._add_item(db, room_id, list_type, _text)
+                return {"status": "success", "direct_response": direct}
+                
             if not items:
-                return {"error": "Nenhum item fornecido para adicionar"}
+                return {"error": "Nenhum item fornecido para adicionar", "direct_response": "Não entendi o que você quer adicionar."}
             
             existing_items_db = db.query(models.ListItem).filter(
                 models.ListItem.room_id == room_id,
