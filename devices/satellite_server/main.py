@@ -898,24 +898,38 @@ def _audio_callback_impl(indata, frames, time_info, status) -> None:
         return
 
     # --- OpenWakeWord (gatilho principal, threshold configurável) ---
-    if s.oww_model and not s.is_recording:
+    if s.oww_model:
         if s.is_playing or time.time() < s.playback_cooldown_until:
             s.oww_model.reset()
         else:
             prediction = s.oww_model.predict(cleaned)
             for mdl_name, score in prediction.items():
-                if score >= cfg.oww_threshold and not s.is_recording:
-                    log.info("🔊 OWW score %.2f — iniciando gravação", score)
-                    _stop_current_music()
-                    s.tv_was_muted = True  # FIX A
-                    s.vad_consecutive_triggers = 0  # FIX B
-                    threading.Thread(
-                        target=_server_request,
-                        args=("POST", f"/api/tv/control/{cfg.room_id}/mute"),
-                        kwargs={"params": {"state": "true"}, "timeout": 5},
-                        daemon=True,
-                    ).start()
-                    _start_recording()
+                if score >= cfg.oww_threshold:
+                    if s.is_recording:
+                        # Já está gravando (falso positivo da TV alta). Ainda
+                        # assim força o mute — o usuário falou "alexa" de
+                        # verdade e precisa abaixar a TV para ser ouvido.
+                        if not s.tv_was_muted:
+                            s.tv_was_muted = True
+                            log.info("🔊 OWW score %.2f — re-trigger, mutando TV", score)
+                            threading.Thread(
+                                target=_server_request,
+                                args=("POST", f"/api/tv/control/{cfg.room_id}/mute"),
+                                kwargs={"params": {"state": "true"}, "timeout": 5},
+                                daemon=True,
+                            ).start()
+                    else:
+                        log.info("🔊 OWW score %.2f — iniciando gravação", score)
+                        _stop_current_music()
+                        s.tv_was_muted = True  # FIX A
+                        s.vad_consecutive_triggers = 0  # FIX B
+                        threading.Thread(
+                            target=_server_request,
+                            args=("POST", f"/api/tv/control/{cfg.room_id}/mute"),
+                            kwargs={"params": {"state": "true"}, "timeout": 5},
+                            daemon=True,
+                        ).start()
+                        _start_recording()
                     break
 
     # --- VAD-only: fala sustentada dispara gravação (se habilitado) ---
