@@ -149,14 +149,15 @@ WAKE_VARIANTS_DEFAULT = ["alfredo", "alfre", "fredo", "al fredo", "alfred", "ale
 # Ajuste de volume da TV ao ouvir wake word
 # --------------------------------------------------------------------------
 # Número de pressões KEY_VOLDOWN/KEY_VOLUP ao iniciar/finalizar gravação.
-# 8 steps levam ~1.2s e evitam ir a zero em volumes normais (15–30).
-# Ajuste conforme necessário (quanto maior, mais silêncio, mas vai a zero
-# se o volume inicial for baixo).
-VOLUME_STEPS: int = 8
+# 6 steps (com delay=0.25s entre teclas = ~1.5s total) são suficientes
+# para reduzir de um volume 20→14 ou 30→24 — evita ir a zero e reduz o
+# risco de drift (teclas perdidas).
+VOLUME_STEPS: int = 6
 
 # Duração mínima (segundos) que o volume deve permanecer abaixado antes
 # de restaurar — evita toggle rápido em falsos positivos consecutivos.
-VOLUME_MIN_DURATION: float = 5.0
+# 2s é suficiente para o VAD captar a primeira sílaba do comando.
+VOLUME_MIN_DURATION: float = 2.0
 
 # --------------------------------------------------------------------------
 # Comandos offline — matching por ação + alvo (com sinônimos), não mais
@@ -377,13 +378,27 @@ def _tv_volume_down() -> None:
 
     O usuário pode continuar ouvindo a TV em volume baixo enquanto fala,
     e o sistema consegue captar a voz sem ruído excessivo.
+
+    O delta é armazenado em STATE.tv_volume_delta para que o restore
+    seja sempre pelo mesmo número de steps, eliminando drift.
     """
-    _tv_control("volume-step", {"direction": "down", "steps": str(VOLUME_STEPS)})
+    s = STATE
+    _tv_control("volume-step", {"direction": "down", "steps": str(VOLUME_STEPS), "delay": "0.25"})
+    s.tv_volume_delta -= VOLUME_STEPS
 
 
 def _tv_volume_up() -> None:
-    """Restaura o volume da TV (KEY_VOLUP × VOLUME_STEPS)."""
-    _tv_control("volume-step", {"direction": "up", "steps": str(VOLUME_STEPS)})
+    """Restaura o volume da TV restaurando EXATAMENTE o que foi abaixado.
+
+    Usa STATE.tv_volume_delta para saber quantos steps VOLUP enviar,
+    garantindo que o volume volte ao nível original mesmo que algumas
+    teclas não tenham sido registradas na descida.
+    """
+    s = STATE
+    steps = abs(s.tv_volume_delta)
+    if steps > 0:
+        _tv_control("volume-step", {"direction": "up", "steps": str(steps), "delay": "0.25"})
+        s.tv_volume_delta = 0
 
 
 def _handle_tv(text: str) -> bool:
@@ -689,6 +704,11 @@ class SatelliteState:
         # uma duração mínima antes de restaurar (VOLUME_MIN_DURATION).
         self.tv_volume_lowered_at: float = 0.0
 
+        # Rastreia quantos steps de volume o satélite aplicou (negativo = abaixou).
+        # Usado para restaurar exatamente o mesmo número, eliminando drift
+        # entre ciclos mesmo que algumas teclas não sejam registradas pela TV.
+        self.tv_volume_delta: int = 0
+
         # FIX B: cooldown adaptativo entre gravações do VAD — se disparar
         # repetidamente sem wake word, o cooldown cresce exponencialmente.
         self.vad_consecutive_triggers = 0
@@ -990,6 +1010,7 @@ def _audio_callback_impl(indata, frames, time_info, status) -> None:
                     s.vad_consecutive_triggers += 1
                     s.vad_last_trigger_time = now
                     s.tv_was_muted = False  # FIX A: VAD não muta a TV, só grava
+                    s.tv_volume_delta = 0  # VAD não mexe no volume, zera delta
                     log.info("🔊 [VAD] Fala detectada! Gravando...")
                     _stop_current_music()
                     _start_recording()
