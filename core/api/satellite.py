@@ -6,6 +6,11 @@ from core.brain.memory.database import get_db
 
 router = APIRouter(prefix="/api/ws", tags=["WebSockets"])
 
+# Timeout para receive() — evita que conexões half-open fiquem presas para
+# sempre. Se o satélite não enviar nada em 60s (ou a conexão TCP morrer
+# silenciosamente), o servidor detecta e limpa o device_id.
+WS_RECEIVE_TIMEOUT = 60
+
 class ConnectionManager:
     def __init__(self):
         # { "device_id": WebSocket }
@@ -14,12 +19,32 @@ class ConnectionManager:
         self.dashboard_clients: List[WebSocket] = []
 
     async def connect_satellite(self, websocket: WebSocket, device_id: str):
+        # Fecha conexão antiga se o mesmo device_id já estiver conectado
+        old_ws = self.active_satellites.get(device_id)
+        if old_ws is not None:
+            satellite_logger.warning(
+                "[RECONEXÃO] Satélite %s já estava conectado — fechando conexão anterior",
+                device_id,
+            )
+            try:
+                await old_ws.close(code=1000, reason="replaced")
+            except Exception:
+                pass
+
         await websocket.accept()
         self.active_satellites[device_id] = websocket
+        satellite_logger.info(
+            "[CONEXÃO] Satélite %s conectado (total: %d)",
+            device_id, len(self.active_satellites),
+        )
 
     def disconnect_satellite(self, device_id: str):
         if device_id in self.active_satellites:
             del self.active_satellites[device_id]
+            satellite_logger.info(
+                "[DESCONEXÃO] Satélite %s removido (total: %d)",
+                device_id, len(self.active_satellites),
+            )
 
     async def connect_dashboard(self, websocket: WebSocket):
         await websocket.accept()
@@ -38,14 +63,25 @@ class ConnectionManager:
 
     async def send_command_to_satellite(self, device_id: str, command: str, payload: dict = None):
         if device_id in self.active_satellites:
+            ws = self.active_satellites[device_id]
             try:
                 import json
                 msg = {"type": command}
                 if payload:
                     msg.update(payload)
-                await self.active_satellites[device_id].send_text(json.dumps(msg))
+                await ws.send_text(json.dumps(msg))
                 return True
-            except:
+            except Exception:
+                # Conexão morreu — limpa para evitar falsos "online"
+                satellite_logger.warning(
+                    "[STALE] Satélite %s não respondeu — removendo",
+                    device_id,
+                )
+                self.disconnect_satellite(device_id)
+                try:
+                    await ws.close(code=1001, reason="stale")
+                except Exception:
+                    pass
                 return False
         return False
 
@@ -116,7 +152,12 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
     try:
         vosk_text_cache = ""
         while True:
-            message = await websocket.receive()
+            # Timeout no receive() para não travar para sempre em conexões
+            # half-open (ex: satélite perdeu internet e não enviou close frame).
+            message = await asyncio.wait_for(
+                websocket.receive(),
+                timeout=WS_RECEIVE_TIMEOUT,
+            )
             
             if message.get("type") == "websocket.disconnect":
                 raise WebSocketDisconnect(message.get("code", 1000))
@@ -144,6 +185,13 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
                     vosk_text_cache = ""  # Limpa o cache para o próximo comando
                 
     except WebSocketDisconnect:
+        manager.disconnect_satellite(device_id)
+    except asyncio.TimeoutError:
+        # Timeout de 60s sem dados — conexão provavelmente half-open
+        satellite_logger.warning(
+            "[TIMEOUT] Satélite %s não enviou dados em %ds — forçando desconexão",
+            device_id, WS_RECEIVE_TIMEOUT,
+        )
         manager.disconnect_satellite(device_id)
     except Exception as e:
         satellite_logger.error(f"Erro no websocket do satélite: {e}")

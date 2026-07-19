@@ -31,6 +31,7 @@ import math
 import queue
 import re
 import signal
+import socket
 import subprocess
 import threading
 import time
@@ -45,6 +46,16 @@ import requests
 import sounddevice as sd
 import webrtcvad
 from websockets.sync.client import connect
+
+# Constantes de resiliência de rede
+WS_CONNECT_TIMEOUT = 10        # timeout máximo para estabelecer conexão TCP
+WS_RECV_TIMEOUT = 30           # timeout máximo sem receber mensagem (evita half-open)
+WS_RECONNECT_DELAY = 5         # segundos entre tentativas de reconexão
+WS_FALLBACK_HOSTS = [
+    "pvserver:10001",           # hostname DNS local (padrão)
+    "localhost:10001",          # mesma máquina
+    "127.0.0.1:10001",          # fallback IP local
+]
 
 from dotenv import load_dotenv
 
@@ -223,18 +234,56 @@ def _offline_beep() -> None:
         log.debug("Falha ao tocar beep offline: %s", e)
 
 
+SERVER_FALLBACK_URLS = [
+    CFG.server_url,
+    "http://pvserver:10001",
+    "http://localhost:10001",
+    "http://127.0.0.1:10001",
+]
+
+HA_FALLBACK_URLS = [
+    "http://pvserver:8123",
+    "http://localhost:8123",
+    "http://127.0.0.1:8123",
+    "http://homeassistant.local:8123",
+    "http://192.168.0.1:8123",
+]
+
+
+def _server_request(method: str, path: str, **kwargs) -> requests.Response | None:
+    """Faz requisição HTTP ao servidor com fallback automático entre URLs."""
+    last_exc = None
+    for base_url in SERVER_FALLBACK_URLS:
+        url = f"{base_url}{path}"
+        try:
+            resp = requests.request(method, url, **kwargs)
+            resp.raise_for_status()
+            return resp
+        except requests.RequestException as e:
+            last_exc = e
+            continue
+    log.warning("Servidor inacessível via todas as URLs: %s", last_exc)
+    return None
+
+
 def _ha_call(domain: str, service: str, entity_ids: list[str]) -> None:
     """Chama um serviço do Home Assistant direto (bypassa o servidor/LLM
     inteiro — é isso que dá a latência quase-zero dos comandos offline)."""
     token = get_ha_token()
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    url = f"http://pvserver:8123/api/services/{domain}/{service}"
     for eid in entity_ids:
-        try:
-            requests.post(url, headers=headers, json={"entity_id": eid}, timeout=2)
-            log.info("⚡ [OFFLINE] %s.%s enviado para %s", domain, service, eid)
-        except requests.RequestException as e:
-            log.warning("Erro offline HA (%s): %s", eid, e)
+        sent = False
+        for base_url in HA_FALLBACK_URLS:
+            url = f"{base_url}/api/services/{domain}/{service}"
+            try:
+                requests.post(url, headers=headers, json={"entity_id": eid}, timeout=2)
+                log.info("⚡ [OFFLINE] %s.%s → %s enviado para %s", domain, service, eid, base_url)
+                sent = True
+                break
+            except requests.RequestException:
+                continue
+        if not sent:
+            log.warning("Erro offline HA (%s): nenhum host respondeu", eid)
 
 
 def _handle_light(text: str) -> bool:
@@ -298,10 +347,15 @@ def _offline_server_call(action: str, room_id: str) -> None:
 
 
 def _tv_control(endpoint: str, params: dict) -> None:
-    try:
-        requests.post(f"{CFG.server_url}/api/tv/control/{CFG.room_id}/{endpoint}", params=params, timeout=3)
-    except requests.RequestException as e:
-        log.warning("Erro no controle offline de TV (%s): %s", endpoint, e)
+    result = _server_request(
+        "POST",
+        f"/api/tv/control/{CFG.room_id}/{endpoint}",
+        params=params, timeout=3,
+    )
+    if result is None:
+        log.warning("[OFFLINE] TV %s falhou — servidor inacessível", endpoint)
+    else:
+        log.info("⚡ [OFFLINE] TV %s → OK", endpoint)
 
 
 def _handle_tv(text: str) -> bool:
@@ -328,10 +382,7 @@ def _handle_tv(text: str) -> bool:
 
 def _music_stop() -> None:
     _stop_current_music()
-    try:
-        requests.post(f"{CFG.server_url}/api/spotify/control", json={"action": "pause"}, timeout=3)
-    except requests.RequestException as e:
-        log.debug("Spotify pause offline falhou (pode não estar tocando lá): %s", e)
+    _server_request("POST", "/api/spotify/control", json={"action": "pause"}, timeout=3)
 
 
 def _handle_music(text: str) -> bool:
@@ -859,9 +910,9 @@ def _audio_callback_impl(indata, frames, time_info, status) -> None:
                     s.tv_was_muted = True  # FIX A
                     s.vad_consecutive_triggers = 0  # FIX B
                     threading.Thread(
-                        target=lambda: requests.post(
-                            f"{cfg.server_url}/api/tv/control/{cfg.room_id}/mute?state=true", timeout=5
-                        ),
+                        target=_server_request,
+                        args=("POST", f"/api/tv/control/{cfg.room_id}/mute"),
+                        kwargs={"params": {"state": "true"}, "timeout": 5},
                         daemon=True,
                     ).start()
                     _start_recording()
@@ -1101,10 +1152,11 @@ def _finish_recording(cancel: bool = False) -> None:
 def _check_session_mode() -> None:
     s = STATE
     try:
-        status_resp = requests.get(
-            f"{CFG.server_url}/api/session-status", params={"room_id": CFG.room_id}, timeout=2
+        status_resp = _server_request(
+            "GET", "/api/session-status",
+            params={"room_id": CFG.room_id}, timeout=2,
         )
-        if status_resp.status_code == 200 and status_resp.json().get("active") and not s.is_recording:
+        if status_resp and status_resp.status_code == 200 and status_resp.json().get("active") and not s.is_recording:
             s.set_session_mode(True)
             log.info("🎯 Sessão ativa — modo mãos-livres ativado!")
             _start_recording()
@@ -1163,28 +1215,34 @@ def _post_playback_cleanup() -> None:
     # FIX A: só desmuta a TV se o satélite realmente a mutou antes — evita
     # unmute espúrio quando a gravação veio do VAD-only (que nunca muta).
     if s.tv_was_muted:
-        try:
-            requests.post(f"{CFG.server_url}/api/tv/control/{CFG.room_id}/mute?state=false", timeout=5)
-            s.tv_was_muted = False
-        except Exception:
-            pass
+        result = _server_request(
+            "POST", f"/api/tv/control/{CFG.room_id}/mute",
+            params={"state": "false"}, timeout=5,
+        )
+        s.tv_was_muted = result is not None
     time.sleep(CFG.playback_tail_cooldown)
     _check_session_mode()
 
 
 def _send_and_play(audio_data: bytes, vosk_text: str = "") -> None:
     s = STATE
-    if not s.ws_instance:
-        log.error("WebSocket não conectado, falha ao enviar áudio.")
+    ws = s.ws_instance
+    if not ws:
+        log.error("[RESILIENTE] WebSocket não conectado — áudio será descartado. "
+                   "Se a internet/acesso ao servidor cair, o sistema tentará "
+                   "reconectar automaticamente a cada %ds com fallback de hosts.",
+                   WS_RECONNECT_DELAY)
         return
     try:
         if vosk_text:
             log.info("Enviando texto pré-transcrito: '%s'", vosk_text)
-            s.ws_instance.send(json.dumps({"vosk_text": vosk_text}))
+            ws.send(json.dumps({"vosk_text": vosk_text}))
         log.info("Enviando %s bytes via WebSocket...", len(audio_data))
-        s.ws_instance.send(audio_data)
+        ws.send(audio_data)
     except Exception as e:
         log.error("Erro ao enviar áudio pelo WebSocket: %s", e)
+        # Marca ws_instance como None para forçar reconexão
+        s.ws_instance = None
 
 
 def stream_worker() -> None:
@@ -1306,21 +1364,67 @@ def _on_set_software_preamp(data: dict) -> None:
     STATE.software_multiplier = val
 
 
+def _build_ws_urls() -> list[str]:
+    """Gera lista de URLs de WebSocket em ordem de preferência (fallback)."""
+    base_path = f"/api/ws/satellite/{CFG.device_id}"
+    original_host = CFG.server_url.replace("http://", "").replace("https://", "").split("/")[0].split(":")[0]
+    original_port = "10001"
+
+    if ":" in CFG.server_url.replace("http://", "").replace("https://", "").split("/")[0]:
+        parts = CFG.server_url.replace("http://", "").replace("https://", "").split("/")[0].split(":")
+        original_host = parts[0]
+        original_port = parts[1] if len(parts) > 1 else "10001"
+
+    seen = set()
+    urls = []
+    for host in [original_host, *WS_FALLBACK_HOSTS]:
+        resolved_host = host.split(":")[0]
+        resolved_port = host.split(":")[1] if ":" in host else original_port
+        url = f"ws://{resolved_host}:{resolved_port}{base_path}"
+        if url not in seen:
+            seen.add(url)
+            urls.append((resolved_host, url))
+    return urls
+
+
 def websocket_loop() -> None:
     s = STATE
-    ws_url = (
-        f"ws://{CFG.server_url.replace('http://', '').replace('https://', '')}"
-        f"/api/ws/satellite/{CFG.device_id}"
-    )
+    fallback_urls = _build_ws_urls()
+    fallback_index = 0
+
+    # Resolve DNS dos hosts periodicamente (a cada 60s) para pegar mudanças
+    # após a internet/quedas de rede voltarem.
+    last_dns_refresh = 0.0
+    DNS_REFRESH_INTERVAL = 60.0
 
     while True:
+        _host, ws_url = fallback_urls[fallback_index]
         try:
-            log.info("Tentando conectar ao WebSocket em %s...", ws_url)
-            with connect(ws_url) as websocket:
+            # Re-resolve DNS periodicamente para pegar mudanças de IP
+            now = time.time()
+            if now - last_dns_refresh > DNS_REFRESH_INTERVAL:
+                last_dns_refresh = now
+                try:
+                    resolved = socket.getaddrinfo(_host, 10001, socket.AF_INET, socket.SOCK_STREAM)
+                    log.debug("[DNS] %s resolvido para %s", _host, resolved[0][4][0])
+                except socket.gaierror:
+                    log.warning("[DNS] Não foi possível resolver %s — tentando fallback", _host)
+
+            log.info("🔄 Tentando conectar ao WebSocket em %s...", ws_url)
+            with connect(ws_url, open_timeout=WS_CONNECT_TIMEOUT) as websocket:
                 s.ws_instance = websocket
+                fallback_index = 0  # Reset para o primary na próxima reconexão
                 log.info("✅ WebSocket conectado com sucesso!")
                 while True:
-                    message = websocket.recv()
+                    try:
+                        message = websocket.recv(timeout=WS_RECV_TIMEOUT)
+                    except TimeoutError:
+                        # Nenhuma mensagem em 30s — envia ping implícito e continua
+                        # O próprio timeout já serve como health check: se a conexão
+                        # estiver morta, o recv() levantará outra exceção na próxima
+                        # tentativa, saindo do loop interno.
+                        log.debug("[WS] Timeout sem mensagens — conexão ainda ativa")
+                        continue
 
                     if isinstance(message, bytes):
                         if not s.player_process:
@@ -1336,10 +1440,23 @@ def websocket_loop() -> None:
                         handler(data)
                     else:
                         log.debug("Mensagem WS sem handler: %s", data.get("type"))
-        except Exception as e:
-            log.warning("[WebSocket] Desconectado: %s. Tentando reconectar em 5 segundos...", e)
+        except (OSError, ConnectionError, TimeoutError) as e:
+            log.warning(
+                "[WebSocket] Falha ao conectar/manter (%s): %s. "
+                "Tentando fallback em %ds...",
+                ws_url, e, WS_RECONNECT_DELAY,
+            )
             s.ws_instance = None
-            time.sleep(5)
+            # Próxima tentativa: fallback para outro host
+            fallback_index = (fallback_index + 1) % len(fallback_urls)
+            time.sleep(WS_RECONNECT_DELAY)
+        except Exception as e:
+            log.warning(
+                "[WebSocket] Erro inesperado: %s. Reconectando em %ds...",
+                e, WS_RECONNECT_DELAY,
+            )
+            s.ws_instance = None
+            time.sleep(WS_RECONNECT_DELAY)
 
 
 # --------------------------------------------------------------------------

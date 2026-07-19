@@ -15,6 +15,7 @@ import array
 import json
 import queue
 import signal
+import socket
 import threading
 import logging
 import subprocess
@@ -37,6 +38,11 @@ WAVE_RESPONSE = "response.mp3"
 SERVER_URL = "http://192.168.0.56:10001"
 DEVICE_ID = "desktop-satellite-escritorio"
 ROOM_ID = "ROOM_OFFICE"
+
+# Constantes de resiliência de rede
+WS_CONNECT_TIMEOUT = 10        # timeout máximo para estabelecer conexão TCP
+WS_RECV_TIMEOUT = 30           # timeout sem receber dados (evita half-open)
+WS_RECONNECT_DELAY = 5         # segundos entre tentativas de reconexão
 
 wake_word = "alfredo"
 wake_variants = [
@@ -609,12 +615,17 @@ def websocket_loop():
 
     while True:
         try:
-            print(f"Tentando conectar ao WebSocket em {ws_url}...")
-            with connect(ws_url) as websocket:
+            print(f"🔄 Tentando conectar ao WebSocket em {ws_url}...")
+            with connect(ws_url, open_timeout=WS_CONNECT_TIMEOUT) as websocket:
                 ws_instance = websocket
                 print("✅ WebSocket conectado com sucesso!")
                 while True:
-                    message = websocket.recv()
+                    try:
+                        message = websocket.recv(timeout=WS_RECV_TIMEOUT)
+                    except TimeoutError:
+                        print("[WS] Timeout sem mensagens — conexão ainda ativa")
+                        continue
+
                     data = json.loads(message)
 
                     if data.get("type") == "timer_expired":
@@ -672,10 +683,14 @@ def websocket_loop():
                         print(f"⚡ Ajustando Multiplicador de Software para {val}x")
                         global SOFTWARE_MULTIPLIER
                         SOFTWARE_MULTIPLIER = val
-        except Exception as e:
-            print(f"\n[WebSocket] Desconectado: {e}. Tentando reconectar em 5 segundos...")
+        except (OSError, ConnectionError, TimeoutError) as e:
+            print(f"\n[WebSocket] Falha na conexão ({ws_url}): {e}. Tentando reconectar em {WS_RECONNECT_DELAY}s...")
             ws_instance = None
-            time.sleep(5)
+            time.sleep(WS_RECONNECT_DELAY)
+        except Exception as e:
+            print(f"\n[WebSocket] Erro inesperado: {e}. Reconectando em {WS_RECONNECT_DELAY}s...")
+            ws_instance = None
+            time.sleep(WS_RECONNECT_DELAY)
 
 
 def main():
