@@ -150,12 +150,17 @@ WAKE_VARIANTS_DEFAULT = ["alfredo", "alfre", "fredo", "al fredo", "alfred", "ale
 # --------------------------------------------------------------------------
 # O ducking é feito via KEY_MUTE (instantâneo). O volume em si não é
 # alterado — apenas o estado mute da TV é togglado. O handler offline
-# _handle_volume ('volume no X') usa KEY_VOLDOWN/KEY_VOLUP diretamente
+# _handle_volume ('volume no X') usa VOLDOWN/KEY_VOLUP diretamente
 # e NÃO conflita com o mute.
 
 # Duração mínima (segundos) antes de desmutar — evita toggle rápido
 # em falsos positivos consecutivos.
 VOLUME_MIN_DURATION: float = 1.5
+
+# Cool-down mínimo entre mutos consecutivos (segundos) — evita
+# falsos positivos de wakeword que poderiam gerar múltiplos mutos
+# acidentalmente. Só permite um novo mute se passou este tempo.
+MIN_MUTE_COOLDOWN: float = 5.0
 
 # --------------------------------------------------------------------------
 # Comandos offline — matching por ação + alvo (com sinônimos), não mais
@@ -995,29 +1000,34 @@ def _audio_callback_impl(indata, frames, time_info, status) -> None:
             prediction = s.oww_model.predict(cleaned)
             for mdl_name, score in prediction.items():
                 if score >= cfg.oww_threshold:
-                    if s.is_recording:
-                        # Já está gravando (falso positivo da TV alta). Ainda
-                        # assim abaixa o volume de novo — o usuário falou
-                        # "alexa" de verdade e precisa de silêncio.
-                        if not s.tv_was_muted:
-                            s.tv_was_muted = True
+                    current_time = time.time()
+                    # Só permite detecção se passou o cooldown mínimo desde a última
+                    last_wake_time = getattr(s, 'last_wake_time', 0)
+                    if (current_time - last_wake_time) > MIN_MUTE_COOLDOWN:
+                        s.last_wake_time = current_time
+                        if s.is_recording:
+                            # Já está gravando (falso positivo da TV alta). Ainda
+                            # assim abaixa o volume de novo — o usuário falou
+                            # "alexa" de verdade e precisa de silêncio.
+                            if not s.tv_was_muted:
+                                s.tv_was_muted = True
+                                s.tv_volume_lowered_at = time.time()
+                                log.info("🔊 OWW score %.2f — re-trigger, abaixando volume TV", score)
+                                threading.Thread(
+                                    target=_tv_volume_down,
+                                    daemon=True,
+                                ).start()
+                        else:
+                            log.info("🔊 OWW score %.2f — iniciando gravação", score)
+                            _stop_current_music()
+                            s.tv_was_muted = True  # FIX A
                             s.tv_volume_lowered_at = time.time()
-                            log.info("🔊 OWW score %.2f — re-trigger, abaixando volume TV", score)
+                            s.vad_consecutive_triggers = 0  # FIX B
                             threading.Thread(
                                 target=_tv_volume_down,
                                 daemon=True,
                             ).start()
-                    else:
-                        log.info("🔊 OWW score %.2f — iniciando gravação", score)
-                        _stop_current_music()
-                        s.tv_was_muted = True  # FIX A
-                        s.tv_volume_lowered_at = time.time()
-                        s.vad_consecutive_triggers = 0  # FIX B
-                        threading.Thread(
-                            target=_tv_volume_down,
-                            daemon=True,
-                        ).start()
-                        _start_recording()
+                            _start_recording()
                     break
 
     # --- VAD-only: fala sustentada dispara gravação (se habilitado) ---
