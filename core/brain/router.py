@@ -1509,15 +1509,26 @@ class AgentRouter:
                 logger.info("Enviando resultado(s) da tool ao Gemini (stream)...")
                 # Mandar todas as partes de uma vez
                 tool_response_stream = await chat.send_message_async(tool_responses_list, stream=True)
+                second_turn_yielded = False
 
                 async for chunk in tool_response_stream:
                     chunk_text = ""
                     try:
                         chunk_text = chunk.text
-                    except Exception:
-                        pass
+                    except ValueError:
+                        # Gemini returns ValueError for chunk.text if it's a function call or blocked by safety
+                        if chunk.candidates and chunk.candidates[0].finish_reason:
+                            reason = chunk.candidates[0].finish_reason
+                            logger.warning(f"Resposta bloqueada ou interrompida no 2º turno. Motivo: {reason}")
+                        elif chunk.parts and getattr(chunk.parts[0], "function_call", None):
+                            logger.warning(f"Gemini tentou chamar outra tool no 2º turno: {chunk.parts[0].function_call.name}")
+                        else:
+                            logger.warning(f"Falha ao extrair texto do chunk no 2º turno: {chunk}")
+                    except Exception as e:
+                        logger.error(f"Erro inesperado ao ler chunk no 2º turno: {e}")
                         
                     if chunk_text:
+                        second_turn_yielded = True
                         buffer += chunk_text
                         # Streaming real também na segunda chamada
                         for sentence in self._extract_sentences(buffer):
@@ -1527,6 +1538,12 @@ class AgentRouter:
         # Yield qualquer sobra restante no buffer
         if buffer.strip():
             yield buffer.strip()
+            if 'second_turn_yielded' in locals():
+                second_turn_yielded = True
+        
+        if 'second_turn_yielded' in locals() and not second_turn_yielded:
+            logger.warning("O 2º turno do Gemini não gerou nenhum texto. Usando resposta de fallback.")
+            yield "A ferramenta concluiu, mas tive um problema para formular a resposta final."
         
         total_time = time.time() - t_start
         logger.info(f"Pipeline LLM concluído em {total_time:.2f}s")
