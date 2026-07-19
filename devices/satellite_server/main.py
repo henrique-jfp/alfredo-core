@@ -257,13 +257,13 @@ def _server_request(method: str, path: str, **kwargs) -> requests.Response | Non
         try:
             resp = requests.request(method, url, **kwargs)
             resp.raise_for_status()
-            log.debug("[SERVER] %s %s -> %s via %s", method, path, resp.status_code, base_url)
+            log.info("📡 [SERVER] %s %s -> %s via %s", method, path, resp.status_code, base_url)
             return resp
         except requests.RequestException as e:
             last_exc = e
-            log.debug("[SERVER] %s %s falhou em %s: %s", method, path, base_url, e)
+            log.info("📡 [SERVER] %s %s falhou em %s: %s", method, path, base_url, e)
             continue
-    log.warning("[SERVER] %s %s inacessível: %s", method, path, last_exc)
+    log.warning("📡 [SERVER] %s %s inacessível: %s", method, path, last_exc)
     return None
 
 
