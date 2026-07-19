@@ -154,10 +154,17 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
         while True:
             # Timeout no receive() para não travar para sempre em conexões
             # half-open (ex: satélite perdeu internet e não enviou close frame).
-            message = await asyncio.wait_for(
-                websocket.receive(),
-                timeout=WS_RECEIVE_TIMEOUT,
-            )
+            # Se a conexão estiver realmente morta, o próprio socket levantará
+            # uma exceção real (não TimeoutError) no próximo receive().
+            # Durante silêncio normal (ninguém falando), o timeout apenas faz
+            # o loop continuar ouvindo — sem desconectar o satélite.
+            try:
+                message = await asyncio.wait_for(
+                    websocket.receive(),
+                    timeout=WS_RECEIVE_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                continue
             
             if message.get("type") == "websocket.disconnect":
                 raise WebSocketDisconnect(message.get("code", 1000))
@@ -185,13 +192,6 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
                     vosk_text_cache = ""  # Limpa o cache para o próximo comando
                 
     except WebSocketDisconnect:
-        manager.disconnect_satellite(device_id)
-    except asyncio.TimeoutError:
-        # Timeout de 60s sem dados — conexão provavelmente half-open
-        satellite_logger.warning(
-            "[TIMEOUT] Satélite %s não enviou dados em %ds — forçando desconexão",
-            device_id, WS_RECEIVE_TIMEOUT,
-        )
         manager.disconnect_satellite(device_id)
     except Exception as e:
         satellite_logger.error(f"Erro no websocket do satélite: {e}")
