@@ -235,10 +235,9 @@ def _offline_beep() -> None:
 
 
 SERVER_FALLBACK_URLS = [
-    CFG.server_url,
-    "http://pvserver:10001",
-    "http://localhost:10001",
     "http://127.0.0.1:10001",
+    "http://localhost:10001",
+    CFG.server_url,
 ]
 
 HA_FALLBACK_URLS = [
@@ -258,11 +257,13 @@ def _server_request(method: str, path: str, **kwargs) -> requests.Response | Non
         try:
             resp = requests.request(method, url, **kwargs)
             resp.raise_for_status()
+            log.debug("[SERVER] %s %s -> %s via %s", method, path, resp.status_code, base_url)
             return resp
         except requests.RequestException as e:
             last_exc = e
+            log.debug("[SERVER] %s %s falhou em %s: %s", method, path, base_url, e)
             continue
-    log.warning("Servidor inacessível via todas as URLs: %s", last_exc)
+    log.warning("[SERVER] %s %s inacessível: %s", method, path, last_exc)
     return None
 
 
