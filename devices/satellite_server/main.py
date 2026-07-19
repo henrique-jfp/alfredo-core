@@ -146,18 +146,16 @@ WAKE_WORD_DEFAULT = "alexa"
 WAKE_VARIANTS_DEFAULT = ["alfredo", "alfre", "fredo", "al fredo", "alfred", "alexa", "é alexa"]
 
 # --------------------------------------------------------------------------
-# Ajuste de volume da TV ao ouvir wake word
+# Ducking da TV ao ouvir wake word
 # --------------------------------------------------------------------------
-# Número de pressões KEY_VOLDOWN/KEY_VOLUP ao iniciar/finalizar gravação.
-# 6 steps (com delay=0.25s entre teclas = ~1.5s total) são suficientes
-# para reduzir de um volume 20→14 ou 30→24 — evita ir a zero e reduz o
-# risco de drift (teclas perdidas).
-VOLUME_STEPS: int = 6
+# O ducking é feito via KEY_MUTE (instantâneo). O volume em si não é
+# alterado — apenas o estado mute da TV é togglado. O handler offline
+# _handle_volume ('volume no X') usa KEY_VOLDOWN/KEY_VOLUP diretamente
+# e NÃO conflita com o mute.
 
-# Duração mínima (segundos) que o volume deve permanecer abaixado antes
-# de restaurar — evita toggle rápido em falsos positivos consecutivos.
-# 2s é suficiente para o VAD captar a primeira sílaba do comando.
-VOLUME_MIN_DURATION: float = 2.0
+# Duração mínima (segundos) antes de desmutar — evita toggle rápido
+# em falsos positivos consecutivos.
+VOLUME_MIN_DURATION: float = 1.5
 
 # --------------------------------------------------------------------------
 # Comandos offline — matching por ação + alvo (com sinônimos), não mais
@@ -366,7 +364,7 @@ def _tv_control(endpoint: str, params: dict) -> None:
     result = _server_request(
         "POST",
         f"/api/tv/control/{CFG.room_id}/{endpoint}",
-        params=params, timeout=3,
+        params=params, timeout=8,
     )
     if result is None:
         log.warning("[OFFLINE] TV %s falhou — servidor inacessível", endpoint)
@@ -375,35 +373,23 @@ def _tv_control(endpoint: str, params: dict) -> None:
 
 
 def _tv_volume_down() -> None:
-    """Abaixa o volume da TV (KEY_VOLDOWN × VOLUME_STEPS) em vez de mutar.
+    """Muta a TV instantaneamente (KEY_MUTE) ao detectar wake word.
 
-    O usuário pode continuar ouvindo a TV em volume baixo enquanto fala,
-    e o sistema consegue captar a voz sem ruído excessivo.
-
-    O delta é armazenado em STATE.tv_volume_delta para que o restore
-    seja sempre pelo mesmo número de steps, eliminando drift.
-    A estimativa local (tv_estimated_volume) é atualizada para que o
-    handler offline 'volume no X' saiba o volume atual aproximado.
+    O volume em si NÃO é alterado — apenas o estado mute toggle.
+    O handler _handle_volume ('volume no X') ainda funciona via
+    VOLDOWN/VOLUP, mas não conflita com este mute instantâneo.
     """
     s = STATE
-    _tv_control("volume-step", {"direction": "down", "steps": str(VOLUME_STEPS), "delay": "0.25"})
-    s.tv_volume_delta -= VOLUME_STEPS
-    s.tv_estimated_volume = max(0, s.tv_estimated_volume - VOLUME_STEPS)
+    _tv_control("mute", {"state": "true"})
+    s.tv_was_muted = True
+    # O volume estimado NÃO muda — só o mute toggla.
 
 
 def _tv_volume_up() -> None:
-    """Restaura o volume da TV restaurando EXATAMENTE o que foi abaixado.
-
-    Usa STATE.tv_volume_delta para saber quantos steps VOLUP enviar,
-    garantindo que o volume volte ao nível original mesmo que algumas
-    teclas não tenham sido registradas na descida.
-    """
+    """Desmuta a TV (KEY_MUTE) após o processamento do comando."""
     s = STATE
-    steps = abs(s.tv_volume_delta)
-    if steps > 0:
-        _tv_control("volume-step", {"direction": "up", "steps": str(steps), "delay": "0.25"})
-        s.tv_estimated_volume += steps
-        s.tv_volume_delta = 0
+    _tv_control("mute", {"state": "false"})
+    s.tv_was_muted = False
 
 
 def _tv_volume_absolute(target: int) -> None:
@@ -414,8 +400,8 @@ def _tv_volume_absolute(target: int) -> None:
     necessária de VOLDOWN ou VOLUP — sem bottom-out, sem conflito
     com o servidor.
 
-    Após a operação, zera o tv_volume_delta (o ducking original
-    foi substituído pelo novo volume).
+    NÃO mexe no estado de mute (tv_was_muted) — o mute/desmute
+    é independente e controlado pelo ducking via KEY_MUTE.
     """
     s = STATE
     current = s.tv_estimated_volume
@@ -431,7 +417,6 @@ def _tv_volume_absolute(target: int) -> None:
         log.info("📺 Volume já está em %d, nenhum ajuste necessário.", target)
         return
     s.tv_estimated_volume = target
-    s.tv_volume_delta = 0  # volume absoluto substitui o ducking
 
 
 def _handle_tv(text: str) -> bool:
@@ -757,11 +742,6 @@ class SatelliteState:
         # uma duração mínima antes de restaurar (VOLUME_MIN_DURATION).
         self.tv_volume_lowered_at: float = 0.0
 
-        # Rastreia quantos steps de volume o satélite aplicou (negativo = abaixou).
-        # Usado para restaurar exatamente o mesmo número, eliminando drift
-        # entre ciclos mesmo que algumas teclas não sejam registradas pela TV.
-        self.tv_volume_delta: int = 0
-
         # Estimativa local do volume atual da TV — usada pelo handler offline
         # de "volume no X" para calcular quantos VOLDOWN/VOLUP enviar sem
         # precisar de bottom-out (que conflita com o servidor).
@@ -1068,7 +1048,6 @@ def _audio_callback_impl(indata, frames, time_info, status) -> None:
                     s.vad_consecutive_triggers += 1
                     s.vad_last_trigger_time = now
                     s.tv_was_muted = False  # FIX A: VAD não muta a TV, só grava
-                    s.tv_volume_delta = 0  # VAD não mexe no volume, zera delta
                     log.info("🔊 [VAD] Fala detectada! Gravando...")
                     _stop_current_music()
                     _start_recording()

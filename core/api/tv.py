@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List
@@ -66,8 +67,11 @@ async def tv_mute(room_id: str, state: bool, db: Session = Depends(get_db)):
 async def tv_volume_step(room_id: str, direction: str, steps: int = 10, delay: float = 0.12, db: Session = Depends(get_db)):
     """Ajusta o volume da TV enviando múltiplas teclas VOLDOWN/VOLUP.
 
-    Usado pelo satélite para abaixar o volume enquanto o usuário fala
-    (em vez de mutar completamente) e restaurar após o processamento.
+    ⚡ Execução em BACKGROUND: retorna imediatamente para não bloquear
+    outros comandos de TV (power, mute). As teclas continuam sendo
+    enviadas em segundo plano via asyncio.create_task.
+
+    Usado pelo satélite (handler _handle_volume / 'volume no X').
 
     Args:
         direction: 'down' ou 'up'.
@@ -76,9 +80,9 @@ async def tv_volume_step(room_id: str, direction: str, steps: int = 10, delay: f
     """
     key = "KEY_VOLDOWN" if direction == "down" else "KEY_VOLUP"
     tv = _get_tv_manager(room_id, db)
-    # delay=0.12 envia 8 steps em ~1s (vs 8s no default de 1s da lib)
-    await tv.send_key(key, times=steps, key_press_delay=delay)
-    return {"status": "success", "direction": direction, "steps": steps, "delay": delay}
+    # Background task — não espera, não bloqueia outros endpoints
+    asyncio.create_task(tv.send_key(key, times=steps, key_press_delay=delay))
+    return {"status": "accepted", "direction": direction, "steps": steps, "delay": delay}
 
 @router.post("/control/{room_id}/power")
 async def tv_power(room_id: str, state: str = "toggle", db: Session = Depends(get_db)):
