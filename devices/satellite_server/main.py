@@ -1139,7 +1139,13 @@ def _start_recording() -> None:
     s.full_audio_buffer = bytearray(s.dashcam_buffer)
     s.dashcam_buffer.clear()
 
-    s.has_spoken = not s.session_mode
+    # BUG CORRIGIDO: antes era `not s.session_mode`, o que marcava
+    # has_spoken=True fora do modo mãos-livres. Isso fazia o VAD
+    # cortar a gravação em 400ms de silêncio — o usuário falava
+    # "alexa" e o sistema nunca esperava o comando de verdade.
+    # Agora sempre começamos com False: o VAD dá 4s para o usuário
+    # começar a falar, e só depois aplica os thresholds adaptativos.
+    s.has_spoken = False
     s.silence_frames = 0
     stop_alarm()
 
