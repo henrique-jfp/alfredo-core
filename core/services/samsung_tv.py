@@ -287,10 +287,17 @@ class SamsungTVManager:
                 logger.error(f"Erro ao setar volume via SmartThings: {e}")
         return False
 
-    async def send_key(self, key: str):
-        """Envia um botão do controle remoto."""
-        logger.info(f"Enviando tecla {key} para a TV {self.ip}")
-        return await self._run_local_command(self.tv.send_key, key)
+    async def send_key(self, key: str, times: int = 1, key_press_delay: float | None = None):
+        """Envia um botão do controle remoto, opcionalmente múltiplas vezes.
+
+        Args:
+            key: Código da tecla (ex: KEY_VOLDOWN, KEY_MUTE).
+            times: Número de repetições da tecla.
+            key_press_delay: Atraso entre cada pressão (None = usa o default
+                             da biblioteca samsungtvws, que é 1s).
+        """
+        logger.info(f"Enviando tecla {key} para a TV {self.ip} (vezes={times})")
+        return await self._run_local_command(self.tv.send_key, key, times=times, key_press_delay=key_press_delay)
         
     async def _st_command(self, capability: str, command: str, arguments: list) -> bool:
         """Envia um comando SmartThings e retorna True se HTTP 200."""

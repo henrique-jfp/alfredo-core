@@ -146,6 +146,18 @@ WAKE_WORD_DEFAULT = "alexa"
 WAKE_VARIANTS_DEFAULT = ["alfredo", "alfre", "fredo", "al fredo", "alfred", "alexa", "é alexa"]
 
 # --------------------------------------------------------------------------
+# Ajuste de volume da TV ao ouvir wake word
+# --------------------------------------------------------------------------
+# Número de pressões KEY_VOLDOWN/KEY_VOLUP ao iniciar/finalizar gravação.
+# 20 steps levam ~3s (com key_press_delay=0.15 no servidor) e reduzem de
+# um volume típico 30 para ~10. Ajuste conforme necessário.
+VOLUME_STEPS: int = 20
+
+# Duração mínima (segundos) que o volume deve permanecer abaixado antes
+# de restaurar — evita toggle rápido em falsos positivos consecutivos.
+VOLUME_MIN_DURATION: float = 5.0
+
+# --------------------------------------------------------------------------
 # Comandos offline — matching por ação + alvo (com sinônimos), não mais
 # frase exata. Cobre muito mais variações de fala ("liga a luz da sala",
 # "pode acender a luz da sala", "ativa luz sala"...) com bem menos regras.
@@ -357,6 +369,20 @@ def _tv_control(endpoint: str, params: dict) -> None:
         log.warning("[OFFLINE] TV %s falhou — servidor inacessível", endpoint)
     else:
         log.info("⚡ [OFFLINE] TV %s → OK", endpoint)
+
+
+def _tv_volume_down() -> None:
+    """Abaixa o volume da TV (KEY_VOLDOWN × VOLUME_STEPS) em vez de mutar.
+
+    O usuário pode continuar ouvindo a TV em volume baixo enquanto fala,
+    e o sistema consegue captar a voz sem ruído excessivo.
+    """
+    _tv_control("volume-step", {"direction": "down", "steps": str(VOLUME_STEPS)})
+
+
+def _tv_volume_up() -> None:
+    """Restaura o volume da TV (KEY_VOLUP × VOLUME_STEPS)."""
+    _tv_control("volume-step", {"direction": "up", "steps": str(VOLUME_STEPS)})
 
 
 def _handle_tv(text: str) -> bool:
@@ -654,9 +680,13 @@ class SatelliteState:
         self.accumulated_vosk_text = ""
         self.live_recording_bytes = 0
 
-        # FIX A: rastreia se o satélite MUTOU a TV para só desmutar quando
-        # necessário (evita unmute espúrio em gravações do VAD-only mode).
+        # FIX A: rastreia se o satélite MUTOU/ABAIXOU a TV para só restaurar
+        # quando necessário (evita unmute espúrio em gravações VAD-only).
         self.tv_was_muted = False
+
+        # Timestamp de quando o volume foi abaixado — usado para garantir
+        # uma duração mínima antes de restaurar (VOLUME_MIN_DURATION).
+        self.tv_volume_lowered_at: float = 0.0
 
         # FIX B: cooldown adaptativo entre gravações do VAD — se disparar
         # repetidamente sem wake word, o cooldown cresce exponencialmente.
@@ -908,26 +938,24 @@ def _audio_callback_impl(indata, frames, time_info, status) -> None:
                 if score >= cfg.oww_threshold:
                     if s.is_recording:
                         # Já está gravando (falso positivo da TV alta). Ainda
-                        # assim força o mute — o usuário falou "alexa" de
-                        # verdade e precisa abaixar a TV para ser ouvido.
+                        # assim abaixa o volume de novo — o usuário falou
+                        # "alexa" de verdade e precisa de silêncio.
                         if not s.tv_was_muted:
                             s.tv_was_muted = True
-                            log.info("🔊 OWW score %.2f — re-trigger, mutando TV", score)
+                            s.tv_volume_lowered_at = time.time()
+                            log.info("🔊 OWW score %.2f — re-trigger, abaixando volume TV", score)
                             threading.Thread(
-                                target=_server_request,
-                                args=("POST", f"/api/tv/control/{cfg.room_id}/mute"),
-                                kwargs={"params": {"state": "true"}, "timeout": 5},
+                                target=_tv_volume_down,
                                 daemon=True,
                             ).start()
                     else:
                         log.info("🔊 OWW score %.2f — iniciando gravação", score)
                         _stop_current_music()
                         s.tv_was_muted = True  # FIX A
+                        s.tv_volume_lowered_at = time.time()
                         s.vad_consecutive_triggers = 0  # FIX B
                         threading.Thread(
-                            target=_server_request,
-                            args=("POST", f"/api/tv/control/{cfg.room_id}/mute"),
-                            kwargs={"params": {"state": "true"}, "timeout": 5},
+                            target=_tv_volume_down,
                             daemon=True,
                         ).start()
                         _start_recording()
@@ -1227,14 +1255,18 @@ def _stop_playback() -> None:
 
 def _post_playback_cleanup() -> None:
     s = STATE
-    # FIX A: só desmuta a TV se o satélite realmente a mutou antes — evita
-    # unmute espúrio quando a gravação veio do VAD-only (que nunca muta).
+    # Só restaura o volume se o satélite realmente o abaixou antes (FIX A).
+    # Além disso, respeita VOLUME_MIN_DURATION — se o tempo mínimo não
+    # tiver passado, espera mais um pouco para evitar toggle rápido.
     if s.tv_was_muted:
-        result = _server_request(
-            "POST", f"/api/tv/control/{CFG.room_id}/mute",
-            params={"state": "false"}, timeout=5,
-        )
-        s.tv_was_muted = result is not None
+        elapsed = time.time() - s.tv_volume_lowered_at
+        if elapsed < VOLUME_MIN_DURATION:
+            remaining = VOLUME_MIN_DURATION - elapsed
+            log.info("⏳ Aguardando %.1fs para restaurar volume (min %.0fs)",
+                      remaining, VOLUME_MIN_DURATION)
+            time.sleep(remaining)
+        _tv_volume_up()
+        s.tv_was_muted = False
     time.sleep(CFG.playback_tail_cooldown)
     _check_session_mode()
 
