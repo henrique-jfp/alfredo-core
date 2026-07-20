@@ -49,6 +49,80 @@ GENRE_ID_MAP: Dict[str, str] = {
     "reality": "10764",           # gênero de TV (Reality); não existe para filme
 }
 
+# ----------------------------------------------------------------------
+# 2b️⃣ MAPA DE TEMAS → KEYWORDS TMDB
+# ----------------------------------------------------------------------
+# A TMDB permite filtrar o /discover por keywords (with_keywords), que são
+# muito mais precisas que gêneros para temas de vida e emoções.
+#
+# Enquanto o gênero "Family" (10751) devolve qualquer filme "para toda a
+# família", a keyword "motherhood" (2606) devolve APENAS filmes onde a
+# maternidade é um tema central. Isso resolve o problema de pedidos como
+# "filme sobre maternidade" retornarem O Justiceiro ou animações genéricas.
+#
+# Como descobrir keyword IDs: https://www.themoviedb.org/talk/5a1030b192514162ca0015bb
+# Ou use: GET https://api.themoviedb.org/3/search/keyword?query=maternidade
+THEME_KEYWORD_MAP: Dict[str, List[int]] = {
+    # ── maternidade / família ──────────────────────────────────
+    "maternidade": [2606],                   # motherhood
+    "mãe": [10861],                          # mother
+    "mae": [10861],
+    "mãe solteira": [202733, 2606],          # single parent + motherhood
+    "mae solteira": [202733, 2606],
+    "gravidez": [2661],                      # pregnancy
+    "gestante": [2661],
+    "paternidade": [10862],                  # father (father son relationship)
+    "pai solteiro": [202733, 10862],         # single parent + father
+    "filha": [2150],                         # mother daughter relationship
+    "filho": [2207],                         # mother son relationship
+    "família": [156293, 2150, 2207],         # family relationships + parent-child
+    "familia": [156293, 2150, 2207],
+    "maternal": [2606],
+    "criança": [156293, 10861],              # family + mother
+    "crianca": [156293, 10861],
+    "amizade": [962],                        # friendship
+    "amigos": [962],
+
+    # ── romance / relacionamentos ──────────────────────────────
+    "casamento": [1503],                     # wedding
+    "divórcio": [2010],                      # divorce
+    "divorcio": [2010],
+    "traição": [9926],                       # infidelity
+    "traicao": [9926],
+    "lgbtqia": [2343],                       # lgbt
+    "lgbt": [2343],
+
+    # ── emoções / drama ────────────────────────────────────────
+    "chorar": [10582, 1880],                 # crying + emotional
+    "para chorar": [10582, 1880],
+    "pra chorar": [10582, 1880],
+    "luto": [155496],                        # grief
+    "perda": [155496],                       # loss
+    "perda de um ente querido": [155496],
+    "doença": [1880],                        # illness / emotional
+    "doenca": [1880],
+    "câncer": [6326],                        # cancer
+    "cancer": [6326],
+
+    # ── superação / inspiração ─────────────────────────────────
+    "superação": [155537],                   # overcoming / underdog
+    "superacao": [155537],
+    "inspiração": [155537],
+    "inspiracao": [155537],
+    "motivacional": [155537],
+}
+
+# Fallback: quando o gênero resolvido (ex: "family", "drama") não tem
+# keyword correspondente no mapa acima, tenta estes mapeamentos genéricos.
+# Isso garante que mesmo que Gemini passe "family" em vez de "maternidade",
+# ainda tentamos passar keywords relevantes.
+GENRE_TO_KEYWORD: Dict[str, List[int]] = {
+    "family": [156293, 2606, 10861],   # family relationships + motherhood + mother
+    "drama": [1880, 155496],            # emotional + grief
+    "inspiration": [155537],
+    "romance": [1503, 2343],            # wedding + lgbt
+}
+
 def _get_headers() -> Dict[str, str]:
     return {
         "accept": "application/json"
@@ -112,8 +186,17 @@ def get_watch_providers(media_id: int, media_type: str = "movie") -> str:
         logger.error(f"Erro ao buscar providers no TMDB: {e}")
     return ""
 
-def discover_media(media_type: str = "movie", genre: str = None, year: str = None, limit: int = 3) -> Dict[str, Any]:
-    """Busca filmes ou séries baseados nos filtros usando a TMDB API."""
+def discover_media(media_type: str = "movie", genre: str = None, year: str = None, limit: int = 3, keyword_ids: List[int] = None) -> Dict[str, Any]:
+    """Busca filmes ou séries baseados nos filtros usando a TMDB API.
+
+    Args:
+        media_type: "movie" ou "tv"
+        genre: Nome do gênero (ex: "action", "comedy")
+        year: Ano ou década (ex: "1994" ou "1990")
+        limit: Quantos resultados retornar (padrão: 3)
+        keyword_ids: Lista de IDs de keywords TMDB para filtrar com precisão
+                     temática (ex: [2606] para "motherhood")
+    """
     if not TMDB_API_KEY:
         return {"error": "Chave da API do TMDB (TMDB_API_KEY) não configurada no servidor."}
         
@@ -139,6 +222,10 @@ def discover_media(media_type: str = "movie", genre: str = None, year: str = Non
         else:
             params["first_air_date.gte"] = f"{year}-01-01"
             params["first_air_date.lte"] = f"{int(year)+9}-12-31" if str(year).endswith("0") else f"{year}-12-31"
+
+    if keyword_ids:
+        # TMDB aceita múltiplos keywords separados por vírgula (OR)
+        params["with_keywords"] = ",".join(str(k) for k in keyword_ids)
 
     url = f"{BASE_URL}/discover/{media_type}"
     

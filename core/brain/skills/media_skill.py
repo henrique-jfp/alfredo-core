@@ -426,23 +426,47 @@ class MediaSkill(Skill):
             - genre: nome do gênero (pode ser amigável ou ID)
             - decade_or_year: ano ou década opcional
         """
-        from core.services.media_service import discover_media
+        from core.services.media_service import (
+            discover_media,
+            THEME_KEYWORD_MAP,
+            GENRE_TO_KEYWORD,
+        )
 
         media_type = kwargs.get("media_type", "movie")
-        genre = kwargs.get("genre")
+        raw_genre = kwargs.get("genre")      # salva o original antes de resolver
         year = kwargs.get("decade_or_year")
 
         # ── Tradução de temas → nomes de gênero TMDB ──────────────
         # Se o Gemini passou um tema como "faroeste", "luta", etc.,
         # resolve_intent() faz a conversão para "western", "war", etc.
+        genre = raw_genre
         if genre:
             _resolved = resolve_intent(genre)
             resolved_genre = _resolved[1]  # (media_type, genre, year)
             if resolved_genre != "any":
                 genre = resolved_genre
 
+        # ── Resolve keywords TMDB (mais precisas que gêneros) ──────
+        # Tenta encontrar keyword IDs tanto pelo termo original do Gemini
+        # quanto pelo gênero resolvido, para capturar temas como
+        # "maternidade", "amizade", "superação" que não são gêneros TMDB.
+        keyword_ids: list[int] = []
+        if raw_genre:
+            kw = THEME_KEYWORD_MAP.get(raw_genre.lower())
+            if kw:
+                keyword_ids.extend(kw)
+        if genre and genre != raw_genre:
+            kw = GENRE_TO_KEYWORD.get(genre)
+            if kw:
+                keyword_ids.extend(kw)
+
         try:
-            data = discover_media(media_type=media_type, genre=genre, year=year)
+            data = discover_media(
+                media_type=media_type,
+                genre=genre,
+                year=year,
+                keyword_ids=keyword_ids or None,
+            )
             if "results" in data and data["results"]:
                 lines = []
                 for r in data["results"]:
