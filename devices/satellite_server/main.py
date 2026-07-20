@@ -311,10 +311,10 @@ def _handle_light(text: str) -> bool:
         return False
     if _has_any(text, ACTION_SYNONYMS_ON):
         service = "turn_on"
-        log.info("[DIAG] _handle_light: ação LIGAR detectada em '%s'", text)
+        log.debug("[DIAG] _handle_light: ação LIGAR detectada em '%s'", text)
     elif _has_any(text, ACTION_SYNONYMS_OFF):
         service = "turn_off"
-        log.info("[DIAG] _handle_light: ação DESLIGAR detectada em '%s'", text)
+        log.debug("[DIAG] _handle_light: ação DESLIGAR detectada em '%s'", text)
     else:
         log.debug("[DIAG] _handle_light: texto '%s' não tem ação on/off", text)
         return False
@@ -524,7 +524,7 @@ def _check_offline_command(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
         return False
-    log.info("[DIAG] _check_offline_command testando: '%s'", normalized)
+    log.debug("[DIAG] _check_offline_command testando: '%s'", normalized)
     for handler in _OFFLINE_INTENT_HANDLERS:
         if handler(normalized):
             log.info("⚡ [OFFLINE] Handler %s executou para: '%s'", handler.__name__, normalized)
@@ -592,6 +592,8 @@ def open_input_stream(
                 dtype=CFG.dtype,
                 blocksize=CFG.blocksize,
                 callback=callback,
+                latency=0.2,  # 200ms de buffer — absorve picos de
+                              # processamento (scipy + OWW) sem overflow
             )
         except Exception as exc:
             log.warning("⚠️ [ÁUDIO] Falha ao abrir stream em %s Hz: %s", rate, exc)
