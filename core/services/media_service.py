@@ -8,9 +8,19 @@ logger = logging.getLogger("alfredo.media_service")
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 BASE_URL = "https://api.themoviedb.org/3"
 
-# Mapa estático de temas → IDs TMDB (fallback para temas que não existem
-# como gênero oficial na TMDB, ex: "inspiration", "family").
-# Usado pelo get_genre_id() antes de consultar a API.
+# ----------------------------------------------------------------------
+# 2️⃣ MAPA DE GÊNEROS → IDs TMDB
+# ----------------------------------------------------------------------
+# Mapa estático de temas → IDs TMDB. Para os gêneros oficiais da TMDB,
+# o ID é exato. Para temas que NÃO existem como gênero oficial (ex:
+# "inspiration", "biography", "sport", "teen"), usamos o gênero oficial
+# mais próximo como aproximação (comentado em cada linha) — é melhor
+# devolver algo tematicamente próximo do que não devolver nada.
+#
+# ⚠️ Correção: no mapa anterior, "inspiration" e "romance" apontavam
+# para o mesmo ID (10749, que é o ID real de Romance). Isso fazia com
+# que pedidos de "filme de superação" devolvessem filmes de romance por
+# engano. Agora "inspiration" usa Drama (18), a aproximação correta.
 GENRE_ID_MAP: Dict[str, str] = {
     "action": "28",
     "adventure": "12",
@@ -21,9 +31,11 @@ GENRE_ID_MAP: Dict[str, str] = {
     "drama": "18",
     "family": "10751",
     "fantasy": "14",
+    "history": "36",
     "horror": "27",
-    "inspiration": "10749",       # TV Movie – mais próximo de inspiracional
+    "inspiration": "18",          # sem gênero oficial → aproximado por Drama
     "music": "10402",
+    "mystery": "9648",
     "romance": "10749",
     "science fiction": "878",
     "fiction": "878",
@@ -31,8 +43,11 @@ GENRE_ID_MAP: Dict[str, str] = {
     "thriller": "53",
     "war": "10752",
     "western": "37",
+    "biography": "18",            # sem gênero oficial → aproximado por Drama
+    "sport": "18",                # sem gênero oficial → aproximado por Drama
+    "teen": "18",                 # sem gênero oficial → aproximado por Drama
+    "reality": "10764",           # gênero de TV (Reality); não existe para filme
 }
-
 
 def _get_headers() -> Dict[str, str]:
     return {
