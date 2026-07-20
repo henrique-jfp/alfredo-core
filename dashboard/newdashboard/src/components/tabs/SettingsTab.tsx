@@ -27,10 +27,17 @@ export function SettingsTab() {
 
   useEffect(() => {
     api.getSettings().then((data) => {
-      setSettings(data);
+      setSettings(data || {});
+    }).catch((err) => {
+      console.error('Erro ao carregar configurações:', err);
+      setSettings({});
     });
     api.getLocations().then((data) => {
-      setLocations(data);
+      setLocations(Array.isArray(data) ? data : []);
+      setLocationsLoading(false);
+    }).catch((err) => {
+      console.error('Erro ao carregar locais:', err);
+      setLocations([]);
       setLocationsLoading(false);
     });
   }, []);
