@@ -769,11 +769,14 @@ class SatelliteState:
         self.is_streaming = False
         self.stream_queue: queue.Queue = queue.Queue(maxsize=20)
         self.ws_instance = None
+        self._playing_since: float = 0.0
 
     # -- playback state helpers ------------------------------------------------
     def set_playing(self, value: bool) -> None:
         with self._playback_lock:
             self.is_playing = value
+            if value:
+                self._playing_since = time.time()
 
     def set_session_mode(self, value: bool) -> None:
         with self._session_lock:
@@ -995,7 +998,17 @@ def _audio_callback_impl(indata, frames, time_info, status) -> None:
     # --- OpenWakeWord (gatilho principal, threshold configurável) ---
     if s.oww_model:
         if s.is_playing or time.time() < s.playback_cooldown_until:
-            s.oww_model.reset()
+            # Safety net: se is_playing está True sem player_process há mais de
+            # 30s (ex: após queda de rede que não limpou a flag), força reset.
+            # Isso impede o deadlock que "mata" a wake word pós-reconexão.
+            if s.is_playing and not s.player_process and time.time() > getattr(s, '_playing_since', 0) + 30:
+                log.warning("⚠️ [SAFETY] is_playing preso por >30s sem player — resetando")
+                s.set_playing(False)
+                s.playback_cooldown_until = 0.0
+                if s.oww_model:
+                    s.oww_model.reset()
+            else:
+                s.oww_model.reset()
         else:
             prediction = s.oww_model.predict(cleaned)
             for mdl_name, score in prediction.items():
@@ -1486,6 +1499,45 @@ def _on_set_software_preamp(data: dict) -> None:
     STATE.software_multiplier = val
 
 
+def _reset_audio_state() -> None:
+    """Reseta flags de áudio/gravação que podem ficar presas após desconexão.
+
+    Chamado sempre que o WebSocket perde a conexão. Previne o deadlock:
+    is_playing=True → OWW resetado → wake word nunca detectado → Alexa "morta".
+    """
+    s = STATE
+
+    # Mata player ffplay se estiver preso
+    if s.player_process:
+        try:
+            s.player_process.stdin.close()
+            s.player_process.kill()
+            s.player_process.wait(timeout=2)
+        except Exception:
+            pass
+        s.player_process = None
+
+    # Limpa flags e cooldowns — permite wake word voltar a funcionar
+    s.set_playing(False)
+    s.playback_cooldown_until = 0.0
+
+    # Se estava gravando (deadlock raro), cancela
+    if s.is_recording:
+        s.is_recording = False
+        s.recording_buffer.clear()
+        s.full_audio_buffer.clear()
+        s.vosk_rec = None
+
+    # Reseta OWW model para evitar estado corrompido
+    if s.oww_model:
+        try:
+            s.oww_model.reset()
+        except Exception:
+            pass
+
+    log.info("🔄 Estado de áudio resetado após desconexão")
+
+
 def _build_ws_urls() -> list[str]:
     """Gera lista de URLs de WebSocket em ordem de preferência (fallback)."""
     base_path = f"/api/ws/satellite/{CFG.device_id}"
@@ -1563,11 +1615,15 @@ def websocket_loop() -> None:
                     else:
                         log.debug("Mensagem WS sem handler: %s", data.get("type"))
         except (OSError, ConnectionError, TimeoutError) as e:
+            # ── Limpeza de estado ao perder conexão ──────────────────────────
+            # Impede deadlock: is_playing/is_recording presos em True após queda
+            # de rede, o que desabilita a detecção de wake word para sempre.
             log.warning(
                 "[WebSocket] Falha ao conectar/manter (%s): %s. "
                 "Tentando fallback em %ds...",
                 ws_url, e, WS_RECONNECT_DELAY,
             )
+            _reset_audio_state()
             s.ws_instance = None
             # Próxima tentativa: fallback para outro host
             fallback_index = (fallback_index + 1) % len(fallback_urls)
@@ -1577,6 +1633,7 @@ def websocket_loop() -> None:
                 "[WebSocket] Erro inesperado: %s. Reconectando em %ds...",
                 e, WS_RECONNECT_DELAY,
             )
+            _reset_audio_state()
             s.ws_instance = None
             time.sleep(WS_RECONNECT_DELAY)
 
