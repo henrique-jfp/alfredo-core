@@ -11,13 +11,14 @@ class StateMachine:
             State.BOOTING: [State.CONNECTING, State.ERROR],
             State.CONNECTING: [State.CONNECTED, State.ERROR, State.RECONNECTING],
             State.CONNECTED: [State.LISTENING, State.ERROR, State.RECONNECTING],
-            State.LISTENING: [State.WAKE_DETECTED, State.ERROR, State.RECONNECTING],
+            State.LISTENING: [State.WAKE_DETECTED, State.ERROR, State.RECONNECTING, State.STREAMING_ONLY],
             State.WAKE_DETECTED: [State.STREAMING_AUDIO, State.LISTENING, State.ERROR, State.RECONNECTING],
             State.STREAMING_AUDIO: [State.WAITING_RESPONSE, State.LISTENING, State.ERROR, State.RECONNECTING],
             State.WAITING_RESPONSE: [State.PLAYING_TTS, State.LISTENING, State.ERROR, State.RECONNECTING],
             State.PLAYING_TTS: [State.LISTENING, State.ERROR, State.RECONNECTING],
             State.ERROR: [State.RECONNECTING, State.BOOTING],
-            State.RECONNECTING: [State.CONNECTING, State.ERROR]
+            State.RECONNECTING: [State.CONNECTING, State.ERROR],
+            State.STREAMING_ONLY: [State.LISTENING, State.ERROR, State.RECONNECTING]
         }
         
     def transition(self, new_state: State) -> bool:
