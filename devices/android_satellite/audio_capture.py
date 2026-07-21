@@ -33,14 +33,21 @@ class AudioCapture:
         self.stream = None
         self._stop_event = threading.Event()
         self.thread = None
+        self._buffer = bytearray()
+        # WebRTC VAD needs exactly 30ms (480 frames * 2 bytes = 960 bytes)
+        self._target_bytes = config.CHUNK * 2
 
     def _internal_callback(self, indata, frames, time_info, status):
         if status:
             audio_logger.warning(f"Audio status: {status}")
         
         # indata é numpy array. Convert para bytes
-        audio_bytes = bytes(indata)
-        self.audio_callback(audio_bytes)
+        self._buffer.extend(bytes(indata))
+        
+        while len(self._buffer) >= self._target_bytes:
+            chunk_to_send = bytes(self._buffer[:self._target_bytes])
+            self._buffer = self._buffer[self._target_bytes:]
+            self.audio_callback(chunk_to_send)
 
     def start(self):
         if not sd:

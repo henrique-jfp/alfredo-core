@@ -9,7 +9,7 @@ class Config:
     RATE = 16000
     CHANNELS = 1
     DTYPE = 'int16'
-    CHUNK = 960  # 30ms at 16kHz
+    CHUNK = 480  # 480 frames * 2 bytes = 960 bytes (30ms at 16kHz)
     
     # VAD config
     SILENCE_TIMEOUT_MS = 900
