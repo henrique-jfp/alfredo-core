@@ -3,15 +3,19 @@ import sys
 
 # HACK PARA O TERMUX: O Android esconde as bibliotecas do sistema,
 # então enganamos o Python para apontar direto para o arquivo do Termux.
-# Fazemos isso aqui também para garantir que está no nível mais alto caso algo inicialize o ctypes cedo.
+# Fazemos isso apenas se estivermos realmente no Termux nativo, e não em um proot (Ubuntu).
 import ctypes.util
+import os
+
 original_find_library = ctypes.util.find_library
 
 def patch_find_library(name):
     if name == 'portaudio':
-        termux_path = '/data/data/com.termux/files/usr/lib/libportaudio.so'
-        if os.path.exists(termux_path):
-            return termux_path
+        # Verifica se estamos rodando no Termux nativo (e não no proot Ubuntu)
+        if "PREFIX" in os.environ and "/com.termux/" in os.environ["PREFIX"]:
+            termux_path = '/data/data/com.termux/files/usr/lib/libportaudio.so'
+            if os.path.exists(termux_path):
+                return termux_path
     return original_find_library(name)
 
 ctypes.util.find_library = patch_find_library
