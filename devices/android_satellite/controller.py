@@ -40,6 +40,12 @@ class Controller:
         self.max_silence_frames = int((config.SILENCE_TIMEOUT_MS / 1000.0) / (config.CHUNK / config.RATE))
         self.is_speaking = False
 
+        # Watchdogs de timeout para evitar estados presos
+        self._response_start_time = 0.0   # timestamp de quando entrou em WAITING_RESPONSE
+        self._playback_start_time = 0.0   # timestamp de quando entrou em PLAYING_TTS
+        self.RESPONSE_TIMEOUT = 15.0      # max 15s esperando resposta do servidor
+        self.PLAYBACK_TIMEOUT = 30.0      # max 30s de reprodução (ffplay pode travar)
+
     def register_device(self):
         import urllib.request
         import json
@@ -116,6 +122,7 @@ class Controller:
             if self.sm.get_state() == State.WAITING_RESPONSE or self.sm.get_state() == State.PLAYING_TTS:
                 if self.sm.get_state() != State.PLAYING_TTS:
                     self.sm.transition(State.PLAYING_TTS)
+                    self._playback_start_time = time.time()
                 self.audio_player.play_chunk(message)
             return
 
@@ -179,12 +186,36 @@ class Controller:
                 audio_logger.info("Fim da fala detectado.")
                 self.stream_ctrl.flush()
                 self.sm.transition(State.WAITING_RESPONSE)
+                self._response_start_time = time.time()
         
+        # ESTADO: WAITING_RESPONSE (Aguardando resposta do servidor)
+        elif state == State.WAITING_RESPONSE:
+            # Watchdog: se o servidor não responder em RESPONSE_TIMEOUT segundos,
+            # volta para LISTENING para não travar o satélite para sempre.
+            if time.time() - self._response_start_time > self.RESPONSE_TIMEOUT:
+                audio_logger.warning(
+                    "Timeout de resposta (%ds) — voltando para LISTENING",
+                    self.RESPONSE_TIMEOUT,
+                )
+                self.sm.transition(State.LISTENING)
+                self.ignore_wake_until = time.time() + 1.0
+
         # ESTADO: PLAYING_TTS (Terminou de tocar?)
         elif state == State.PLAYING_TTS:
+            # Watchdog: se o ffplay travar (Android pode travar o pipe de áudio),
+            # força transição após PLAYBACK_TIMEOUT segundos.
+            playback_elapsed = time.time() - self._playback_start_time
+            if playback_elapsed > self.PLAYBACK_TIMEOUT:
+                audio_logger.warning(
+                    "Timeout de reprodução (%ds) — forçando transição para LISTENING",
+                    self.PLAYBACK_TIMEOUT,
+                )
+                self.audio_player.stop()
+                self.sm.transition(State.LISTENING)
+                self.ignore_wake_until = time.time() + 1.5
             # O AudioPlayer tem um watchdog que para o ffplay sozinho quando seca o buffer.
             # Se ele secou, voltamos pra LISTENING.
-            if self.audio_player.ffplay_proc is None or self.audio_player.ffplay_proc.poll() is not None:
+            elif self.audio_player.ffplay_proc is None or self.audio_player.ffplay_proc.poll() is not None:
                 self.sm.transition(State.LISTENING)
                 # Ignora wake word por 1.5s após falar para não ouvir o próprio eco
                 self.ignore_wake_until = time.time() + 1.5

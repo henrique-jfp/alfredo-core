@@ -3,7 +3,7 @@ import math
 from .logger import ws_logger
 
 class ReconnectStrategy:
-    def __init__(self, initial_delay=1.0, max_delay=30.0, factor=2.0):
+    def __init__(self, initial_delay=1.0, max_delay=10.0, factor=2.0):
         self.initial_delay = initial_delay
         self.max_delay = max_delay
         self.factor = factor
