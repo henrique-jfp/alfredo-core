@@ -6,9 +6,7 @@ from .config import config
 class WakeWordDetector:
     def __init__(self):
         try:
-            self.model = OWWModel(
-                wakeword_model_paths=[config.WAKEWORD_MODEL]
-            )
+            self.model = OWWModel()
             wake_logger.info(f"OpenWakeWord carregado para modelo: {config.WAKEWORD_MODEL}")
         except Exception as e:
             wake_logger.error(f"Erro ao carregar modelo OpenWakeWord: {e}")
