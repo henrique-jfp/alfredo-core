@@ -123,8 +123,10 @@ class Controller:
         if isinstance(message, str):
             payload = decode_json(message)
             if payload.get("type") == MSG_TYPE_TTS_END:
-                # Servidor terminou de enviar o TTS
-                pass
+                # Servidor terminou de enviar o TTS (ou não enviou nada porque deu erro/áudio vazio)
+                # Se não chegou a entrar em PLAYING_TTS (ficou preso no WAITING_RESPONSE), forçamos a volta:
+                if self.sm.get_state() == State.WAITING_RESPONSE:
+                    self.sm.transition(State.LISTENING)
             elif payload.get("type") == "START_STREAM":
                 ws_logger.info("Iniciando modo transmissão ao vivo (Dashboard)")
                 self.sm.transition(State.STREAMING_ONLY)
