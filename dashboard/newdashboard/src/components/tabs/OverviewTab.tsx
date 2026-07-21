@@ -462,12 +462,31 @@ export function OverviewTab() {
                     className="flex-1"
                   />
                 ) : (
-                  lists.compras.map((item) => (
-                    <div key={item.id} className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3">
-                      <div className="h-2 w-2 rounded-full bg-brass-400" />
-                      <span className="truncate text-[14px] text-[color:var(--text-primary)]">{item.content}</span>
-                    </div>
-                  ))
+                  (() => {
+                    const groupedCompras = lists.compras.reduce((acc, item) => {
+                      const match = item.content.match(/^\[(.*?)\] (.*)$/);
+                      const listName = match ? match[1] : 'Geral';
+                      const itemName = match ? match[2] : item.content;
+                      if (!acc[listName]) acc[listName] = [];
+                      acc[listName].push({ ...item, parsedContent: itemName });
+                      return acc;
+                    }, {} as Record<string, any[]>);
+
+                    return Object.entries(groupedCompras).map(([listName, items]) => (
+                      <div key={listName} className="mb-3 last:mb-0 flex flex-col gap-2">
+                        <div className="flex items-center gap-2 pl-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-brass-500/70">{listName}</span>
+                          <div className="h-px flex-1 bg-gradient-to-r from-brass-500/20 to-transparent" />
+                        </div>
+                        {items.map((item) => (
+                          <div key={item.id} className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-3">
+                            <div className="h-1.5 w-1.5 rounded-full bg-brass-400" />
+                            <span className="truncate text-[14px] text-[color:var(--text-primary)]">{item.parsedContent}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ));
+                  })()
                 )}
               </div>
             )}
