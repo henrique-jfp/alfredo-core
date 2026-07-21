@@ -108,8 +108,43 @@ class GroqSTT:
             err_str = str(e).lower()
             if "429" in err_str or "rate limit" in err_str or "quota" in err_str:
                 logger.warning("STT Groq (bytes): rate limit atingido! Cooldown de 60s.")
-            logger.error(f"Erro na transcrição via Groq Whisper (bytes): {e}")
-            return ""
+            logger.error(f"Erro na transcrição via Groq Whisper (bytes): {e}. Tentando fallback para Gemini...")
+            
+            # ────────────────────────────────────────────────────────
+            # GEMINI FALLBACK PARA STT
+            # ────────────────────────────────────────────────────────
+            try:
+                import io, wave
+                import google.generativeai as genai
+                from core.services.key_manager import next_gemini_key
+                
+                # Prepara os bytes raw com cabeçalho WAV para o Gemini aceitar
+                with io.BytesIO() as wav_io:
+                    with wave.open(wav_io, 'wb') as wav_file:
+                        wav_file.setnchannels(1)
+                        wav_file.setsampwidth(2)
+                        wav_file.setframerate(16000)
+                        wav_file.writeframes(audio_bytes)
+                    wav_bytes = wav_io.getvalue()
+
+                gem_key, _, _ = next_gemini_key()
+                if not gem_key:
+                    return ""
+                genai.configure(api_key=gem_key)
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                logger.info("Enviando áudio para Gemini 1.5 Flash (Fallback STT)...")
+                response = model.generate_content([
+                    {"mime_type": "audio/wav", "data": wav_bytes},
+                    "Transcreva o que foi dito neste áudio. Escreva APENAS a transcrição exata em português, sem aspas, sem adicionar nenhuma outra palavra."
+                ])
+                text = response.text.strip().lower()
+                import string
+                text = text.translate(str.maketrans('', '', string.punctuation))
+                logger.info(f"Fallback Gemini STT concluído: '{text}'")
+                return text
+            except Exception as gem_err:
+                logger.error(f"Fallback Gemini STT também falhou: {gem_err}")
+                return ""
 
     async def transcribe_bytes_async(self, audio_bytes: bytes, filename: str = "audio.wav") -> str:
         """Transcreve áudio a partir de bytes em memória, sem bloquear o event loop."""
