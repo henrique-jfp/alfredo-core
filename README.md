@@ -168,18 +168,28 @@ Diferente de uma arquitetura clássica de "hub escondido + dispositivos na casa"
 
 > Como o x360 tem tela sensível ao toque e dobra 360°, ele se presta bem a ficar "pregado" na parede em modo *tablet*, servindo de tela fixa para o dashboard sem hardware extra.
 
-### 📡 Satélites Burros (demais cômodos)
-Os outros cômodos recebem satélites **sem inteligência própria** — apenas captam áudio (wake word local via Vosk + VAD) e reproduzem a resposta, delegando 100% do raciocínio ao Nó Central pela rede.
+### 📡 Satélites (demais cômodos)
+Os outros cômodos recebem satélites focados apenas em I/O (captam áudio via wake word local + VAD e reproduzem a resposta), delegando 100% do raciocínio ao Nó Central pela rede.
 
-> ⚠️ **Hardware ainda em avaliação.** O `DeepSeek AI Voice Robot Ball (ESP32-S3)` abaixo foi o primeiro candidato prototipado, mas não é uma decisão fechada — outras opções (ESP32 genérico, M5Stack, Raspberry Pi Zero, alto-falantes reaproveitados) seguem sendo avaliadas cômodo a cômodo.
+Como o servidor é **agnóstico a hardware** e reage exclusivamente às *capabilities* que o satélite declara no momento do registro, **cada cômodo pode ter um hardware completamente diferente**. 
 
+Atualmente os satélites em uso/avaliação são:
+
+#### 🛏️ Quarto do Casal (Satélite Android Fixo)
+| Item | Especificação |
+|---|---|
+| Hardware | Smartphone Samsung M21s (reaproveitado) |
+| Áudio | Conectado via cabo P2 a uma caixa de som externa |
+| Software | App local modular em Python (Termux/OpenWakeWord/WebRTC VAD) |
+
+#### 🤖 Outros Cômodos (Ex: ESP32)
 | Item | Especificação (protótipo avaliado) |
 |---|---|
 | Hardware | DeepSeek AI Voice Robot Ball (ESP32-S3 WROOM-1-N16R8) |
 | Display | 1.28" 240×240 IPS (GC9A01) |
-| Touch | CST816 (I2C) |
+| Firmware | C++ (ESP-IDF / PlatformIO) com protocolo compartilhado |
 
-> O servidor é **agnóstico a hardware**: ele reage exclusivamente às *capabilities* que o satélite declara no momento do registro. Isso é o que torna essa indefinição segura — qualquer que seja a escolha final por cômodo (ou até escolhas diferentes por cômodo), basta implementar o `shared-protocol` em `firmware/` — zero alteração no servidor.
+> Isso torna o projeto extremamente flexível — basta implementar o protocolo HTTP/WS padrão (JSON/Binário) em qualquer dispositivo com microfone e alto-falante, com zero alterações no servidor.
 
 ---
 

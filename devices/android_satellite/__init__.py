@@ -1,0 +1,3 @@
+"""
+Android Satellite Module
+"""
