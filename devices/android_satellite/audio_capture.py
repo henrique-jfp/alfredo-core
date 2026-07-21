@@ -6,13 +6,17 @@ from .logger import audio_logger
 
 # HACK PARA O TERMUX: O Android esconde as bibliotecas do sistema,
 # então enganamos o Python para apontar direto para o arquivo do Termux.
+import os
+
 original_find_library = ctypes.util.find_library
 
 def patch_find_library(name):
     if name == 'portaudio':
-        termux_path = '/data/data/com.termux/files/usr/lib/libportaudio.so'
-        if os.path.exists(termux_path):
-            return termux_path
+        # Verifica se estamos rodando no Termux nativo (e não no proot Ubuntu)
+        if "PREFIX" in os.environ and "/com.termux/" in os.environ["PREFIX"]:
+            termux_path = '/data/data/com.termux/files/usr/lib/libportaudio.so'
+            if os.path.exists(termux_path):
+                return termux_path
     return original_find_library(name)
 
 ctypes.util.find_library = patch_find_library
