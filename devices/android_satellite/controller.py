@@ -123,16 +123,21 @@ class Controller:
         if isinstance(message, str):
             payload = decode_json(message)
             if payload.get("type") == MSG_TYPE_TTS_END:
-                # Servidor terminou de enviar o TTS (ou não enviou nada porque deu erro/áudio vazio)
-                # Se não chegou a entrar em PLAYING_TTS (ficou preso no WAITING_RESPONSE), forçamos a volta:
+                # Servidor terminou de enviar os bytes de TTS.
+                self.audio_player.finish_stream()
+                
+                # Se não chegou a entrar em PLAYING_TTS (áudio vazio), forçamos a volta:
                 if self.sm.get_state() == State.WAITING_RESPONSE:
                     self.sm.transition(State.LISTENING)
+                    # Dá um tempo para limpar buffers de microfone
+                    self.ignore_wake_until = time.time() + 1.0
             elif payload.get("type") == "START_STREAM":
                 ws_logger.info("Iniciando modo transmissão ao vivo (Dashboard)")
                 self.sm.transition(State.STREAMING_ONLY)
             elif payload.get("type") == "STOP_STREAM":
                 ws_logger.info("Parando transmissão ao vivo (Dashboard)")
                 self.sm.transition(State.LISTENING)
+                self.ignore_wake_until = time.time() + 1.0
             
     def on_audio_chunk(self, chunk: bytes):
         state = self.sm.get_state()
@@ -144,6 +149,9 @@ class Controller:
 
         # ESTADO: LISTENING (Buscando wake word)
         elif state == State.LISTENING:
+            if time.time() < getattr(self, 'ignore_wake_until', 0):
+                return
+                
             if self.wake_detector.detect(chunk):
                 self.sm.transition(State.WAKE_DETECTED)
                 # Opcional: tocar um beep local para avisar que ouviu
@@ -178,3 +186,5 @@ class Controller:
             # Se ele secou, voltamos pra LISTENING.
             if self.audio_player.ffplay_proc is None or self.audio_player.ffplay_proc.poll() is not None:
                 self.sm.transition(State.LISTENING)
+                # Ignora wake word por 1.5s após falar para não ouvir o próprio eco
+                self.ignore_wake_until = time.time() + 1.5

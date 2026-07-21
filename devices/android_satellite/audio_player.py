@@ -40,28 +40,33 @@ class AudioPlayer:
 
     def _watchdog(self):
         """
-        Encerra graciosamente o ffplay se não recebermos nenhum byte novo
-        após um curto período, assumindo que o TTS terminou.
+        Monitora o processo ffplay. Quando ele terminar naturalmente (autoexit),
+        limpa a referência.
         """
         while not self._watchdog_stop.is_set():
             time.sleep(0.5)
-            if self.ffplay_proc is not None and self.ffplay_proc.poll() is None:
-                # 1.5s sem novos bytes -> encerra (pode ajustar para menos se quiser corte seco)
-                if time.time() - self.last_byte_time > 1.5:
-                    player_logger.debug("Fim do fluxo TTS, fechando ffplay...")
-                    self.stop()
+            if self.ffplay_proc is not None and self.ffplay_proc.poll() is not None:
+                # O ffplay terminou de tocar e saiu sozinho
+                self.ffplay_proc = None
+
+    def finish_stream(self):
+        """
+        Sinaliza ao ffplay que não enviaremos mais bytes (fecha o stdin).
+        Com a flag -autoexit, o ffplay vai continuar tocando o buffer até o fim e fechar sozinho.
+        """
+        if self.ffplay_proc and self.ffplay_proc.poll() is None:
+            try:
+                self.ffplay_proc.stdin.close()
+            except Exception:
+                pass
 
     def stop(self):
         if self.ffplay_proc:
             try:
-                self.ffplay_proc.stdin.close()
-                self.ffplay_proc.wait(timeout=1)
+                self.ffplay_proc.kill()
             except Exception:
                 pass
-            finally:
-                if self.ffplay_proc.poll() is None:
-                    self.ffplay_proc.kill()
-                self.ffplay_proc = None
+            self.ffplay_proc = None
 
     def __del__(self):
         self._watchdog_stop.set()
