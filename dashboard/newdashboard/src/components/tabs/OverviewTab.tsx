@@ -143,18 +143,22 @@ export function OverviewTab() {
 
   const fetchData = async () => {
     setIsRefreshing(true);
-    const [statsData, historyData, listsData, timersData, weatherData] = await Promise.all([
+    
+    // Fetch weather asynchronously without blocking
+    api.getWeather().then(weatherData => {
+      if (weatherData) setWeather(weatherData);
+    }).catch(() => null);
+
+    const [statsData, historyData, listsData, timersData] = await Promise.all([
       api.getStats(),
       api.getHistory(),
       api.getLists(),
       api.getTimers(),
-      api.getWeather().catch(() => null),
     ]);
     setStats(statsData);
     setHistory(historyData);
     setLists(listsData);
     setTimers(timersData);
-    if (weatherData) setWeather(weatherData);
     setTimeout(() => setIsRefreshing(false), 450);
   };
 
