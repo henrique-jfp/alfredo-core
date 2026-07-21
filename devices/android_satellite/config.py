@@ -2,8 +2,8 @@ import os
 
 class Config:
     SERVER_URL = os.getenv("ALFREDO_SERVER_URL", "ws://192.168.0.56:10001")
-    DEVICE_ID = os.getenv("ALFREDO_DEVICE_ID", "android-m21s")
-    ROOM_ID = os.getenv("ALFREDO_ROOM_ID", "ROOM_LIVING")
+    DEVICE_ID = os.getenv("ALFREDO_DEVICE_ID", "SAT_BEDROOM")
+    ROOM_ID = os.getenv("ALFREDO_ROOM_ID", "bedroom_casal")
     
     # Audio config
     RATE = 16000

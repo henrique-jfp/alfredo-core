@@ -124,16 +124,24 @@ class Controller:
             payload = decode_json(message)
             if payload.get("type") == MSG_TYPE_TTS_END:
                 # Servidor terminou de enviar o TTS
-                # Vamos esperar o watchdog do player encerrar o ffplay
                 pass
-            
-            # Aqui poderíamos implementar START_STREAM, SET_VOLUME, etc, se necessário.
+            elif payload.get("type") == "START_STREAM":
+                ws_logger.info("Iniciando modo transmissão ao vivo (Dashboard)")
+                self.sm.transition(State.STREAMING_ONLY)
+            elif payload.get("type") == "STOP_STREAM":
+                ws_logger.info("Parando transmissão ao vivo (Dashboard)")
+                self.sm.transition(State.LISTENING)
             
     def on_audio_chunk(self, chunk: bytes):
         state = self.sm.get_state()
         
+        # ESTADO: STREAMING_ONLY (Enviando áudio contínuo para o dashboard)
+        if state == State.STREAMING_ONLY:
+            self.stream_ctrl.add_chunk(chunk, live=True)
+            return
+
         # ESTADO: LISTENING (Buscando wake word)
-        if state == State.LISTENING:
+        elif state == State.LISTENING:
             if self.wake_detector.detect(chunk):
                 self.sm.transition(State.WAKE_DETECTED)
                 # Opcional: tocar um beep local para avisar que ouviu
