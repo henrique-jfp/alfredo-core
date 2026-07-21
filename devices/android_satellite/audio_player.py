@@ -1,7 +1,10 @@
 import subprocess
 import time
 import threading
+import os
 from .logger import player_logger
+
+os.environ["PULSE_SERVER"] = "127.0.0.1"
 
 class AudioPlayer:
     def __init__(self):
