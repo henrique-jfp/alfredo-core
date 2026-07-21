@@ -7,7 +7,6 @@ class WakeWordDetector:
     def __init__(self):
         try:
             self.model = OWWModel(
-                inference_framework="onnx",
                 wakeword_models=[config.WAKEWORD_MODEL]
             )
             wake_logger.info(f"OpenWakeWord carregado para modelo: {config.WAKEWORD_MODEL}")
