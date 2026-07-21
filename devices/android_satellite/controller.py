@@ -40,8 +40,37 @@ class Controller:
         self.max_silence_frames = int((config.SILENCE_TIMEOUT_MS / 1000.0) / (config.CHUNK / config.RATE))
         self.is_speaking = False
 
+    def register_device(self):
+        import urllib.request
+        import json
+        
+        # O config.SERVER_URL tem o formato ws://192.168.0.56:10001
+        http_url = config.SERVER_URL.replace("ws://", "http://").replace("wss://", "https://")
+        register_url = f"{http_url}/api/devices/register"
+        
+        payload = {
+            "device_id": config.DEVICE_ID,
+            "room_id": config.ROOM_ID,
+            "hardware": "Android Phone (Proot)",
+            "firmware_version": "1.1.0",
+            "capabilities": ["mic", "speaker"]
+        }
+        
+        try:
+            req = urllib.request.Request(
+                register_url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+            urllib.request.urlopen(req, timeout=5)
+            ws_logger.info("Dispositivo registrado na API REST com sucesso.")
+        except Exception as e:
+            ws_logger.warning(f"Não foi possível registrar na API (pode não aparecer no dashboard): {e}")
+
     def start(self):
         self.sm.transition(State.CONNECTING)
+        self.register_device()
         self.ws.connect()
         # Inicia captura continuamente. O que faremos com os chunks dependerá do estado.
         self.audio_capture.start()
