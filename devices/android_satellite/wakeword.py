@@ -31,8 +31,6 @@ class WakeWordDetector:
             for model_name, score in predictions.items():
                 if score > 0.4:
                     wake_logger.info(f"Wake word detectada! Modelo: {model_name}, Score: {score}")
-                    # Limpa o buffer interno para não ficar detectando a mesma fala em loop
-                    self.model.reset()
                     return True
                     
         except Exception as e:
