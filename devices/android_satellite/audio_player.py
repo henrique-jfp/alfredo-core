@@ -22,7 +22,7 @@ class AudioPlayer:
             player_logger.info("Iniciando ffplay para reproduzir áudio recebido.")
             try:
                 self.ffplay_proc = subprocess.Popen(
-                    ['ffplay', '-nodisp', '-autoexit', '-i', 'pipe:0'],
+                    ['ffplay', '-nodisp', '-autoexit', '-f', 'mp3', '-i', 'pipe:0'],
                     stdin=subprocess.PIPE, 
                     stdout=subprocess.DEVNULL, 
                     stderr=subprocess.DEVNULL
