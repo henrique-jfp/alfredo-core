@@ -9,28 +9,43 @@ from core.brain.memory import models
 logger = logging.getLogger("alfredo.skills.list")
 
 class ListSkill(Skill):
-    VALID_LIST_TYPES = {"compras", "tarefas"}
-
     @property
     def name(self) -> str:
         return "ListSkill"
 
-    def _normalize_list_type(self, list_type: str) -> str:
-        """Garante que só usamos os dois tipos de lista que o Dashboard conhece.
-
-        BUG CORRIGIDO: o schema da tool manage_list não restringia list_type,
-        então o Gemini podia inventar algo como 'churrasco'. Tecnicamente o
-        item era salvo no banco, mas o Dashboard só sabe agrupar 'compras' e
-        'tarefas' — na prática a lista "sumia" da tela. Agora normalizamos
-        aqui como segunda camada de defesa (a primeira é o enum no schema,
-        ver core/brain/router.py).
-        """
-        normalized = (list_type or "").strip().lower()
-        if normalized in self.VALID_LIST_TYPES:
-            return normalized
-        if any(w in normalized for w in ("compra", "mercado", "feira", "supermercado")):
+    def _normalize_list_type(self, text: str) -> str:
+        """Garante que só usamos os tipos de lista esperados (compras, tarefas, ou compras_*)."""
+        normalized = (text or "").strip().lower()
+        if not normalized:
             return "compras"
-        return "tarefas"
+            
+        import unicodedata
+        normalized = ''.join(c for c in unicodedata.normalize('NFD', normalized) if unicodedata.category(c) != 'Mn')
+        
+        if normalized == "compras" or normalized == "tarefas" or normalized.startswith("compras_"):
+            return normalized.replace(" ", "_")
+            
+        if any(w in normalized for w in ("tarefa", "lembrete", "fazer")):
+            return "tarefas"
+            
+        import re
+        # Tenta pegar "compras de X" ou "lista de compras para Y"
+        match = re.search(r'(?:lista\s+(?:de\s+)?)?compras?\s+(?:de|para\s+o|para\s+a|para|pro|pra|do|da)\s+([a-z0-9_ ]+)', normalized)
+        if match:
+            name = match.group(1).strip().replace(" ", "_")
+            return f"compras_{name}"
+            
+        # Tenta pegar "lista do shopping", "lista da viagem" (sem a palavra compras)
+        match = re.search(r'lista\s+(?:de|para\s+o|para\s+a|para|pro|pra|do|da)\s+([a-z0-9_ ]+)', normalized)
+        if match:
+            name = match.group(1).strip()
+            if name not in ("compras", "tarefas", "lembretes", "fazer", "tarefa", "mercado", "feira", "supermercado", "dispensa", "despensa"):
+                return f"compras_{name.replace(' ', '_')}"
+                
+        if any(w in normalized for w in ("compra", "mercado", "feira", "supermercado", "dispensa", "despensa")):
+            return "compras"
+            
+        return "compras"
 
     def can_handle(self, intent: str, text: str) -> bool:
         return intent == "LIST"
@@ -41,7 +56,6 @@ class ListSkill(Skill):
     def _remove_item(self, db, room_id, list_type, item_name) -> str:
         # Busca o item usando ilike para ignorar case e aceitar correspondência parcial
         item = db.query(models.ListItem).filter(
-            models.ListItem.room_id == room_id,
             models.ListItem.list_type == list_type,
             models.ListItem.content.ilike(f"%{item_name}%")
         ).first()
@@ -58,7 +72,6 @@ class ListSkill(Skill):
 
     def _read_list(self, db, room_id, list_type) -> str:
         items = db.query(models.ListItem).filter(
-            models.ListItem.room_id == room_id,
             models.ListItem.list_type == list_type
         ).all()
         
@@ -97,7 +110,6 @@ class ListSkill(Skill):
 
         # Busca itens existentes para evitar duplicatas
         existing_items = db.query(models.ListItem).filter(
-            models.ListItem.room_id == room_id,
             models.ListItem.list_type == list_type
         ).all()
         existing_names_lower = {i.content.lower().strip() for i in existing_items}
@@ -161,7 +173,6 @@ class ListSkill(Skill):
             
         if action == "clear":
             items_db = db.query(models.ListItem).filter(
-                models.ListItem.room_id == room_id,
                 models.ListItem.list_type == list_type
             ).all()
             for item in items_db:
@@ -175,7 +186,6 @@ class ListSkill(Skill):
             
         elif action == "read":
             items_db = db.query(models.ListItem).filter(
-                models.ListItem.room_id == room_id,
                 models.ListItem.list_type == list_type
             ).all()
             if not items_db:
@@ -209,7 +219,6 @@ class ListSkill(Skill):
             if not item_name:
                 return {"error": "Nenhum item fornecido para remover", "direct_response": "Não entendi o nome do item que você quer remover."}
             item = db.query(models.ListItem).filter(
-                models.ListItem.room_id == room_id,
                 models.ListItem.list_type == list_type,
                 models.ListItem.content.ilike(f"%{item_name}%")
             ).first()
@@ -234,7 +243,6 @@ class ListSkill(Skill):
                 return {"error": "Nenhum item fornecido para adicionar", "direct_response": "Não entendi o que você quer adicionar."}
             
             existing_items_db = db.query(models.ListItem).filter(
-                models.ListItem.room_id == room_id,
                 models.ListItem.list_type == list_type
             ).all()
             existing_names_lower = [i.content.lower().strip() for i in existing_items_db]
@@ -270,7 +278,6 @@ class ListSkill(Skill):
             
         elif action in ("email", "telegram"):
             items_db = db.query(models.ListItem).filter(
-                models.ListItem.room_id == room_id,
                 models.ListItem.list_type == list_type
             ).all()
 

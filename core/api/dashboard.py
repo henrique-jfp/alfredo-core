@@ -147,9 +147,13 @@ def get_lists(db: Session = Depends(get_db)):
             "room_id": item.room_id,
             "created_at": item.created_at.isoformat() if item.created_at else None
         }
-        if item.list_type == "compras":
+        if item.list_type.startswith("compras_"):
+            specific_list_name = item.list_type.replace("compras_", "").replace("_", " ").title()
+            obj["content"] = f"[{specific_list_name}] {item.content}"
             compras.append(obj)
-        else:
+        elif item.list_type == "compras":
+            compras.append(obj)
+        elif item.list_type == "tarefas":
             tarefas.append(obj)
             
     return {

@@ -10,7 +10,9 @@ original_find_library = ctypes.util.find_library
 
 def patch_find_library(name):
     if name == 'portaudio':
-        return '/data/data/com.termux/files/usr/lib/libportaudio.so'
+        termux_path = '/data/data/com.termux/files/usr/lib/libportaudio.so'
+        if os.path.exists(termux_path):
+            return termux_path
     return original_find_library(name)
 
 ctypes.util.find_library = patch_find_library

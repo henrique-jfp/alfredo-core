@@ -1,0 +1,279 @@
+version: 1
+
+house:
+  name: Familias Andrade Freitas
+
+  description: >
+    Apartamento residencial onde mora Henrique, sua esposa e sua filha e seu filho.
+    O Alfredo é o assistente central da casa e possui satélites distribuídos
+    pelos cômodos.
+
+  language: pt-BR
+
+  timezone: America/Sao_Paulo
+
+#########################################################
+# COMO A CASA É
+#########################################################
+
+layout:
+
+  description: >
+    A sala é o ambiente central da casa.
+    Todos os demais cômodos são acessados pela sala.
+
+  rooms:
+
+    living_room:
+      name: Sala
+
+      aliases:
+        - sala
+        - sala principal
+
+      description: >
+        É o ambiente central da casa.
+        O servidor principal do Alfredo fica aqui.
+
+      connected_to:
+        - bedroom_casal
+        - bedroom_daughter
+        - kitchen
+        - bathroom
+
+      default_satellite: linux-server-satellite
+
+    bedroom_casal:
+
+      name: Quarto Casal
+
+      aliases:
+        - meu quarto
+        - quarto principal
+        - quarto casal
+
+      connected_to:
+        - ROOM_LIVING
+
+      default_satellite: SAT_BEDROOM
+
+    bedroom_daughter:
+
+      name: Quarto da Filha
+
+      aliases:
+        - quarto da filha
+        - quarto dela
+
+      connected_to:
+        - ROOM_LIVING
+
+      default_satellite: SAT_DAUGHTER
+
+    kitchen:
+
+      name: Cozinha
+
+      connected_to:
+        - ROOM_LIVING
+
+      default_satellite: SAT_KITCHEN
+
+    bathroom:
+
+      name: Banheiro
+
+      connected_to:
+        - ROOM_LIVING
+
+#########################################################
+# SATÉLITES
+#########################################################
+
+satellites:
+
+  SAT_LIVING:
+
+    room: living_room
+
+    hardware: Linux
+
+    description: >
+      Servidor principal do Alfredo.
+      Também funciona como satélite.
+
+  SAT_BEDROOM:
+
+    room: bedroom_casal
+
+    hardware: Android
+
+    description: >
+      Samsung M21 transformado em satélite.
+
+  SAT_DAUGHTER:
+
+    room: bedroom_daughter
+
+    hardware: ESP32-S3(ainda não comprado)
+
+#########################################################
+# DISPOSITIVOS
+#########################################################
+
+devices:
+
+  living_room:
+
+    - name: TV Samsung
+      type: television
+      integration: smartthings
+
+    - name: Rack
+      type: furniture
+
+    - id: fan_living
+      name: Ventilador da Sala
+      type: fan
+      room: living_room
+
+      description: >
+        Ventilador de teto da sala com luminária integrada.
+
+      capabilities:
+        - power
+        - speed
+        - light
+        - all_off
+
+      speed:
+        min: 0
+        max: 6
+
+      aliases:
+        - ventilador da sala
+        - ventilador
+        - ventilador daqui
+
+  bedroom_casal:
+
+    - id: fan_bedroom_casal
+      name: Ventilador do quarto do casal
+      type: fan
+      room: bedroom_casal
+
+      description: >
+        Ventilador de teto do quarto do casal com luminária integrada.
+
+      capabilities:
+        - power
+        - speed
+        - light
+        - all_off
+
+      speed:
+        min: 0
+        max: 6
+
+      aliases:
+        - ventilador do quarto
+        - ventilador
+        - ventilador daqui
+
+  bedroom_daughter:
+
+    - id: fan_bedroom_daughter
+      name: Ventilador da Laura
+      type: fan
+      room: bedroom_daughter
+
+      description: >
+        Ventilador de teto da filha com luminária integrada.
+
+      capabilities:
+        - power
+        - speed
+        - light
+        - all_off
+
+      speed:
+        min: 0
+        max: 6
+
+      aliases:
+        - ventilador da Laura
+        - ventilador
+        - ventilador daqui
+
+  kitchen:
+
+    - name: Geladeira
+      type: appliance
+
+    - name: Lava e Seca Brastemp
+      type: appliance
+
+#########################################################
+# REGRAS DE INTERPRETAÇÃO
+#########################################################
+
+reasoning:
+
+  location_priority: true
+
+  rules:
+
+    - >
+      Sempre que um comando vier de um satélite,
+      considere que palavras como:
+
+      "aqui"
+
+      "esta"
+
+      "esse"
+
+      "essa"
+
+      "a luz"
+
+      "a TV"
+
+      referem-se ao cômodo onde o satélite está instalado,
+      salvo se o usuário mencionar explicitamente outro cômodo.
+
+    - >
+      Caso exista apenas um dispositivo daquele tipo
+      no cômodo, considere-o automaticamente.
+
+    - >
+      Se houver mais de um dispositivo do mesmo tipo,
+      peça esclarecimento.
+
+#########################################################
+# CONTEXTO PARA O LLM
+#########################################################
+
+llm_context: |
+
+  Você está controlando uma casa real.
+
+  Antes de responder:
+
+  1. Descubra de qual satélite veio a solicitação.
+
+  2. Descubra em qual cômodo ele está.
+
+  3. Consulte os dispositivos daquele cômodo.
+
+  4. Se o usuário disser "liga a luz", utilize a luz daquele cômodo.
+
+  5. Se disser "liga a TV", utilize a TV daquele cômodo.
+
+  6. Só pergunte qual cômodo quando realmente houver ambiguidade.
+
+  Nunca invente dispositivos inexistentes.
+
+  Nunca invente cômodos.
+
+  Sempre utilize apenas as informações deste arquivo.

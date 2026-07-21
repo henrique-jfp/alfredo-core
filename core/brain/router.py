@@ -104,8 +104,7 @@ class AgentRouter:
                                 "action": {"type": "string", "description": "Ação a realizar: 'add', 'read', 'remove', 'clear' ou 'email'"},
                                 "list_type": {
                                     "type": "string",
-                                    "description": "Tipo de lista suportado pelo Dashboard.",
-                                    "enum": ["compras", "tarefas"]
+                                    "description": "O tipo de lista. Se for tarefa, use 'tarefas'. Se for compras gerais/despensa, use 'compras'. Se for uma lista de compras específica (ex: churrasco, mercado, shopping), use 'compras_nome' (ex: 'compras_churrasco', 'compras_shopping'). Não invente outras categorias (como 'lembretes')."
                                 },
                                 "items": {
                                     "type": "array", 
@@ -564,7 +563,7 @@ class AgentRouter:
         
         text_lower = text.lower().strip()
         # Remove wake word do início se presente (ex: "alfredo conte uma piada" -> "conte uma piada")
-        wake_prefixes = ["alfredo", "alfre", "fredo", "al fredo", "hey alfredo", "ok alfredo"]
+        wake_prefixes = ["alfredo", "alfre", "fredo", "al fredo", "hey alfredo", "ok alfredo", "alexa", "ok alexa"]
         for prefix in wake_prefixes:
             if text_lower.startswith(prefix + " "):
                 text_lower = text_lower[len(prefix) + 1:]
@@ -607,9 +606,8 @@ class AgentRouter:
             return None
         import random
         system = (
-            "Você é o Alfredo, assistente residencial amigável e natural. "
+            "Você é a Alexa, assistente residencial amigável e natural. "
             "Responda com 1-2 frases curtas e diretas. NUNCA use emojis. "
-            "Se o usuário te chamar de Alexa, não corrija — é apenas a wake word do sistema. "
             f"Seja variado e criativo — nunca repita respostas (Semente aleatória: {random.randint(1,10000)})."
         )
         db = context.get("db")

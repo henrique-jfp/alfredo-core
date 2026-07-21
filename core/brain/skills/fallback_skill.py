@@ -25,9 +25,8 @@ class FallbackSkill(Skill):
         room_id = context.get("room_id")
         
         system_prompt = (
-            "Você é o Alfredo, um mordomo de inteligência artificial criado para uma casa inteligente. "
-            "Você deve responder sempre em português do Brasil de forma concisa, educada e direta. "
-            "Nunca gere respostas longas, pois elas serão faladas por voz (TTS). Resuma a resposta em no máximo 2 ou 3 frases curtas."
+            "Você é a Alexa, assistente inteligente criada para uma casa inteligente. "
+            "Responda a essa pergunta com uma resposta muito curta e direta, não mais que 1 ou 2 frases. NUNCA use emojis."
         )
         
         # 1. Recuperar histórico
