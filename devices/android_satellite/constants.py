@@ -11,6 +11,7 @@ class State(Enum):
     PLAYING_TTS = "PLAYING_TTS"
     ERROR = "ERROR"
     RECONNECTING = "RECONNECTING"
+    STREAMING_ONLY = "STREAMING_ONLY"
 
 # Protocol Messages
 MSG_TYPE_TTS_END = "tts_end"
