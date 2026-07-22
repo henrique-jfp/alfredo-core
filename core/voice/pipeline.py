@@ -173,6 +173,7 @@ async def process_audio_pipeline(
     is_webm: bool = False,
     stream_tts: bool = True,
     vosk_text: str = "",
+    skip_wake_check: bool = False,
 ) -> AsyncGenerator[bytes, None]:
     """
     Processa o áudio recebido (STT → LLM → TTS) e retorna um gerador
@@ -183,6 +184,10 @@ async def process_audio_pipeline(
     2. STT Groq (Whisper) se necessário
     3. Router (Groq fast path ou Gemini com tool calling)
     4. Pipeline de streaming real: LLM + TTS em paralelo com asyncio.Queue
+
+    Quando skip_wake_check=True, pula a verificação de wake word no texto
+    transcrito. Usado para conexões WebSocket de satélites que já fazem
+    detecção local de wake word (ex: Android, OpenWakeWord).
     """
     t_pipeline_start = _time.time()
 
@@ -266,7 +271,9 @@ async def process_audio_pipeline(
         return
 
     # 3a. Guard: rejeita se não houver wake word (a menos que em sessão ativa)
-    if not skip_stt and not _has_wake_word(transcribed_text):
+    # Satélites via WebSocket (skip_wake_check=True) já fizeram detecção
+    # local de wake word — o áudio enviado não contém a wake word.
+    if not skip_stt and not skip_wake_check and not _has_wake_word(transcribed_text):
         session_active = db.query(models.SessionState).filter(
             models.SessionState.room_id == room_id,
         ).first()

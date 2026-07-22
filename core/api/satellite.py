@@ -119,6 +119,9 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
             
             satellite_logger.info(f"Processando áudio captado ({len(phrase_bytes)} bytes) do {device_id}")
             
+            # skip_wake_check=True: o satélite já fez detecção local de wake
+            # word (OpenWakeWord/Porcupine). O áudio enviado NÃO contém a
+            # wake word, então o servidor não precisa verificar novamente.
             if device_id == "dashboard-virtual-mic":
                 # Para o dashboard, não faz streaming de chunks, mas sim gera 1 único arquivo WAV com todo o texto
                 async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False, stream_tts=False, vosk_text=vosk_text):
@@ -128,7 +131,7 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
                 total_bytes = 0
                 import time
                 t_start_tts = time.time()
-                async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False, vosk_text=vosk_text):
+                async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False, vosk_text=vosk_text, skip_wake_check=True):
                     if tts_chunk:
                         total_bytes += len(tts_chunk)
                         await websocket.send_bytes(tts_chunk)
