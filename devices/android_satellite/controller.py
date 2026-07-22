@@ -53,8 +53,8 @@ class Controller:
         self._ambient_energy = None       # média exponencial do ambiente
         self._ambient_alpha = 0.995       # suavização (mais lenta que OWW)
         self._speech_energy_count = 0     # chunks consecutivos acima do limiar
-        self._speech_energy_required = 5  # ~150ms de fala para disparar
-        self._speech_energy_ratio = 3.0   # ratio fala/ambiente
+        self._speech_energy_required = 3  # ~90ms de fala para disparar
+        self._speech_energy_ratio = 1.8   # ratio fala/ambiente
 
         # Watchdogs de timeout para evitar estados presos
         self._response_start_time = 0.0   # timestamp de quando entrou em WAITING_RESPONSE
@@ -253,7 +253,7 @@ class Controller:
             if energia > self._ambient_energy * self._speech_energy_ratio:
                 self._speech_energy_count += 1
             else:
-                self._speech_energy_count = 0
+                self._speech_energy_count = max(0, self._speech_energy_count - 1)
 
             # Se mantivemos fala por chunks suficientes, dispara
             if self._speech_energy_count >= self._speech_energy_required:

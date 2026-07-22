@@ -108,10 +108,10 @@ class WakeWordDetector:
             # ═══════════════════════════════════════════════════════════
             # 1) Verifica se a energia está acima do ambiente
             # ═══════════════════════════════════════════════════════════
-            min_energy = (self.AMBIENT_ENERGY or 0) * 3
+            min_energy = (self.AMBIENT_ENERGY or 0) * 1.5
             if energy < min_energy:
                 # Energia muito baixa — provavelmente silêncio/ruído de fundo
-                self._confirm_count = 0
+                self._confirm_count = max(0, self._confirm_count - 1)
                 return False
 
             # ═══════════════════════════════════════════════════════════
