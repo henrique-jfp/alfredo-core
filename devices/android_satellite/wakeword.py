@@ -12,6 +12,14 @@ class WakeWordDetector:
             wake_logger.error(f"Erro ao carregar modelo OpenWakeWord: {e}")
             self.model = None
 
+    def reset(self):
+        """Reseta o estado interno do modelo OWW para evitar re-detecção."""
+        if self.model:
+            try:
+                self.model.reset()
+            except Exception as e:
+                wake_logger.warning(f"Erro ao resetar modelo OWW: {e}")
+
     def detect(self, audio_chunk: bytes) -> bool:
         """
         Analisa um chunk de áudio em busca da wake word.
@@ -27,9 +35,10 @@ class WakeWordDetector:
             # Predict
             predictions = self.model.predict(audio_np)
             
-            # Checa se alguma predição passou do threshold (ex: > 0.4)
+            # Checa se alguma predição passou do threshold (0.5 para evitar
+            # falsos positivos em conversa ambiente / TV).
             for model_name, score in predictions.items():
-                if score > 0.4:
+                if score > 0.5:
                     wake_logger.info(f"Wake word detectada! Modelo: {model_name}, Score: {score}")
                     return True
                     

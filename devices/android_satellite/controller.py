@@ -52,6 +52,11 @@ class Controller:
         self.dashcam_buffer = bytearray()
         self.dashcam_max_bytes = 2 * config.RATE * 2  # 2s × 16kHz × 2 bytes
 
+        # Cooldown entre gravações: evita que falsos positivos da wake word
+        # gerem gravações consecutivas e queimem tokens à toa.
+        self._last_recording_time = 0.0
+        self.MIN_RECORDING_INTERVAL = 3.0  # 3 segundos mínimo entre gravações
+
     def register_device(self):
         import urllib.request
         import json
@@ -171,6 +176,12 @@ class Controller:
                 return
                 
             if self.wake_detector.detect(chunk):
+                # Cooldown: ignora wake word se gravou recentemente (evita
+                # loop de falsos positivos em conversa ambiente).
+                now = time.time()
+                if now - self._last_recording_time < self.MIN_RECORDING_INTERVAL:
+                    return
+
                 self.sm.transition(State.WAKE_DETECTED)
                 
                 # Prepara o buffer: dashcam (contém a wake word) + gravação nova
@@ -180,6 +191,7 @@ class Controller:
                 
                 self.silence_frames = 0
                 self.is_speaking = False
+                self._last_recording_time = now
                 self.sm.transition(State.STREAMING_AUDIO)
         
         # ESTADO: STREAMING_AUDIO (Ouvindo o comando e enviando)
@@ -199,6 +211,9 @@ class Controller:
             if self.is_speaking and self.silence_frames >= self.max_silence_frames:
                 audio_logger.info("Fim da fala detectado.")
                 self.stream_ctrl.flush()
+                # Reseta o modelo OWW para evitar re-detecção da mesma
+                # wake word no áudio que acabou de ser enviado.
+                self.wake_detector.reset()
                 self.sm.transition(State.WAITING_RESPONSE)
                 self._response_start_time = time.time()
         
