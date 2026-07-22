@@ -46,6 +46,12 @@ class Controller:
         self.RESPONSE_TIMEOUT = 15.0      # max 15s esperando resposta do servidor
         self.PLAYBACK_TIMEOUT = 30.0      # max 30s de reprodução (ffplay pode travar)
 
+        # Dashcam buffer: mantém os últimos ~2s de áudio PCM16 para incluir
+        # a wake word no áudio enviado ao servidor. O servidor precisa
+        # encontrar "alexa" no texto transcrito para processar o comando.
+        self.dashcam_buffer = bytearray()
+        self.dashcam_max_bytes = 2 * config.RATE * 2  # 2s × 16kHz × 2 bytes
+
     def register_device(self):
         import urllib.request
         import json
@@ -156,14 +162,22 @@ class Controller:
 
         # ESTADO: LISTENING (Buscando wake word)
         elif state == State.LISTENING:
+            # Alimenta o dashcam buffer continuamente (pré-wake word)
+            self.dashcam_buffer.extend(chunk)
+            if len(self.dashcam_buffer) > self.dashcam_max_bytes:
+                del self.dashcam_buffer[:len(self.dashcam_buffer) - self.dashcam_max_bytes]
+
             if time.time() < getattr(self, 'ignore_wake_until', 0):
                 return
                 
             if self.wake_detector.detect(chunk):
                 self.sm.transition(State.WAKE_DETECTED)
-                # Opcional: tocar um beep local para avisar que ouviu
                 
+                # Prepara o buffer: dashcam (contém a wake word) + gravação nova
                 self.stream_ctrl.clear()
+                self.stream_ctrl.audio_buffer.extend(self.dashcam_buffer)
+                self.dashcam_buffer.clear()
+                
                 self.silence_frames = 0
                 self.is_speaking = False
                 self.sm.transition(State.STREAMING_AUDIO)
