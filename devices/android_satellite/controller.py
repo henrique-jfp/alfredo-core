@@ -1,8 +1,9 @@
 import threading
 import time
+import numpy as np
 from .config import config
 from .constants import State, MSG_TYPE_TTS_END
-from .logger import ws_logger, audio_logger, player_logger
+from .logger import ws_logger, audio_logger, player_logger, state_logger
 from .protocol import build_identify_payload, decode_json
 from .state_machine import StateMachine
 from .websocket_client import WebSocketClient
@@ -13,6 +14,10 @@ from .audio_player import AudioPlayer
 from .wakeword import WakeWordDetector
 from .vad import VoiceActivityDetector
 from .streaming import StreamController
+
+# Vosk + comandos offline
+from .local_stt import VoskSTT
+from .offline_handler import check_offline_command
 
 class Controller:
     def __init__(self):
@@ -40,6 +45,17 @@ class Controller:
         self.max_silence_frames = int((config.SILENCE_TIMEOUT_MS / 1000.0) / (config.CHUNK / config.RATE))
         self.is_speaking = False
 
+        # ── Energy-based speech trigger ──────────────────────────────
+        # Quando a energia do áudio sobe acima de 3x o nível ambiente
+        # por N chunks consecutivos, consideramos que alguém começou a
+        # falar. Isso substitui a wake word OWW (que não funciona para
+        # português no M21).
+        self._ambient_energy = None       # média exponencial do ambiente
+        self._ambient_alpha = 0.995       # suavização (mais lenta que OWW)
+        self._speech_energy_count = 0     # chunks consecutivos acima do limiar
+        self._speech_energy_required = 5  # ~150ms de fala para disparar
+        self._speech_energy_ratio = 3.0   # ratio fala/ambiente
+
         # Watchdogs de timeout para evitar estados presos
         self._response_start_time = 0.0   # timestamp de quando entrou em WAITING_RESPONSE
         self._playback_start_time = 0.0   # timestamp de quando entrou em PLAYING_TTS
@@ -56,6 +72,19 @@ class Controller:
         # gerem gravações consecutivas e queimem tokens à toa.
         self._last_recording_time = 0.0
         self.MIN_RECORDING_INTERVAL = 3.0  # 3 segundos mínimo entre gravações
+
+        # ── Vosk para comandos offline ──────────────────────────────────
+        # Permite processar TV/luz localmente sem depender do servidor.
+        self.vosk_stt = VoskSTT()
+        if self.vosk_stt.is_loaded:
+            state_logger.info("Vosk carregado — comandos offline (TV/luz) disponíveis.")
+        else:
+            state_logger.warning(
+                "Vosk NÃO disponível — comandos offline desativados. "
+                "Comandos de TV/luz dependerão do servidor Groq+Gemini."
+            )
+        # Buffer para transcrição acumulada durante a gravação atual
+        self._vosk_accumulated = ""
 
     def register_device(self):
         import urllib.request
@@ -156,7 +185,34 @@ class Controller:
                 ws_logger.info("Parando transmissão ao vivo (Dashboard)")
                 self.sm.transition(State.LISTENING)
                 self.ignore_wake_until = time.time() + 1.0
-            
+
+    # ─────────────────────────────────────────────────────────────────
+    # Método auxiliar: inicia uma gravação (chamado pela wake word ou
+    # pelo trigger de energia).
+    # ─────────────────────────────────────────────────────────────────
+    def _trigger_recording(self):
+        now = time.time()
+        if now - self._last_recording_time < self.MIN_RECORDING_INTERVAL:
+            return
+        self._last_recording_time = now
+
+        self.sm.transition(State.WAKE_DETECTED)
+
+        # Prepara buffer com dashcam (pré-gravação) + áudio novo
+        self.stream_ctrl.clear()
+        self.stream_ctrl.audio_buffer.extend(self.dashcam_buffer)
+        self.dashcam_buffer.clear()
+
+        # Inicializa Vosk para esta gravação
+        self._vosk_accumulated = ""
+        if self.vosk_stt.is_loaded:
+            self.vosk_stt.new_recognizer()
+
+        self.silence_frames = 0
+        self.is_speaking = False
+        self._speech_energy_count = 0
+        self.sm.transition(State.STREAMING_AUDIO)
+    
     def on_audio_chunk(self, chunk: bytes):
         state = self.sm.get_state()
         
@@ -165,7 +221,7 @@ class Controller:
             self.stream_ctrl.add_chunk(chunk, live=True)
             return
 
-        # ESTADO: LISTENING (Buscando wake word)
+        # ESTADO: LISTENING (Buscando wake word ou detectando fala por energia)
         elif state == State.LISTENING:
             # Alimenta o dashcam buffer continuamente (pré-wake word)
             self.dashcam_buffer.extend(chunk)
@@ -174,46 +230,122 @@ class Controller:
 
             if time.time() < getattr(self, 'ignore_wake_until', 0):
                 return
-                
-            if self.wake_detector.detect(chunk):
-                # Cooldown: ignora wake word se gravou recentemente (evita
-                # loop de falsos positivos em conversa ambiente).
-                now = time.time()
-                if now - self._last_recording_time < self.MIN_RECORDING_INTERVAL:
-                    return
 
-                self.sm.transition(State.WAKE_DETECTED)
-                
-                # Prepara o buffer: dashcam (contém a wake word) + gravação nova
-                self.stream_ctrl.clear()
-                self.stream_ctrl.audio_buffer.extend(self.dashcam_buffer)
-                self.dashcam_buffer.clear()
-                
-                self.silence_frames = 0
-                self.is_speaking = False
-                self._last_recording_time = now
-                self.sm.transition(State.STREAMING_AUDIO)
+            # ── 1) Wake word OWW (bônus, pode não funcionar no M21) ──
+            if self.wake_detector.detect(chunk):
+                self._trigger_recording()
+                return
+
+            # ── 2) Energy-based speech trigger ────────────────────────
+            # Calcula energia RMS do chunk e atualiza média ambiente
+            audio_np = np.frombuffer(chunk, dtype=np.int16)  # noqa: import numpy as np no topo
+            energia = float(np.sqrt(np.mean(audio_np.astype(np.float64) ** 2)))
+
+            if self._ambient_energy is None:
+                self._ambient_energy = energia
+            else:
+                self._ambient_energy = (
+                    self._ambient_alpha * self._ambient_energy
+                    + (1 - self._ambient_alpha) * energia
+                )
+
+            # Se energia > Nx o ambiente, conta como possível fala
+            if energia > self._ambient_energy * self._speech_energy_ratio:
+                self._speech_energy_count += 1
+            else:
+                self._speech_energy_count = 0
+
+            # Se mantivemos fala por chunks suficientes, dispara
+            if self._speech_energy_count >= self._speech_energy_required:
+                audio_logger.info(
+                    "Fala detectada por energia (%.1f > %.1f x %.1f). "
+                    "Iniciando gravacao.",
+                    energia,
+                    self._speech_energy_ratio,
+                    self._ambient_energy,
+                )
+                self._trigger_recording()
+                return
         
         # ESTADO: STREAMING_AUDIO (Ouvindo o comando e enviando)
         elif state == State.STREAMING_AUDIO:
             self.stream_ctrl.add_chunk(chunk, live=False)
             
+            # ── Vosk: alimenta transcrição local em tempo real ──────────
+            if self.vosk_stt.is_loaded:
+                vosk_text = self.vosk_stt.process_chunk(chunk)
+                if vosk_text:
+                    # Acumula texto para usar no final se não houver match offline
+                    self._vosk_accumulated += " " + vosk_text
+                    self._vosk_accumulated = self._vosk_accumulated.strip()
+                    
+                    # ⚡ COMANDO OFFLINE: verifica se o texto transcrito
+                    # localmente corresponde a TV, luz, volume, etc.
+                    if check_offline_command(self._vosk_accumulated):
+                        audio_logger.info(
+                            "⚡ Comando offline detectado via Vosk: '%s'. "
+                            "Abortando envio ao servidor.",
+                            self._vosk_accumulated,
+                        )
+                        # Cancela a gravação: descarta buffer, não envia ao servidor
+                        self.stream_ctrl.clear()
+                        self.wake_detector.reset()
+                        self.vosk_stt.reset()
+                        self._vosk_accumulated = ""
+                        self.sm.transition(State.LISTENING)
+                        self.ignore_wake_until = time.time() + 2.0
+                        return
+            
+            # ── VAD: detecção de fala/silêncio ──────────────────────────
             is_speech = self.vad.is_speech(chunk)
             
             if is_speech:
                 self.is_speaking = True
                 self.silence_frames = 0
             else:
-                if self.is_speaking:
-                    self.silence_frames += 1
+                self.silence_frames += 1
             
-            # Se detectou silêncio suficiente, corta e envia tudo
-            if self.is_speaking and self.silence_frames >= self.max_silence_frames:
+            # Se detectou silêncio suficiente
+            if self.silence_frames >= self.max_silence_frames:
+                if not self.is_speaking:
+                    # Timeout: energia detectada, mas não era fala humana. Falso positivo.
+                    audio_logger.info("Falso positivo de fala detectado (apenas ruido). Abortando.")
+                    self.stream_ctrl.clear()
+                    self.wake_detector.reset()
+                    self.vosk_stt.reset()
+                    self._vosk_accumulated = ""
+                    self.sm.transition(State.LISTENING)
+                    self.ignore_wake_until = time.time() + 1.0
+                    return
+
                 audio_logger.info("Fim da fala detectado.")
+                
+                # ⚡ Antes de enviar ao servidor, tenta Vosk final + offline
+                if self.vosk_stt.is_loaded:
+                    final = self.vosk_stt.final_result()
+                    if final:
+                        self._vosk_accumulated += " " + final
+                        self._vosk_accumulated = self._vosk_accumulated.strip()
+                    if self._vosk_accumulated and check_offline_command(self._vosk_accumulated):
+                        audio_logger.info(
+                            "⚡ Comando offline (final) via Vosk: '%s'. "
+                            "Abortando envio ao servidor.",
+                            self._vosk_accumulated,
+                        )
+                        self.stream_ctrl.clear()
+                        self.wake_detector.reset()
+                        self.vosk_stt.reset()
+                        self._vosk_accumulated = ""
+                        self.sm.transition(State.LISTENING)
+                        self.ignore_wake_until = time.time() + 2.0
+                        return
+                
+                # Se não foi comando offline, envia para o servidor normalmente
                 self.stream_ctrl.flush()
                 # Reseta o modelo OWW para evitar re-detecção da mesma
                 # wake word no áudio que acabou de ser enviado.
                 self.wake_detector.reset()
+                self._vosk_accumulated = ""
                 self.sm.transition(State.WAITING_RESPONSE)
                 self._response_start_time = time.time()
         

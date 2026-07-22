@@ -3,3 +3,6 @@ websocket-client
 webrtcvad
 numpy
 openwakeword
+vosk
+# requests (opcional, para fallback HTTP do offline_handler)
+requests
