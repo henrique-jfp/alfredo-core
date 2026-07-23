@@ -33,7 +33,7 @@ export function SettingsTab() {
       setSettings({});
     });
     api.getLocations().then((data) => {
-      setLocations(Array.isArray(data) ? data : []);
+      setLocations(Array.isArray(data) ? data as unknown as Location[] : []);
       setLocationsLoading(false);
     }).catch((err) => {
       console.error('Erro ao carregar locais:', err);
@@ -62,7 +62,7 @@ export function SettingsTab() {
     const newLoc = { name: newLocName, latitude: newLocLat, longitude: newLocLng, icon: newLocIcon };
     try {
       const created = await api.createLocation(newLoc);
-      setLocations([...locations, created]);
+      setLocations([...locations, created as unknown as Location]);
       setIsAddingLocation(false);
       setNewLocName('');
       setNewLocLat('');

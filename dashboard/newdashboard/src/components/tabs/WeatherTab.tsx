@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ForecastData, WeatherAlert } from '../../types';
+import { ForecastData, WeatherAlert, getWeatherKind } from '../../types';
 import { SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
 import {
   Droplets, Wind, Eye, Gauge, Sun, Moon,
@@ -8,15 +8,6 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useWeather } from '../../hooks/useWeather';
-
-function getWeatherKind(code: number) {
-  if (code <= 1) return 'sun';
-  if (code <= 3) return 'cloud';
-  if (code <= 69 || (code >= 80 && code <= 82)) return 'rain';
-  if (code >= 71 && code <= 77) return 'snow';
-  if (code >= 95) return 'storm';
-  return 'cloud';
-}
 
 function formatUnixTime(ts: number): string {
   return new Date(ts * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -259,7 +250,7 @@ const SunArc = ({ sunrise, sunset, current, isNight, moonrise, moonset }: { sunr
       </div>
     </div>
   );
-};const MetricCard = ({ icon: Icon, label, value, sub, children }: { icon: any; label: string; value?: React.ReactNode; sub?: string; children?: React.ReactNode }) => (
+};const WeatherMetricCard = ({ icon: Icon, label, value, sub }: { icon: React.ComponentType<{ className?: string }>; label: string; value?: React.ReactNode; sub?: string }) => (
   <div className="glass-panel p-4 flex flex-col md:flex-row items-start md:items-center gap-3 w-full">
     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]">
       <Icon className="h-5 w-5 drop-shadow-md" />
@@ -268,7 +259,6 @@ const SunArc = ({ sunrise, sunset, current, isNight, moonrise, moonset }: { sunr
       <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/60">{label}</div>
       {value && <div className="text-[16px] font-bold text-white mt-1 leading-none tabular-nums drop-shadow-md">{value}</div>}
       {sub && <div className="text-[11px] text-white/50 mt-1 font-mono uppercase tracking-wider">{sub}</div>}
-      {children && <div className="mt-2">{children}</div>}
     </div>
   </div>
 );
@@ -413,12 +403,12 @@ export function WeatherTab() {
 
                  <div className="flex flex-col gap-6 relative z-10 mt-4">
                    {/* Métricas Rápidas (2x2 em mobile, 4 em linha no desktop) */}
-                   <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-                      <MetricCard icon={Droplets} label="Umidade" value={`${current.humidity}%`} />
-                      <MetricCard icon={Wind} label="Vento" value={`${current.wind_speed} m/s`} sub={getWindDir(current.wind_deg)} />
-                      <MetricCard icon={Eye} label="Visibilidade" value={`${visKm} km`} />
-                      <MetricCard icon={Gauge} label="Pressão" value={`${current.pressure} hPa`} sub={Number(current.pressure) < 1010 ? "Baixo" : "Normal"} />
-                   </div>
+                    <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                       <WeatherMetricCard icon={Droplets} label="Umidade" value={`${current.humidity}%`} />
+                       <WeatherMetricCard icon={Wind} label="Vento" value={`${current.wind_speed} m/s`} sub={getWindDir(current.wind_deg)} />
+                       <WeatherMetricCard icon={Eye} label="Visibilidade" value={`${visKm} km`} />
+                       <WeatherMetricCard icon={Gauge} label="Pressão" value={`${current.pressure} hPa`} sub={Number(current.pressure) < 1010 ? "Baixo" : "Normal"} />
+                    </div>
 
                    {/* Previsão por Hora */}
                    <div className="flex flex-col gap-3 mt-2">

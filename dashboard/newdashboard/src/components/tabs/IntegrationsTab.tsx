@@ -1,17 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Music2, HelpCircle, X, ExternalLink, CheckCircle, Sparkles, Shield, Radio, Calendar, Link as LinkIcon, Loader2 } from 'lucide-react';
+import { api } from '../../lib/api';
 import { SectionHeading, StatusPulse, SkeletonBlock } from '../ui/DashboardPrimitives';
-
-interface IntegrationStatus {
-  is_configured: boolean;
-  is_connected: boolean;
-}
-
-interface IntegrationsData {
-  local_ip: string;
-  spotify: IntegrationStatus;
-  google_calendar: IntegrationStatus;
-}
+import { Modal } from '../ui/Modal';
+import type { IntegrationsData } from '../../types';
 
 export function IntegrationsTab() {
   const [data, setData] = useState<IntegrationsData | null>(null);
@@ -21,10 +13,10 @@ export function IntegrationsTab() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [showHelp, setShowHelp] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
-    fetch('/api/dashboard/integrations')
-      .then(r => r.json())
+    api.getIntegrations()
       .then(d => {
         setData(d);
         setClientId(d.spotify.is_configured ? '••••••••' : '');
@@ -46,20 +38,11 @@ export function IntegrationsTab() {
     setSaving(true);
     setSaveMsg('');
     try {
-      const r = await fetch('/api/dashboard/integrations/spotify/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
-      });
-      const d = await r.json();
-      if (r.ok) {
-        setSaveMsg('Credenciais salvas com sucesso!');
-        setData(prev => prev ? { ...prev, spotify: { ...prev.spotify, is_configured: true } } : prev);
-      } else {
-        setSaveMsg('Erro ao salvar: ' + (d.detail || 'desconhecido'));
-      }
-    } catch {
-      setSaveMsg('Erro de conexão com o servidor.');
+      const d = await api.saveSpotifyCredentials(clientId, clientSecret);
+      setSaveMsg('Credenciais salvas com sucesso!');
+      setData(prev => prev ? { ...prev, spotify: { ...prev.spotify, is_configured: true } } : prev);
+    } catch (e) {
+      setSaveMsg('Erro ao salvar: ' + (e instanceof Error ? e.message : 'desconhecido'));
     } finally {
       setSaving(false);
     }
@@ -67,8 +50,7 @@ export function IntegrationsTab() {
 
   const handleTestSpotify = async () => {
     try {
-      const res = await fetch('/api/dashboard/integrations/spotify/test', { method: 'POST' });
-      const data = await res.json();
+      const data = await api.testSpotify();
       if (data.status === 'success') {
         alert('Teste bem-sucedido! O Spotify respondeu.');
       } else {
@@ -77,24 +59,6 @@ export function IntegrationsTab() {
     } catch (e) {
       alert('Erro de rede ao testar.');
     }
-  };
-
-  const handleConnectSpotify = () => {
-    window.location.href = '/api/spotify/login';
-  };
-
-  const handleConnectGoogleCalendar = () => {
-    window.location.href = '/api/auth/google/authorize';
-  };
-
-  const [syncing, setSyncing] = useState(false);
-
-  const handleSyncCalendar = async () => {
-    setSyncing(true);
-    try {
-      await fetch('/api/auth/google/sync', { method: 'POST' });
-    } catch {}
-    setSyncing(false);
   };
 
   if (loading) {
@@ -160,6 +124,7 @@ export function IntegrationsTab() {
                     onClick={() => setShowHelp(true)}
                     className="text-[color:var(--text-tertiary)] transition-colors hover:text-[color:var(--text-primary)]"
                     title="Ajuda: como configurar"
+                    aria-label="Ajuda para configurar Spotify"
                   >
                     <HelpCircle className="w-4 h-4" />
                   </button>
@@ -223,7 +188,7 @@ export function IntegrationsTab() {
                   </button>
                 ) : (
                   <button
-                    onClick={handleConnectSpotify}
+                    onClick={api.connectSpotify}
                     disabled={!sp?.is_configured}
                     className="alfredo-pill flex-1 justify-center border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
@@ -258,7 +223,13 @@ export function IntegrationsTab() {
             <div className="mt-5 flex gap-2">
               {gc?.is_connected ? (
                 <button
-                  onClick={handleSyncCalendar}
+                  onClick={async () => {
+                    setSyncing(true);
+                    try {
+                      await api.syncGoogleCalendar();
+                    } catch {}
+                    setSyncing(false);
+                  }}
                   disabled={syncing}
                   className="alfredo-pill flex-1 justify-center border-blue-500/20 bg-blue-500/10 text-blue-400 disabled:opacity-50"
                 >
@@ -266,7 +237,7 @@ export function IntegrationsTab() {
                 </button>
               ) : (
                 <button
-                  onClick={handleConnectGoogleCalendar}
+                  onClick={api.connectGoogleCalendar}
                   className="alfredo-pill flex-1 justify-center border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)]"
                 >
                   Conectar Google Calendar
@@ -335,100 +306,89 @@ export function IntegrationsTab() {
 
       </div>
 
-      {showHelp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="alfredo-card mx-4 max-h-[80vh] w-full max-w-lg overflow-y-auto p-8">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-semibold text-[color:var(--text-primary)]">Como configurar o Spotify</h3>
-              <button onClick={() => setShowHelp(false)} className="text-[color:var(--text-tertiary)] hover:text-[color:var(--text-primary)]">
-                <X className="w-5 h-5" />
-              </button>
+      <Modal open={showHelp} onClose={() => setShowHelp(false)} title="Como configurar o Spotify" maxWidth="max-w-lg">
+        <ol className="flex flex-col gap-5 text-sm text-[color:var(--text-secondary)]">
+          <li className="flex gap-3">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#1DB954]/20 text-xs font-bold text-[#1DB954] mt-0.5">1</span>
+            <div>
+              <p className="font-medium text-[color:var(--text-primary)]">Acesse o Spotify for Developers</p>
+              <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer"
+                 className="text-[#1DB954] hover:underline flex items-center gap-1 mt-1">
+                developer.spotify.com/dashboard <ExternalLink className="w-3 h-3" />
+              </a>
             </div>
+          </li>
 
-            <ol className="flex flex-col gap-5 text-sm text-[color:var(--text-secondary)]">
-              <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#1DB954]/20 text-xs font-bold text-[#1DB954] mt-0.5">1</span>
-                <div>
-                  <p className="font-medium text-[color:var(--text-primary)]">Acesse o Spotify for Developers</p>
-                  <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer"
-                     className="text-[#1DB954] hover:underline flex items-center gap-1 mt-1">
-                    developer.spotify.com/dashboard <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              </li>
-
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</span>
-                <div>
-                  <p className="font-medium text-zinc-100">Crie um App</p>
-                  <p className="text-zinc-400 mt-1">Clique em "Create App", dê qualquer nome e descrição.</p>
-                </div>
-              </li>
-
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">3</span>
-                <div>
-                  <p className="font-medium text-zinc-100">Copie as credenciais</p>
-                  <p className="text-zinc-400 mt-1">Na tela do App, copie o <strong>Client ID</strong> e o <strong>Client Secret</strong>.</p>
-                </div>
-              </li>
-
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">4</span>
-                <div>
-                  <p className="font-medium text-zinc-100">Cole os dados aqui no Dashboard</p>
-                  <p className="text-zinc-400 mt-1">Preencha os campos acima e clique em <strong>"Salvar Credenciais"</strong>.</p>
-                </div>
-              </li>
-
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">5</span>
-                <div>
-                  <p className="font-medium text-zinc-100">Adicione o Redirect URI no Spotify</p>
-                  <p className="text-zinc-400 mt-1">No seu App em "Edit Settings" → "Redirect URIs", adicione:</p>
-                  <code className="block mt-2 px-3 py-2 bg-zinc-800 rounded-lg text-[#1DB954] text-xs break-all">
-                    http://127.0.0.1:10001/api/spotify/callback
-                  </code>
-                  <p className="text-zinc-500 text-xs mt-2">Clique em "Add" e depois "Save".</p>
-                </div>
-              </li>
-
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">6</span>
-                <div>
-                  <p className="font-medium text-zinc-100">Abra um SSH Tunnel</p>
-                  <p className="text-zinc-400 mt-1">No seu computador, abra o terminal e execute:</p>
-                  <code className="block mt-2 px-3 py-2 bg-zinc-800 rounded-lg text-[#1DB954] text-xs break-all">
-                    ssh -L 10001:localhost:10001 pvserver@192.168.0.56
-                  </code>
-                  <p className="text-zinc-500 text-xs mt-2">Isso faz com que <strong>127.0.0.1:10001</strong> no seu PC aponte para o servidor Alfredo (necessário porque o Spotify bloqueia HTTP em IPs não-loopback).</p>
-                </div>
-              </li>
-
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">7</span>
-                <div>
-                  <p className="font-medium text-zinc-100">Conecte sua conta</p>
-                  <p className="text-zinc-400 mt-1">Com o SSH tunnel aberto, acesse <strong>http://127.0.0.1:10001</strong> no navegador e clique em <strong>"Conectar Spotify"</strong>. Faça login e autorize. Pronto!</p>
-                  <p className="text-zinc-500 text-xs mt-2">Após conectar, você pode fechar o SSH tunnel e voltar a usar o endereço normal <strong>http://192.168.0.56:10001</strong>.</p>
-                </div>
-              </li>
-            </ol>
-
-            <div className="mt-6 p-4 bg-zinc-800/50 rounded-xl">
-              <p className="text-xs text-zinc-400">
-                <strong className="text-zinc-300">Requerimento:</strong> Sua conta Spotify precisa ser
-                {' '}<strong className="text-zinc-300">Premium</strong> para controle de reprodução por API.
-                Contas Free não conseguem tocar música pelo Alfredo.
-              </p>
+          <li className="flex gap-3">
+            <span className="w-6 h-6 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</span>
+            <div>
+              <p className="font-medium text-zinc-100">Crie um App</p>
+              <p className="text-zinc-400 mt-1">Clique em "Create App", dê qualquer nome e descrição.</p>
             </div>
+          </li>
 
-              <button onClick={() => setShowHelp(false)} className="mt-6 w-full rounded-xl bg-[#1DB954] py-3 text-sm font-bold text-black transition-all hover:bg-[#169c46]">
-                Entendi, vou configurar!
-              </button>
-          </div>
+          <li className="flex gap-3">
+            <span className="w-6 h-6 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">3</span>
+            <div>
+              <p className="font-medium text-zinc-100">Copie as credenciais</p>
+              <p className="text-zinc-400 mt-1">Na tela do App, copie o <strong>Client ID</strong> e o <strong>Client Secret</strong>.</p>
+            </div>
+          </li>
+
+          <li className="flex gap-3">
+            <span className="w-6 h-6 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">4</span>
+            <div>
+              <p className="font-medium text-zinc-100">Cole os dados aqui no Dashboard</p>
+              <p className="text-zinc-400 mt-1">Preencha os campos acima e clique em <strong>"Salvar Credenciais"</strong>.</p>
+            </div>
+          </li>
+
+          <li className="flex gap-3">
+            <span className="w-6 h-6 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">5</span>
+            <div>
+              <p className="font-medium text-zinc-100">Adicione o Redirect URI no Spotify</p>
+              <p className="text-zinc-400 mt-1">No seu App em "Edit Settings" → "Redirect URIs", adicione:</p>
+              <code className="block mt-2 px-3 py-2 bg-zinc-800 rounded-lg text-[#1DB954] text-xs break-all">
+                http://127.0.0.1:10001/api/spotify/callback
+              </code>
+              <p className="text-zinc-500 text-xs mt-2">Clique em "Add" e depois "Save".</p>
+            </div>
+          </li>
+
+          <li className="flex gap-3">
+            <span className="w-6 h-6 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">6</span>
+            <div>
+              <p className="font-medium text-zinc-100">Abra um SSH Tunnel</p>
+              <p className="text-zinc-400 mt-1">No seu computador, abra o terminal e execute:</p>
+              <code className="block mt-2 px-3 py-2 bg-zinc-800 rounded-lg text-[#1DB954] text-xs break-all">
+                ssh -L 10001:localhost:10001 pvserver@192.168.0.56
+              </code>
+              <p className="text-zinc-500 text-xs mt-2">Isso faz com que <strong>127.0.0.1:10001</strong> no seu PC aponte para o servidor Alfredo (necessário porque o Spotify bloqueia HTTP em IPs não-loopback).</p>
+            </div>
+          </li>
+
+          <li className="flex gap-3">
+            <span className="w-6 h-6 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">7</span>
+            <div>
+              <p className="font-medium text-zinc-100">Conecte sua conta</p>
+              <p className="text-zinc-400 mt-1">Com o SSH tunnel aberto, acesse <strong>http://127.0.0.1:10001</strong> no navegador e clique em <strong>"Conectar Spotify"</strong>. Faça login e autorize. Pronto!</p>
+              <p className="text-zinc-500 text-xs mt-2">Após conectar, você pode fechar o SSH tunnel e voltar a usar o endereço normal <strong>http://192.168.0.56:10001</strong>.</p>
+            </div>
+          </li>
+        </ol>
+
+        <div className="mt-6 p-4 bg-zinc-800/50 rounded-xl">
+          <p className="text-xs text-zinc-400">
+            <strong className="text-zinc-300">Requerimento:</strong> Sua conta Spotify precisa ser
+            {' '}<strong className="text-zinc-300">Premium</strong> para controle de reprodução por API.
+            Contas Free não conseguem tocar música pelo Alfredo.
+          </p>
         </div>
-      )}
+
+        <button onClick={() => setShowHelp(false)} className="mt-6 w-full rounded-xl bg-[#1DB954] py-3 text-sm font-bold text-black transition-all hover:bg-[#169c46]">
+          Entendi, vou configurar!
+        </button>
+      </Modal>
     </>
   );
 }

@@ -1,15 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Tv, CheckCircle } from 'lucide-react';
+import { api } from '../lib/api';
 import { SkeletonBlock } from './ui/DashboardPrimitives';
-
-interface TVConfig {
-  configured: boolean;
-  room_id: string;
-  ip_address: string;
-  mac_address: string;
-  smartthings_pat: string;
-  smartthings_device_id: string;
-}
+import { TVConfig, DEFAULT_ROOM, ROOM_LABELS } from '../types';
 
 export function TVIntegrationCard() {
   const [config, setConfig] = useState<TVConfig | null>(null);
@@ -23,11 +16,10 @@ export function TVIntegrationCard() {
   const [stPat, setStPat] = useState('');
   const [stDeviceId, setStDeviceId] = useState('');
 
-  const roomId = 'ROOM_LIVING'; // Using hardcoded room for now
+  const roomId = DEFAULT_ROOM;
 
   useEffect(() => {
-    fetch(`/api/tv/config/${roomId}`)
-      .then(res => res.json())
+    api.getTVConfig(roomId)
       .then(data => {
         setConfig(data);
         if (data.configured) {
@@ -37,7 +29,10 @@ export function TVIntegrationCard() {
           setStDeviceId(data.smartthings_device_id || '');
         }
       })
-      .catch(err => console.error(err))
+      .catch(err => {
+        console.error('Erro ao carregar config TV:', err);
+        setSaveMsg('Erro ao carregar configuração.');
+      })
       .finally(() => setLoading(false));
   }, [roomId]);
 
@@ -45,25 +40,24 @@ export function TVIntegrationCard() {
     setSaving(true);
     setSaveMsg('');
     try {
-      const res = await fetch('/api/tv/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          room_id: roomId,
-          ip_address: ipAddress,
-          mac_address: macAddress,
-          smartthings_pat: stPat,
-          smartthings_device_id: stDeviceId
-        }),
+      await api.saveTVConfig({
+        room_id: roomId,
+        ip_address: ipAddress,
+        mac_address: macAddress,
+        smartthings_pat: stPat,
+        smartthings_device_id: stDeviceId,
       });
-      if (res.ok) {
-        setSaveMsg('✓ Configuração salva com sucesso!');
-        setConfig(prev => prev ? { ...prev, configured: true } : { configured: true } as any);
-      } else {
-        setSaveMsg('Erro ao salvar configuração.');
-      }
+      setSaveMsg('✓ Configuração salva com sucesso!');
+      setConfig(prev => prev ? { ...prev, configured: true } : {
+        configured: true,
+        room_id: roomId,
+        ip_address: ipAddress,
+        mac_address: macAddress,
+        smartthings_pat: stPat,
+        smartthings_device_id: stDeviceId,
+      });
     } catch (e) {
-      setSaveMsg('Erro de conexão.');
+      setSaveMsg('Erro ao salvar configuração: ' + (e instanceof Error ? e.message : 'Desconhecido'));
     } finally {
       setSaving(false);
     }
@@ -71,12 +65,12 @@ export function TVIntegrationCard() {
 
   const handleTestMute = async () => {
     try {
-      await fetch(`/api/tv/control/${roomId}/mute?state=true`, { method: 'POST' });
+      await api.controlTV(roomId, 'mute', 'true');
       setTimeout(() => {
-        fetch(`/api/tv/control/${roomId}/mute?state=false`, { method: 'POST' });
+        api.controlTV(roomId, 'mute', 'false').catch(() => {});
       }, 3000);
     } catch (e) {
-      alert("Erro ao testar mute");
+      setSaveMsg('Erro ao testar mute');
     }
   };
 
@@ -201,6 +195,7 @@ export function TVIntegrationCard() {
               onClick={handleTestMute}
               className="alfredo-pill border-blue-500/20 bg-blue-500/10 text-blue-400"
               title="Muta a TV por 3 segundos para testar"
+              aria-label="Testar mute da TV"
             >
               Testar Mute
             </button>

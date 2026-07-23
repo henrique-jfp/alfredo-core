@@ -101,6 +101,8 @@ export function CalendarTab() {
   };
 
   const handleDeleteEvent = async (id: number) => {
+    const confirmed = window.confirm('Tem certeza que deseja excluir este evento?');
+    if (!confirmed) return;
     try {
       await api.deleteEvent(id);
       fetchEvents();
@@ -128,13 +130,13 @@ export function CalendarTab() {
       <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
         <div className="alfredo-card p-4 md:p-6">
           <div className="flex items-center justify-between mb-5">
-            <button onClick={goPrev} className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)] p-2">
+            <button onClick={goPrev} className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)] p-2" aria-label="Mês anterior">
               <ChevronLeft className="h-4 w-4" />
             </button>
             <span className="text-sm font-semibold text-[color:var(--text-primary)]">
               {MONTHS[viewDate.getMonth()]} {viewDate.getFullYear()}
             </span>
-            <button onClick={goNext} className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)] p-2">
+            <button onClick={goNext} className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)] p-2" aria-label="Próximo mês">
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>

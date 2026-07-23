@@ -1,3 +1,17 @@
+export const ROOM_IDS = {
+  LIVING: 'ROOM_LIVING',
+  BEDROOM: 'ROOM_BEDROOM',
+} as const;
+
+export type RoomId = (typeof ROOM_IDS)[keyof typeof ROOM_IDS];
+
+export const ROOM_LABELS: Record<RoomId, string> = {
+  [ROOM_IDS.LIVING]: 'Sala de Estar',
+  [ROOM_IDS.BEDROOM]: 'Quarto',
+};
+
+export const DEFAULT_ROOM = ROOM_IDS.LIVING;
+
 export interface Stats {
   interactions: number;
   active_timers: number;
@@ -167,3 +181,41 @@ export interface ForecastData {
   aqi?: number;
   alerts?: WeatherAlert[];
 }
+
+export interface TVConfig {
+  configured: boolean;
+  room_id: string;
+  ip_address: string;
+  mac_address: string;
+  smartthings_pat: string;
+  smartthings_device_id: string;
+}
+
+export interface SpotifyState {
+  is_playing: boolean;
+  track_name?: string;
+  artist_name?: string;
+  album_art?: string;
+  progress_ms?: number;
+  duration_ms?: number;
+  device_name?: string;
+  error?: string;
+}
+
+export type WeatherKind = 'sun' | 'cloud' | 'rain' | 'snow' | 'storm';
+
+export function getWeatherKind(code: number): WeatherKind {
+  if (code <= 1) return 'sun';
+  if (code <= 3) return 'cloud';
+  if (code <= 69 || (code >= 80 && code <= 82)) return 'rain';
+  if (code >= 71 && code <= 77) return 'snow';
+  if (code >= 95) return 'storm';
+  return 'cloud';
+}
+
+export const DREAM_THEME_GROUPS = {
+  anxiety: ['ansiedade', 'medo', 'pesadelo', 'dragão', 'escuridão', 'queda', 'tsunami'],
+  triumph: ['superação', 'vitória', 'voar', 'poder', 'força', 'luz'],
+  introspection: ['introspecção', 'passado', 'infância', 'água', 'casa', 'família'],
+  love: ['amor', 'paixão', 'encontro', 'abraço'],
+} as const;

@@ -17,6 +17,9 @@ import {
 import { cn } from '../../lib/utils';
 import { EmptyState, SectionHeading, SkeletonBlock, StatusPulse } from '../ui/DashboardPrimitives';
 
+// Module-level audio scheduling to avoid window pollution
+let nextAudioTime = 0;
+
 export class SatellitesTabBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
@@ -111,16 +114,14 @@ function SatellitesTabContent() {
           source.buffer = audioBuffer;
           source.connect(audioCtx.destination);
 
-          const w = window as any;
-          
           // Se o buffer acumulou muito (mais de 500ms de atraso), reseta para o tempo atual!
-          // Isso impede que o áudio fique 1 minuto atrasado se a aba ficar em background ou houver jitter
-          if (!w.nextAudioTime || w.nextAudioTime < audioCtx.currentTime || (w.nextAudioTime - audioCtx.currentTime > 0.5)) {
-            w.nextAudioTime = audioCtx.currentTime + 0.15;
-          }
+        // Isso impede que o áudio fique 1 minuto atrasado se a aba ficar em background ou houver jitter
+        if (!nextAudioTime || nextAudioTime < audioCtx.currentTime || (nextAudioTime - audioCtx.currentTime > 0.5)) {
+          nextAudioTime = audioCtx.currentTime + 0.15;
+        }
 
-          source.start(w.nextAudioTime);
-          w.nextAudioTime += audioBuffer.duration;
+        source.start(nextAudioTime);
+        nextAudioTime += audioBuffer.duration;
         } catch (e) {
           console.error('Audio playback error:', e);
         }
@@ -343,6 +344,7 @@ function SatellitesTabContent() {
                     onClick={() => sendCommand('OTA_UPDATE')}
                     title="Atualização OTA"
                     className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]"
+                    aria-label="Atualização OTA"
                   >
                     <Zap className="h-4 w-4" />
                   </button>
@@ -350,6 +352,7 @@ function SatellitesTabContent() {
                     onClick={() => sendCommand('IDENTIFY')}
                     title="Localizar satélite"
                     className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]"
+                    aria-label="Localizar satélite"
                   >
                     <Radio className="h-4 w-4" />
                   </button>
@@ -376,7 +379,7 @@ function SatellitesTabContent() {
               </div>
 
               <div className="mt-6 flex flex-wrap gap-2">
-                {parseCapabilities((selectedSat as any).capabilities).map((cap: string) => {
+                {parseCapabilities((selectedSat as Satellite & { capabilities?: unknown }).capabilities).map((cap: string) => {
                   const spec = capIcons[cap];
                   if (!spec) return null;
                   const Icon = spec.icon;
@@ -387,7 +390,7 @@ function SatellitesTabContent() {
                     </div>
                   );
                 })}
-                {parseCapabilities((selectedSat as any).capabilities).length === 0 && (
+                {parseCapabilities((selectedSat as Satellite & { capabilities?: unknown }).capabilities).length === 0 && (
                   <div className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-tertiary)]">Hardware básico</div>
                 )}
               </div>

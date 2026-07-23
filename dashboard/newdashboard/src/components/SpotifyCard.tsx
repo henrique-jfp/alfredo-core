@@ -1,22 +1,14 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Play, Pause, SkipForward, SkipBack, Music } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-
-interface SpotifyState {
-  is_playing: boolean;
-  track_name?: string;
-  artist_name?: string;
-  album_art?: string;
-  progress_ms?: number;
-  duration_ms?: number;
-  device_name?: string;
-  error?: string;
-}
+import { api } from '../lib/api';
+import type { SpotifyState } from '../types';
 
 export function SpotifyCard() {
   const [state, setState] = useState<SpotifyState | null>(null);
   const [localProgress, setLocalProgress] = useState(0);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const previousStateRef = useRef<SpotifyState | null>(null);
 
   useEffect(() => {
     const connectSSE = () => {
@@ -69,20 +61,26 @@ export function SpotifyCard() {
     return () => clearInterval(interval);
   }, [state?.is_playing, state?.duration_ms, state?.track_name]);
 
-  const handleControl = async (action: string) => {
-    if (action === 'play' && state) setState({ ...state, is_playing: true });
-    if (action === 'pause' && state) setState({ ...state, is_playing: false });
+  const handleControl = useCallback(async (action: string) => {
+    // Snapshot previous state for rollback on failure
+    previousStateRef.current = state;
+
+    // Optimistic update
+    if (state) {
+      if (action === 'play') setState({ ...state, is_playing: true });
+      if (action === 'pause') setState({ ...state, is_playing: false });
+    }
 
     try {
-      await fetch('/api/spotify/control', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action })
-      });
+      await api.controlSpotify(action);
     } catch (e) {
       console.error("Failed to send command", e);
+      // Rollback on failure
+      if (previousStateRef.current) {
+        setState(previousStateRef.current);
+      }
     }
-  };
+  }, [state]);
 
   if (!state || (!state.is_playing && !state.track_name)) {
     return (
@@ -160,6 +158,7 @@ export function SpotifyCard() {
             <button
               onClick={() => handleControl('prev')}
             className="rounded-full p-2.5 text-[color:var(--text-secondary)] transition-colors hover:bg-white/[0.05] hover:text-[color:var(--text-primary)] active:scale-95"
+            aria-label="Faixa anterior"
           >
             <SkipBack className="w-5 h-5 fill-current" />
           </button>
@@ -167,6 +166,7 @@ export function SpotifyCard() {
           <button
             onClick={() => handleControl(state.is_playing ? 'pause' : 'play')}
             className="rounded-full bg-brass-500 p-3 text-[color:var(--bg-base)] transition-all hover:bg-brass-400 active:scale-95 shadow-[0_0_20px_rgba(212,162,78,0.2)] hover:shadow-[0_0_28px_rgba(212,162,78,0.25)]"
+            aria-label={state.is_playing ? 'Pausar' : 'Tocar'}
           >
             {state.is_playing ? (
               <Pause className="w-6 h-6 fill-current" />
@@ -178,6 +178,7 @@ export function SpotifyCard() {
           <button
             onClick={() => handleControl('next')}
             className="rounded-full p-2.5 text-[color:var(--text-secondary)] transition-colors hover:bg-white/[0.05] hover:text-[color:var(--text-primary)] active:scale-95"
+            aria-label="Próxima faixa"
           >
             <SkipForward className="w-5 h-5 fill-current" />
           </button>

@@ -3,6 +3,8 @@ import { Cloud, History, Plus, X, Brain, Heart, Zap, Sparkles, Ghost, Compass, A
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
 import { EmptyState, SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
+import { Modal } from '../ui/Modal';
+import { DREAM_THEME_GROUPS } from '../../types';
 
 interface Dream {
   id: number;
@@ -65,16 +67,16 @@ export function DreamsTab() {
 
   const getThemeStyle = (theme: string) => {
     const t = theme.toLowerCase();
-    if (['ansiedade', 'medo', 'pesadelo', 'dragão', 'escuridão', 'queda', 'tsunami'].some((k) => t.includes(k))) {
+    if (DREAM_THEME_GROUPS.anxiety.some((k) => t.includes(k))) {
       return { bg: 'bg-rose-500/10', text: 'text-rose-400', border: 'border-rose-500/20', icon: Ghost };
     }
-    if (['superação', 'vitória', 'voar', 'poder', 'força', 'luz'].some((k) => t.includes(k))) {
+    if (DREAM_THEME_GROUPS.triumph.some((k) => t.includes(k))) {
       return { bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/20', icon: Zap };
     }
-    if (['introspecção', 'passado', 'infância', 'água', 'casa', 'família'].some((k) => t.includes(k))) {
+    if (DREAM_THEME_GROUPS.introspection.some((k) => t.includes(k))) {
       return { bg: 'bg-indigo-500/10', text: 'text-indigo-400', border: 'border-indigo-500/20', icon: Brain };
     }
-    if (['amor', 'paixão', 'encontro', 'abraço'].some((k) => t.includes(k))) {
+    if (DREAM_THEME_GROUPS.love.some((k) => t.includes(k))) {
       return { bg: 'bg-rose-500/10', text: 'text-rose-400', border: 'border-rose-500/20', icon: Heart };
     }
     return { bg: 'bg-brass-500/10', text: 'text-brass-400', border: 'border-brass-500/20', icon: Compass };
@@ -139,6 +141,7 @@ export function DreamsTab() {
                         opacity: isSelected ? 1 : opacity,
                         transform: `rotate(${i % 2 === 0 ? (i % 3) * -2 : (i % 4) * 2}deg) translateY(${i % 3 === 0 ? -5 : 5}px)`,
                       }}
+                      aria-label={`Filtrar por "${w.word}"`}
                     >
                       {w.word}
                     </button>
@@ -189,6 +192,7 @@ export function DreamsTab() {
                   key={t}
                   onClick={() => setFilter(t)}
                   className={cn('alfredo-pill capitalize', filter === t ? 'border-brass-500/25 bg-brass-500/15 text-brass-300' : 'border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]')}
+                  aria-label={`Filtrar por tema "${t}"`}
                 >
                   {t}
                 </button>
@@ -243,6 +247,7 @@ export function DreamsTab() {
                         <button
                           onClick={() => setExpandedDreamId(expandedDreamId === dream.id ? null : dream.id)}
                           className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]"
+                          aria-label={expandedDreamId === dream.id ? 'Ocultar relato original' : 'Ver relato original'}
                         >
                           {expandedDreamId === dream.id ? 'Ocultar relato original' : 'Ver relato original'}
                           <ArrowRight className="h-3.5 w-3.5" />
@@ -262,46 +267,32 @@ export function DreamsTab() {
         </div>
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="alfredo-card w-full max-w-lg p-6 shadow-2xl">
-            <div className="mb-6 flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-[20px] font-semibold text-brass-400">
-                <Cloud className="h-5 w-5" /> Relatar sonho
-              </h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-[color:var(--text-tertiary)] hover:text-[color:var(--text-primary)]">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <p className="mb-4 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
-              Descreva o sonho com o máximo de detalhes que você lembrar. O Alfredo interpreta e extrai padrões temáticos.
-            </p>
-
-            <form onSubmit={handleSubmit}>
-              <textarea
-                value={newDreamText}
-                onChange={(e) => setNewDreamText(e.target.value)}
-                placeholder="Eu sonhei que estava voando sobre uma montanha escura..."
-                className="alfredo-input min-h-32 resize-none"
-                autoFocus
-              />
-              <div className="mt-6 flex justify-end gap-3">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]">
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !newDreamText.trim()}
-                  className="alfredo-pill border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isSubmitting ? 'Analisando...' : 'Analisar e salvar'}
-                </button>
-              </div>
-            </form>
+      <Modal open={isModalOpen} onClose={() => setIsModalOpen(false)} title="Relatar sonho" maxWidth="max-w-lg">
+        <p className="mb-4 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
+          Descreva o sonho com o máximo de detalhes que você lembrar. O Alfredo interpreta e extrai padrões temáticos.
+        </p>
+        <form onSubmit={handleSubmit}>
+          <textarea
+            value={newDreamText}
+            onChange={(e) => setNewDreamText(e.target.value)}
+            placeholder="Eu sonhei que estava voando sobre uma montanha escura..."
+            className="alfredo-input min-h-32 resize-none"
+            autoFocus
+          />
+          <div className="mt-6 flex justify-end gap-3">
+            <button type="button" onClick={() => setIsModalOpen(false)} className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]">
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || !newDreamText.trim()}
+              className="alfredo-pill border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSubmitting ? 'Analisando...' : 'Analisar e salvar'}
+            </button>
           </div>
-        </div>
-      )}
+        </form>
+      </Modal>
     </div>
   );
 }

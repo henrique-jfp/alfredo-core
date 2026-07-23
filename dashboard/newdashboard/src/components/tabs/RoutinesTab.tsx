@@ -1,32 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../lib/api';
 import { Clock, PlusCircle, HelpCircle, X, Play, Trash2, ChevronRight, Sparkles } from 'lucide-react';
-import { Routine } from '../../types';
+import { Routine, DEFAULT_ROOM, ROOM_LABELS, ROOM_IDS } from '../../types';
 import { EmptyState, SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
+import { Modal } from '../ui/Modal';
 import { cn } from '../../lib/utils';
+
+const DAYS = [
+  { label: 'D', value: 0 },
+  { label: 'S', value: 1 },
+  { label: 'T', value: 2 },
+  { label: 'Q', value: 3 },
+  { label: 'Q', value: 4 },
+  { label: 'S', value: 5 },
+  { label: 'S', value: 6 },
+];
 
 export function RoutinesTab() {
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [showHelp, setShowHelp] = useState(false);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    name: string;
+    trigger_type: string;
+    trigger_value: string;
+    action_type: string;
+    action_value: string;
+    room_id: string;
+    days_of_week: number[];
+  }>({
     name: '',
     trigger_type: 'time',
     trigger_value: '',
     action_type: 'command',
     action_value: '',
-    room_id: 'ROOM_LIVING',
+    room_id: DEFAULT_ROOM,
     days_of_week: [0, 1, 2, 3, 4, 5, 6],
   });
-
-  const DAYS = [
-    { label: 'D', value: 0 },
-    { label: 'S', value: 1 },
-    { label: 'T', value: 2 },
-    { label: 'Q', value: 3 },
-    { label: 'Q', value: 4 },
-    { label: 'S', value: 5 },
-    { label: 'S', value: 6 },
-  ];
 
   useEffect(() => {
     fetchRoutines();
@@ -42,6 +51,8 @@ export function RoutinesTab() {
   };
 
   const handleDelete = async (id: number) => {
+    const confirmed = window.confirm('Tem certeza que deseja excluir esta rotina?');
+    if (!confirmed) return;
     try {
       await api.deleteRoutine(id);
       setRoutines(routines.filter((r) => r.id !== id));
@@ -65,28 +76,19 @@ export function RoutinesTab() {
     }
   };
 
-  const preview = `${formData.days_of_week.length === 7 ? 'Todos os dias' : `${formData.days_of_week.length} dia(s)`}, às ${formData.trigger_value || '07:00'}, em ${formData.room_id === 'ROOM_LIVING' ? 'Sala de Estar' : 'Quarto'}, executo: "${formData.action_value || '...' }"`;
+  const roomLabel = ROOM_LABELS[formData.room_id as keyof typeof ROOM_LABELS] || formData.room_id;
+  const preview = `${formData.days_of_week.length === 7 ? 'Todos os dias' : `${formData.days_of_week.length} dia(s)`}, às ${formData.trigger_value || '07:00'}, em ${roomLabel}, executo: "${formData.action_value || '...'}"`;
 
   return (
     <div className="relative flex h-full flex-col gap-5 overflow-y-auto pb-10 pr-2">
-      {showHelp && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-2xl">
-          <div className="alfredo-card relative max-w-md w-full p-6 shadow-2xl">
-            <button onClick={() => setShowHelp(false)} className="absolute right-4 top-4 text-[color:var(--text-tertiary)] hover:text-[color:var(--text-primary)]">
-              <X className="h-5 w-5" />
-            </button>
-            <h3 className="mb-4 flex items-center gap-2 text-[18px] font-semibold text-brass-400">
-              <HelpCircle className="h-5 w-5" /> Como criar rotinas?
-            </h3>
-            <ul className="space-y-3 text-sm text-[color:var(--text-secondary)]">
-              <li><strong className="text-[color:var(--text-primary)]">Nome:</strong> apenas para você identificar.</li>
-              <li><strong className="text-[color:var(--text-primary)]">Horário:</strong> o disparo exato.</li>
-              <li><strong className="text-[color:var(--text-primary)]">Sala:</strong> o cômodo onde atua.</li>
-              <li><strong className="text-[color:var(--text-primary)]">Comando:</strong> o que o Alfredo vai executar.</li>
-            </ul>
-          </div>
-        </div>
-      )}
+      <Modal open={showHelp} onClose={() => setShowHelp(false)} title="Como criar rotinas?" maxWidth="max-w-md">
+        <ul className="space-y-3 text-sm text-[color:var(--text-secondary)]">
+          <li><strong className="text-[color:var(--text-primary)]">Nome:</strong> apenas para você identificar.</li>
+          <li><strong className="text-[color:var(--text-primary)]">Horário:</strong> o disparo exato.</li>
+          <li><strong className="text-[color:var(--text-primary)]">Sala:</strong> o cômodo onde atua.</li>
+          <li><strong className="text-[color:var(--text-primary)]">Comando:</strong> o que o Alfredo vai executar.</li>
+        </ul>
+      </Modal>
 
       <SectionHeading
         eyebrow="Automação"
@@ -130,7 +132,7 @@ export function RoutinesTab() {
                         <div className="min-w-0">
                           <h3 className="truncate text-[15px] font-semibold text-[color:var(--text-primary)]">{rt.name}</h3>
                           <p className="mt-1 text-[13px] text-[color:var(--text-secondary)]">
-                            {rt.room_id === 'ROOM_LIVING' ? 'Sala de Estar' : 'Quarto'} · {rt.trigger_value}
+                            {ROOM_LABELS[rt.room_id as keyof typeof ROOM_LABELS] || rt.room_id} · {rt.trigger_value}
                           </p>
                         </div>
                       </div>
@@ -145,7 +147,7 @@ export function RoutinesTab() {
                           {rt.days_of_week ? (rt.days_of_week.split(',').length === 7 ? 'Todos os dias' : `${rt.days_of_week.split(',').length} dia(s)`) : 'Todos os dias'}
                         </span>
                         <span className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]">
-                          {rt.room_id === 'ROOM_LIVING' ? 'Sala de Estar' : 'Quarto'}
+                          {ROOM_LABELS[rt.room_id as keyof typeof ROOM_LABELS] || rt.room_id}
                         </span>
                       </div>
 
@@ -156,10 +158,17 @@ export function RoutinesTab() {
 
                     <div className="flex shrink-0 flex-col gap-2">
                       <StatusPulse label={rt.is_active ? 'Ativa' : 'Pausada'} tone={rt.is_active ? 'success' : 'warning'} />
-                      <button className="alfredo-pill justify-center border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]">
+                      <button
+                        className="alfredo-pill justify-center border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]"
+                        aria-label="Executar rotina"
+                      >
                         <Play className="h-3.5 w-3.5" />
                       </button>
-                      <button onClick={() => handleDelete(rt.id)} className="alfredo-pill justify-center border-rose-500/20 bg-rose-500/10 text-rose-400">
+                      <button
+                        onClick={() => handleDelete(rt.id)}
+                        className="alfredo-pill justify-center border-rose-500/20 bg-rose-500/10 text-rose-400"
+                        aria-label={`Excluir rotina ${rt.name}`}
+                      >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -177,7 +186,7 @@ export function RoutinesTab() {
                 <div className="alfredo-section-label">Nova rotina</div>
                 <h2 className="mt-2 text-[18px] font-semibold text-[color:var(--text-primary)]">Criação com preview</h2>
               </div>
-              <button onClick={() => setShowHelp(true)} className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]" title="Como usar">
+              <button onClick={() => setShowHelp(true)} className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]" title="Como usar" aria-label="Ajuda">
                 <HelpCircle className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -211,6 +220,7 @@ export function RoutinesTab() {
                             ? 'border-brass-500/30 bg-brass-500/15 text-brass-300'
                             : 'border-white/5 bg-white/[0.03] text-[color:var(--text-tertiary)] hover:bg-white/[0.05]'
                         )}
+                        aria-label={`${day.label}${isSelected ? ' (selecionado)' : ''}`}
                       >
                         {day.label}
                       </button>
@@ -221,8 +231,8 @@ export function RoutinesTab() {
               <div>
                 <label className="alfredo-section-label">Sala</label>
                 <select value={formData.room_id} onChange={(e) => setFormData({ ...formData, room_id: e.target.value })} className="alfredo-input mt-1 appearance-none cursor-pointer">
-                  <option value="ROOM_LIVING">Sala de Estar</option>
-                  <option value="ROOM_BEDROOM">Quarto</option>
+                  <option value={ROOM_IDS.LIVING}>Sala de Estar</option>
+                  <option value={ROOM_IDS.BEDROOM}>Quarto</option>
                 </select>
               </div>
               <div>

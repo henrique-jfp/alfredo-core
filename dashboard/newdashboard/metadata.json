@@ -1,8 +1,0 @@
-{
-  "name": "Alfredo OS",
-  "description": "Painel de controle do assistente residencial inteligente",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}

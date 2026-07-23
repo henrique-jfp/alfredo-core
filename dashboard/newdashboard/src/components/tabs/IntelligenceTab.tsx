@@ -38,6 +38,8 @@ export function IntelligenceTab() {
   };
 
   const handleDelete = async (id: number) => {
+    const confirmed = window.confirm('Tem certeza que deseja excluir esta memória?');
+    if (!confirmed) return;
     try {
       await api.deleteMemory(id);
       setMemories(memories.filter((m) => m.id !== id));
@@ -209,6 +211,7 @@ export function IntelligenceTab() {
                         onClick={() => handleDelete(mem.id)}
                         className="alfredo-pill border-rose-500/20 bg-rose-500/10 text-rose-400"
                         title="Excluir"
+                        aria-label={`Excluir memória #${mem.id}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -219,6 +222,7 @@ export function IntelligenceTab() {
                         }}
                         className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]"
                         title="Editar"
+                        aria-label={`Editar memória #${mem.id}`}
                       >
                         <Edit3 className="h-3.5 w-3.5" />
                       </button>

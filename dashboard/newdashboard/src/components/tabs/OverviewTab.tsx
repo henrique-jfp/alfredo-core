@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { api } from '../../lib/api';
-import { Stats, HistoryItem, ListItem, TimerItem, Weather } from '../../types';
+import { Stats, HistoryItem, ListItem, TimerItem, Weather, getWeatherKind } from '../../types';
 import {
   Bell,
   CheckSquare,
@@ -22,6 +22,8 @@ import {
 import { cn } from '../../lib/utils';
 import { SpotifyCard } from '../SpotifyCard';
 import { EmptyState, MetricCard, SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
+import { Modal } from '../ui/Modal';
+import { useIsVisible } from '../../hooks/useIsVisible';
 
 type WidgetKey = 'compras' | 'tarefas' | 'lembretes';
 const RIO_TIME_ZONE = 'America/Sao_Paulo';
@@ -57,14 +59,7 @@ function formatCountdown(expiresAt: string) {
   return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
-function getWeatherKind(code: number) {
-  if (code <= 1) return 'sun';
-  if (code <= 3) return 'cloud';
-  if (code <= 69 || (code >= 80 && code <= 82)) return 'rain';
-  if (code >= 71 && code <= 77) return 'snow';
-  if (code >= 95) return 'storm';
-  return 'cloud';
-}
+// getWeatherKind movido para types.ts (compartilhado)
 
 function TimerCard({
   timer,
@@ -140,8 +135,10 @@ export function OverviewTab() {
   const [lastCommandLatencyMs, setLastCommandLatencyMs] = useState<number | null>(null);
   const [activeWidget, setActiveWidget] = useState<WidgetKey>('compras');
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const { ref, isVisible } = useIsVisible<HTMLDivElement>();
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setIsRefreshing(true);
     
     // Fetch weather asynchronously without blocking
@@ -160,48 +157,48 @@ export function OverviewTab() {
     setLists(listsData);
     setTimers(timersData);
     setTimeout(() => setIsRefreshing(false), 450);
-  };
+  }, []);
 
   useEffect(() => {
     fetchData();
-    const dataInterval = setInterval(fetchData, 10000);
+    const dataInterval = setInterval(() => {
+      if (isVisible) fetchData();
+    }, 10000);
     const clockInterval = setInterval(() => setTime(new Date()), 1000);
     return () => {
       clearInterval(dataInterval);
       clearInterval(clockInterval);
     };
-  }, []);
+  }, [fetchData, isVisible]);
 
   const handleCommandSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!commandText.trim()) return;
 
     setIsSending(true);
+    setCommandError(null);
     const startedAt = performance.now();
     try {
-      await fetch('/api/dashboard/command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: commandText }),
-      });
+      await api.sendCommand(commandText);
       setLastCommandLatencyMs(Math.max(0, Math.round(performance.now() - startedAt)));
       setCommandText('');
       fetchData();
     } catch (error) {
       console.error(error);
+      setCommandError(error instanceof Error ? error.message : 'Erro ao enviar comando');
     } finally {
       setIsSending(false);
     }
   };
 
-  const deleteTimer = async (id: number) => {
+  const deleteTimer = useCallback(async (id: number) => {
     try {
       await api.deleteTimer(id);
       fetchData();
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [fetchData]);
 
   const alarms = timers.filter((t) => t.timer_type === 'alarm' || (t.message && t.message.toLowerCase().includes('despertar')));
   const nextAlarm = alarms.length > 0 ? [...alarms].sort((a, b) => new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime())[0] : null;
@@ -307,7 +304,7 @@ export function OverviewTab() {
         : activeAlarms.slice(0, 2);
 
   return (
-    <div className="flex h-full flex-col gap-5 overflow-y-auto pr-2 pb-10">
+    <div ref={ref} className="flex h-full flex-col gap-5 overflow-y-auto pr-2 pb-10">
       {/* Cabeçalho compacto: relógio + timers + clima */}
       <div className="flex items-center justify-between gap-4 py-2 flex-wrap">
         <ClockDisplay time={time} />
@@ -362,14 +359,20 @@ export function OverviewTab() {
           />
 
           <form onSubmit={handleCommandSubmit} className="mt-5 grid gap-3 md:grid-cols-[1fr_auto]">
-            <input
-              type="text"
-              value={commandText}
-              onChange={(e) => setCommandText(e.target.value)}
-              disabled={isSending}
-              placeholder="Comando rápido para o Alfredo..."
-              className="alfredo-input"
-            />
+            <div className="flex flex-col gap-1">
+              <input
+                type="text"
+                value={commandText}
+                onChange={(e) => setCommandText(e.target.value)}
+                disabled={isSending}
+                placeholder="Comando rápido para o Alfredo..."
+                className="alfredo-input"
+                aria-label="Comando para o Alfredo"
+              />
+              {commandError && (
+                <span className="px-1 text-[11px] text-rose-400">{commandError}</span>
+              )}
+            </div>
             <button
               type="submit"
               disabled={isSending || !commandText.trim()}
@@ -551,67 +554,47 @@ export function OverviewTab() {
         </section>
       </div>
 
-      {isHistoryModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
-          <div 
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
-            onClick={() => setIsHistoryModalOpen(false)}
-          />
-          <div className="relative flex w-full max-w-2xl max-h-[85vh] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(24,25,28,0.95)_0%,rgba(16,17,19,0.98)_100%)] shadow-[0_24px_48px_rgba(0,0,0,0.6)] backdrop-blur-xl">
-            <div className="flex items-center justify-between border-b border-white/5 px-6 py-5">
-              <div>
-                <h2 className="text-xl font-semibold tracking-tight text-[color:var(--text-primary)]">Histórico de Conversas</h2>
-                <p className="mt-1 text-sm text-[color:var(--text-secondary)]">Últimas interações registradas no sistema.</p>
-              </div>
-              <button 
-                onClick={() => setIsHistoryModalOpen(false)}
-                className="rounded-full p-2 text-[color:var(--text-tertiary)] hover:bg-white/5 hover:text-[color:var(--text-primary)] transition-colors"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-              </button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {history.length === 0 ? (
-                <EmptyState
-                  icon={Activity}
-                  tone="info"
-                  title="Nenhum histórico encontrado"
-                  description="As conversas recentes aparecerão aqui."
-                />
-              ) : (
-                history.map((item, index) => {
-                  const rioTime = formatRio(new Date(item.timestamp), { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
-                  return (
-                    <div key={item.id} className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
-                      <div className="flex items-start justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--text-tertiary)]">
-                        <span className="truncate">{item.room_id} • {item.device_id}</span>
-                        <div className="flex flex-col items-end gap-1 text-right">
-                          <span>{rioTime}</span>
-                          {item.latency_ms ? (
-                            <span className="rounded-full border border-white/5 bg-black/30 px-2 py-0.5 text-[9px] tracking-[0.16em] text-[color:var(--text-secondary)]">
-                              Latência {item.latency_ms} ms
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="mt-3 flex gap-3">
-                        <div className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full bg-brass-400 shadow-[0_0_12px_rgba(212,162,78,0.25)]" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[14px] font-medium text-[color:var(--text-primary)]">{item.input_text}</p>
-                          <p className="mt-2 rounded-xl border border-white/5 bg-black/20 px-3 py-2 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
-                            {item.output_text || 'Processando resposta...'}
-                          </p>
-                        </div>
-                      </div>
+      <Modal open={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} title="Histórico de Conversas" maxWidth="max-w-2xl">
+        <p className="mb-4 text-sm text-[color:var(--text-secondary)]">Últimas interações registradas no sistema.</p>
+        <div className="space-y-4">
+          {history.length === 0 ? (
+            <EmptyState
+              icon={Activity}
+              tone="info"
+              title="Nenhum histórico encontrado"
+              description="As conversas recentes aparecerão aqui."
+            />
+          ) : (
+            history.map((item) => {
+              const rioTime = formatRio(new Date(item.timestamp), { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+              return (
+                <div key={item.id} className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+                  <div className="flex items-start justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--text-tertiary)]">
+                    <span className="truncate">{item.room_id} • {item.device_id}</span>
+                    <div className="flex flex-col items-end gap-1 text-right">
+                      <span>{rioTime}</span>
+                      {item.latency_ms ? (
+                        <span className="rounded-full border border-white/5 bg-black/30 px-2 py-0.5 text-[9px] tracking-[0.16em] text-[color:var(--text-secondary)]">
+                          Latência {item.latency_ms} ms
+                        </span>
+                      ) : null}
                     </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
+                  </div>
+                  <div className="mt-3 flex gap-3">
+                    <div className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full bg-brass-400 shadow-[0_0_12px_rgba(212,162,78,0.25)]" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[14px] font-medium text-[color:var(--text-primary)]">{item.input_text}</p>
+                      <p className="mt-2 rounded-xl border border-white/5 bg-black/20 px-3 py-2 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
+                        {item.output_text || 'Processando resposta...'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
-      )}
+      </Modal>
     </div>
   );
 }
