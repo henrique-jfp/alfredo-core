@@ -138,11 +138,20 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
                 # muito antes de terminar de tocar. Calculamos a duração (48kbps = 6000 bytes/s) e esperamos.
                 expected_duration = total_bytes / 6000.0
                 elapsed = time.time() - t_start_tts
-                delay = expected_duration - elapsed + 0.5 # 500ms de margem
+                
+                # Se não gerou áudio (ignorou), não precisa de delay
+                if total_bytes == 0:
+                    delay = 0
+                else:
+                    # Margem de 3500ms para Bluetooth/Buffer do Android
+                    delay = expected_duration - elapsed + 3.5
+                    
+                satellite_logger.info(f"[TTS_END DELAY] bytes={total_bytes}, exp_dur={expected_duration:.2f}s, elapsed={elapsed:.2f}s, delay={delay:.2f}s")
                 if delay > 0:
                     await asyncio.sleep(delay)
                         
             import json
+            satellite_logger.info("Enviando tts_end para o satelite...")
             await websocket.send_text(json.dumps({"type": "tts_end"}))
         except Exception as e:
             satellite_logger.error(f"Erro ao processar frase do {device_id}: {e}")

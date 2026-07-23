@@ -18,6 +18,8 @@ import { type LucideIcon,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { StatusPulse } from './ui/DashboardPrimitives';
+import { AlfredoOrb } from './AlfredoOrb';
+import { useAlfredoState } from '../hooks/useAlfredoState';
 
 export type TabId = 
   | 'visao-geral'
@@ -37,6 +39,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
+  const { state: alfredoState } = useAlfredoState();
   const navSections: {
     label: string;
     icon: LucideIcon;
@@ -78,9 +81,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       <aside className="hidden md:flex w-[288px] flex-shrink-0 flex-col border-r border-white/5 bg-[linear-gradient(180deg,rgba(19,20,23,0.95)_0%,rgba(11,12,14,0.98)_100%)] px-5 py-5 backdrop-blur-3xl z-40">
         {/* Logo */}
         <div className="mb-8 flex items-center gap-4 rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-4 shadow-[0_8px_24px_rgba(0,0,0,0.28)]">
-          <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-brass-500/30 bg-[radial-gradient(circle_at_30%_30%,rgba(212,162,78,0.25),rgba(19,20,23,1)_70%)] shadow-[0_0_24px_rgba(212,162,78,0.18)]">
-            <span className="text-xl font-bold text-brass-300">A</span>
-          </div>
+          <AlfredoOrb state={alfredoState} size="md" pulse={false} className="shrink-0" />
           <div className="flex flex-col">
             <h2 className="text-[18px] font-semibold tracking-tight text-[color:var(--text-primary)]">Alfredo OS</h2>
             <span className="mt-0.5 text-[10px] font-semibold tracking-[0.2em] text-[color:var(--text-tertiary)]">OBSIDIAN &amp; BRASS</span>

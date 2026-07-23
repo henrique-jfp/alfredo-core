@@ -3,6 +3,13 @@ import { Mic, Square, Loader2, Volume2, MonitorSpeaker, Smartphone } from 'lucid
 import { cn } from '../lib/utils';
 import { StatusPulse } from './ui/DashboardPrimitives';
 
+/** Dispatch a custom event so useAlfredoState (and the AlfredoOrb) stays in sync */
+function emitAlfredoEvent(type: string) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(type));
+  }
+}
+
 export function WebMic() {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -52,6 +59,7 @@ export function WebMic() {
         setIsRecording(true);
         isRecordingRef.current = true;
         isInitializingRef.current = false;
+        emitAlfredoEvent('alfredo:mic:start');
         
         processor.onaudioprocess = (e) => {
           if (!isRecordingRef.current) return;
@@ -74,6 +82,7 @@ export function WebMic() {
           // Received TTS audio. Stop capture, but keep the playback context
           // alive until the response finishes.
           stopCapture();
+          emitAlfredoEvent('alfredo:mic:response');
 
           try {
             setIsPlaying(true);
@@ -85,6 +94,7 @@ export function WebMic() {
               audioPlayerRef.current.onended = () => {
                 URL.revokeObjectURL(blobUrl);
                 setIsPlaying(false);
+                emitAlfredoEvent('alfredo:mic:done');
                 cleanupAfterPlayback();
               };
             } else {
@@ -97,6 +107,7 @@ export function WebMic() {
               playSource.connect(playbackContext.destination);
               playSource.onended = () => {
                 setIsPlaying(false);
+                emitAlfredoEvent('alfredo:mic:done');
                 cleanupAfterPlayback();
               };
               playSource.start();
@@ -121,11 +132,13 @@ export function WebMic() {
 
       ws.onerror = (err) => {
         console.error("WebSocket error:", err);
+        emitAlfredoEvent('alfredo:mic:error');
         stopRecording();
       };
 
     } catch (error) {
       console.error("Error accessing microphone:", error);
+      emitAlfredoEvent('alfredo:mic:error');
       setMicError("Microfone não disponível. Verifique as permissões.");
       setTimeout(() => setMicError(null), 5000);
       isInitializingRef.current = false;
@@ -156,6 +169,7 @@ export function WebMic() {
     setIsProcessing(false);
     setIsRecording(false);
     isRecordingRef.current = false;
+    emitAlfredoEvent('alfredo:mic:done');
   };
 
   const stopCapture = () => {
@@ -194,6 +208,7 @@ export function WebMic() {
         setIsRecording(false);
         isRecordingRef.current = false;
         setIsProcessing(true); // Wait for TTS to come back via WS
+        emitAlfredoEvent('alfredo:mic:stop');
 
       if (processorRef.current) {
         processorRef.current.disconnect();

@@ -1,28 +1,28 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { motion } from 'motion/react';
 import { api } from '../../lib/api';
 import { Stats, HistoryItem, ListItem, TimerItem, Weather, getWeatherKind } from '../../types';
 import {
   Bell,
   CheckSquare,
   Clock,
+  Cloud,
   Cpu,
-  Mic,
   MessageSquare,
   ShoppingCart,
-  Sun,
-  Cloud,
-  CloudRain,
-  CloudLightning,
-  CloudSnow,
   Zap,
   AlarmClock,
   TimerReset,
   Activity,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { SpotifyCard } from '../SpotifyCard';
 import { EmptyState, MetricCard, SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
 import { Modal } from '../ui/Modal';
+import { AlfredoOrb } from '../AlfredoOrb';
+import { useAlfredoState } from '../../hooks/useAlfredoState';
+import { useToast } from '../Toast';
 import { useIsVisible } from '../../hooks/useIsVisible';
 
 type WidgetKey = 'compras' | 'tarefas' | 'lembretes';
@@ -58,8 +58,6 @@ function formatCountdown(expiresAt: string) {
   const seconds = diff % 60;
   return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
-
-// getWeatherKind movido para types.ts (compartilhado)
 
 function TimerCard({
   timer,
@@ -122,7 +120,25 @@ function TimerCard({
   );
 }
 
+// --- Section entrance variants for motion ---
+const sectionVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: {
+      delay: i * 0.06,
+      duration: 0.4,
+      ease: [0.25, 0.1, 0.25, 1] as const,
+    },
+  }),
+};
+
 export function OverviewTab() {
+  const { state: alfredoState } = useAlfredoState();
+  const { toast } = useToast();
+  const { ref, isVisible } = useIsVisible<HTMLDivElement>();
+
   const [stats, setStats] = useState<Stats | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [lists, setLists] = useState<{ compras: ListItem[]; tarefas: ListItem[] }>({ compras: [], tarefas: [] });
@@ -136,12 +152,11 @@ export function OverviewTab() {
   const [activeWidget, setActiveWidget] = useState<WidgetKey>('compras');
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
-  const { ref, isVisible } = useIsVisible<HTMLDivElement>();
 
   const fetchData = useCallback(async () => {
     setIsRefreshing(true);
-    
-    // Fetch weather asynchronously without blocking
+
+    // Fetch weather asynchronously
     api.getWeather().then(weatherData => {
       if (weatherData) setWeather(weatherData);
     }).catch(() => null);
@@ -156,7 +171,7 @@ export function OverviewTab() {
     setHistory(historyData);
     setLists(listsData);
     setTimers(timersData);
-    setTimeout(() => setIsRefreshing(false), 450);
+    setTimeout(() => setIsRefreshing(false), 300);
   }, []);
 
   useEffect(() => {
@@ -180,12 +195,15 @@ export function OverviewTab() {
     const startedAt = performance.now();
     try {
       await api.sendCommand(commandText);
-      setLastCommandLatencyMs(Math.max(0, Math.round(performance.now() - startedAt)));
+      const latency = Math.max(0, Math.round(performance.now() - startedAt));
+      setLastCommandLatencyMs(latency);
       setCommandText('');
+      toast('success', 'Comando enviado', `${latency}ms de latência`);
       fetchData();
     } catch (error) {
       console.error(error);
       setCommandError(error instanceof Error ? error.message : 'Erro ao enviar comando');
+      toast('error', 'Erro ao enviar comando', error instanceof Error ? error.message : undefined);
     } finally {
       setIsSending(false);
     }
@@ -194,15 +212,25 @@ export function OverviewTab() {
   const deleteTimer = useCallback(async (id: number) => {
     try {
       await api.deleteTimer(id);
+      toast('success', 'Timer removido');
       fetchData();
     } catch (e) {
       console.error(e);
+      toast('error', 'Erro ao remover timer');
     }
-  }, [fetchData]);
+  }, [fetchData, toast]);
 
   const alarms = timers.filter((t) => t.timer_type === 'alarm' || (t.message && t.message.toLowerCase().includes('despertar')));
-  const nextAlarm = alarms.length > 0 ? [...alarms].sort((a, b) => new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime())[0] : null;
+  const activeTimers = timers.filter((t) => t.timer_type === 'timer' && !(t.message && t.message.toLowerCase().includes('despertar')));
+  const hasPinnedTimers = activeTimers.length > 0 || alarms.length > 0;
+  const pinnedTimers =
+    activeTimers.length > 0 && alarms.length > 0
+      ? [activeTimers[0], alarms[0]]
+      : activeTimers.length > 0
+        ? activeTimers.slice(0, 2)
+        : alarms.slice(0, 2);
 
+  // --- Weather rendering ---
   const WeatherIcon = React.memo(function WeatherIcon({ kind, temp }: { kind: string; temp?: number | string }) {
     const sunRays = Array.from({ length: 8 }, (_, i) => (
       <div key={i} className="absolute inset-0 flex items-center justify-center" style={{ transform: `rotate(${i * 45}deg)` }}>
@@ -220,8 +248,8 @@ export function OverviewTab() {
 
     const lightningBolt = (
       <div className="absolute inset-0 flex items-center justify-center">
-      <div className="w-[3px] h-16 skew-y-[12deg] rounded-full bg-gradient-to-b from-yellow-300 via-yellow-400 to-transparent shadow-[0_0_20px_rgba(250,204,21,0.6)]" style={{ animation: 'lightningFlash 3s ease-in-out infinite', marginTop: -20 }} />
-      <div className="w-[2px] h-10 skew-y-[-15deg] rounded-full bg-gradient-to-b from-yellow-400 to-transparent" style={{ marginTop: 12, marginLeft: 8 }} />
+        <div className="w-[3px] h-16 skew-y-[12deg] rounded-full bg-gradient-to-b from-yellow-300 via-yellow-400 to-transparent shadow-[0_0_20px_rgba(250,204,21,0.6)]" style={{ animation: 'lightningFlash 3s ease-in-out infinite', marginTop: -20 }} />
+        <div className="w-[2px] h-10 skew-y-[-15deg] rounded-full bg-gradient-to-b from-yellow-400 to-transparent" style={{ marginTop: 12, marginLeft: 8 }} />
       </div>
     );
 
@@ -270,16 +298,6 @@ export function OverviewTab() {
   const recentActivities = useMemo(() => history.slice(0, 6), [history]);
   const weatherCode = weather?.weather_code ?? -1;
   const weatherKind = useMemo(() => getWeatherKind(weatherCode), [weatherCode]);
-  const weatherTitle = useMemo(() => {
-    switch (weatherKind) {
-      case 'sun': return 'Ensolarado';
-      case 'cloud': return 'Nublado';
-      case 'rain': return 'Chuva';
-      case 'snow': return 'Neve';
-      case 'storm': return 'Tempestade';
-      default: return '—';
-    }
-  }, [weatherKind]);
   const kpis = [
     { label: 'Conversas', value: stats?.interactions || '—', icon: MessageSquare, tone: 'info' as const, detail: 'Atividade consolidada' },
     { label: 'Timers', value: stats?.active_timers ?? '—', icon: Clock, tone: 'warning' as const, detail: 'Alarmes e lembretes' },
@@ -293,63 +311,133 @@ export function OverviewTab() {
     lembretes: timers.length,
   };
 
-  const activeTimers = timers.filter((t) => t.timer_type === 'timer' && !(t.message && t.message.toLowerCase().includes('despertar')));
-  const activeAlarms = alarms;
-  const hasPinnedTimers = activeTimers.length > 0 || activeAlarms.length > 0;
-  const pinnedTimers =
-    activeTimers.length > 0 && activeAlarms.length > 0
-      ? [activeTimers[0], activeAlarms[0]]
-      : activeTimers.length > 0
-        ? activeTimers.slice(0, 2)
-        : activeAlarms.slice(0, 2);
+  // --- Greeting based on time of day ---
+  const greeting = useMemo(() => {
+    const hour = time.getHours();
+    if (hour < 6) return 'Boa madrugada';
+    if (hour < 12) return 'Bom dia';
+    if (hour < 18) return 'Boa tarde';
+    return 'Boa noite';
+  }, [time]);
 
   return (
     <div ref={ref} className="flex h-full flex-col gap-5 overflow-y-auto pr-2 pb-10">
-      {/* Cabeçalho compacto: relógio + timers + clima */}
-      <div className="flex items-center justify-between gap-4 py-2 flex-wrap">
-        <ClockDisplay time={time} />
-        <div className="flex items-center gap-4 flex-wrap">
+      {/* ═══════ HERO SECTION — Alfredo Orb + Clock + Weather ═══════ */}
+      <motion.div
+        custom={0}
+        variants={sectionVariants}
+        initial="hidden"
+        animate="visible"
+        className="flex items-start justify-between gap-6 flex-wrap"
+      >
+        {/* Left: Orb + Greeting */}
+        <div className="flex items-center gap-5">
+          <AlfredoOrb state={alfredoState} size="xl" pulse />
+          <div className="flex flex-col gap-1">
+            <h2 className="text-2xl font-semibold tracking-tight text-[color:var(--text-primary)]">
+              {greeting}
+            </h2>
+            <p className="text-[13px] text-[color:var(--text-secondary)] leading-relaxed max-w-[240px]">
+              {weather
+                ? `${weather.description}, ${weather.temperature}°`
+                : 'Alfredo está pronto para ajudar.'}
+            </p>
+          </div>
+        </div>
+
+        {/* Right: Clock + Weather + Timers */}
+        <div className="flex items-center gap-4 flex-wrap shrink-0">
           {hasPinnedTimers && pinnedTimers.slice(0, 2).map((timer) => (
             <TimerCard key={timer.id} timer={timer} onDelete={deleteTimer} />
           ))}
-          <div className="flex items-center gap-3 alfredo-card p-3 md:p-3 shrink-0">
-            <WeatherIcon kind={weatherKind} temp={weather?.temperature} />
-            <div className="flex flex-col">
-              <div className="flex items-baseline gap-1">
-                <span className="text-xl font-bold leading-none text-white tabular-nums">{weather ? `${weather.temperature}°` : '--°'}</span>
-                <span className="text-[11px] text-zinc-500">/{weather?.max_temp ?? '--'}°</span>
-              </div>
-              <span className="text-[10px] text-zinc-500 leading-tight mt-0.5">{weather?.description || 'Buscando...'}</span>
-              {weather?.humidity && <span className="text-[9px] text-zinc-600 leading-tight mt-0.5">{weather.humidity}% umidade</span>}
-            </div>
-          </div>
+          <ClockDisplay time={time} />
         </div>
-      </div>
+      </motion.div>
 
-      <SpotifyCard />
-
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
-        {kpis.map((kpi) => (
-          <div key={kpi.label}>
-            <MetricCard
-              icon={kpi.icon}
-              label={kpi.label}
-              value={kpi.value}
-              detail={kpi.detail}
-              tone={kpi.tone}
-              sparkline={kpi.label === 'IA' ? [0.35, 0.42, 0.38, 0.55, 0.62, 0.8] : [0.24, 0.28, 0.4, 0.52, 0.48, 0.66]}
+      {/* ═══════ COMMAND BAR ═══════ */}
+      <motion.div
+        custom={1}
+        variants={sectionVariants}
+        initial="hidden"
+        animate="visible"
+        className="relative"
+      >
+        <form onSubmit={handleCommandSubmit} className="relative">
+          <div className="relative flex items-center gap-3 rounded-2xl border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-4 py-3 transition-all duration-200 focus-within:border-brass-500/40 focus-within:shadow-[0_0_0_1px_rgba(212,162,78,0.2),0_0_24px_rgba(212,162,78,0.08)] shadow-[0_4px_16px_rgba(0,0,0,0.2)]">
+            <Sparkles className="h-5 w-5 shrink-0 text-brass-400/60" />
+            <input
+              type="text"
+              value={commandText}
+              onChange={(e) => setCommandText(e.target.value)}
+              disabled={isSending}
+              placeholder="Comande o Alfredo — luzes, música, rotinas..."
+              className="flex-1 bg-transparent text-[15px] text-[color:var(--text-primary)] placeholder:text-[color:var(--text-tertiary)] outline-none"
+              aria-label="Comando para o Alfredo"
             />
+            {commandText.trim() && (
+              <button
+                type="submit"
+                disabled={isSending}
+                className="alfredo-pill border-brass-500/25 bg-brass-500/15 text-brass-300 hover:bg-brass-500/25 transition-all disabled:opacity-50 shrink-0"
+              >
+                {isSending ? (
+                  <span className="inline-block w-4 h-4 rounded-full border-2 border-brass-400/30 border-t-brass-300 animate-spin" />
+                ) : (
+                  'Enviar'
+                )}
+              </button>
+            )}
           </div>
-        ))}
-      </div>
+          {commandError && (
+            <p className="mt-2 px-4 text-[12px] text-rose-400 flex items-center gap-2">
+              <span className="w-1 h-1 rounded-full bg-rose-400" />
+              {commandError}
+            </p>
+          )}
+        </form>
+      </motion.div>
 
-      <div className="grid gap-5 xl:grid-cols-[1.45fr_0.95fr]">
+      {/* ═══════ SPOTIFY ═══════ */}
+      <motion.div custom={2} variants={sectionVariants} initial="hidden" animate="visible">
+        <SpotifyCard />
+      </motion.div>
+
+      {/* ═══════ KPI CARDS ═══════ */}
+      <motion.div
+        custom={3}
+        variants={sectionVariants}
+        initial="hidden"
+        animate="visible"
+        className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4"
+      >
+        {kpis.map((kpi) => (
+          <MetricCard
+            key={kpi.label}
+            icon={kpi.icon}
+            label={kpi.label}
+            value={kpi.value}
+            detail={kpi.detail}
+            tone={kpi.tone}
+            sparkline={kpi.label === 'IA' ? [0.35, 0.42, 0.38, 0.55, 0.62, 0.8] : [0.24, 0.28, 0.4, 0.52, 0.48, 0.66]}
+          />
+        ))}
+      </motion.div>
+
+      {/* ═══════ TWO-COLUMN SECTION ═══════ */}
+      <motion.div
+        custom={4}
+        variants={sectionVariants}
+        initial="hidden"
+        animate="visible"
+        className="grid gap-5 xl:grid-cols-[1.45fr_0.95fr]"
+      >
+        {/* --- Recent conversations --- */}
         <section className="alfredo-card flex min-h-0 flex-col p-5 md:p-6">
           <SectionHeading
             eyebrow="Atividade"
-            title="Conversas recentes" 
+            title="Conversas recentes"
             action={
-              <button 
+              <button
                 onClick={() => setIsHistoryModalOpen(true)}
                 className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)] hover:bg-white/[0.06] hover:text-[color:var(--text-primary)] transition-colors"
               >
@@ -357,31 +445,6 @@ export function OverviewTab() {
               </button>
             }
           />
-
-          <form onSubmit={handleCommandSubmit} className="mt-5 grid gap-3 md:grid-cols-[1fr_auto]">
-            <div className="flex flex-col gap-1">
-              <input
-                type="text"
-                value={commandText}
-                onChange={(e) => setCommandText(e.target.value)}
-                disabled={isSending}
-                placeholder="Comando rápido para o Alfredo..."
-                className="alfredo-input"
-                aria-label="Comando para o Alfredo"
-              />
-              {commandError && (
-                <span className="px-1 text-[11px] text-rose-400">{commandError}</span>
-              )}
-            </div>
-            <button
-              type="submit"
-              disabled={isSending || !commandText.trim()}
-              className="alfredo-pill justify-center border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] shadow-[0_0_24px_rgba(212,162,78,0.18)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Mic className="h-4 w-4" />
-              Enviar
-            </button>
-          </form>
 
           <div className="mt-5 flex min-h-0 flex-col gap-2 overflow-y-auto pr-0.5">
             {recentActivities.length === 0 ? (
@@ -410,7 +473,7 @@ export function OverviewTab() {
                       </div>
                     </div>
                     <div className="mt-3 flex gap-3">
-                      <div className="mt-0.5 h-2.5 w-2.5 rounded-full bg-brass-400 shadow-[0_0_12px_rgba(212,162,78,0.25)]" />
+                      <StatusPulse label="" tone={alfredoState === 'error' ? 'danger' : 'brass'} className="mt-0.5 w-2.5 h-2.5 [&>span]:hidden" />
                       <div className="min-w-0 flex-1">
                         <p className="line-clamp-2 text-[14px] font-medium text-[color:var(--text-primary)]">{item.input_text}</p>
                         <p className="mt-2 rounded-xl border border-white/5 bg-black/20 px-3 py-2 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
@@ -425,6 +488,7 @@ export function OverviewTab() {
           </div>
         </section>
 
+        {/* --- Widgets: Compras / Tarefas / Lembretes --- */}
         <section className="alfredo-card flex min-h-0 flex-col p-5 md:p-6">
           <SectionHeading
             title="Compras, tarefas e lembretes"
@@ -552,8 +616,9 @@ export function OverviewTab() {
             )}
           </div>
         </section>
-      </div>
+      </motion.div>
 
+      {/* ═══════ HISTORY MODAL ═══════ */}
       <Modal open={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} title="Histórico de Conversas" maxWidth="max-w-2xl">
         <p className="mb-4 text-sm text-[color:var(--text-secondary)]">Últimas interações registradas no sistema.</p>
         <div className="space-y-4">

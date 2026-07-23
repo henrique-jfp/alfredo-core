@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Sidebar, TabId } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { OverviewTab } from './components/tabs/OverviewTab';
@@ -13,6 +14,21 @@ import { CalendarTab } from './components/tabs/CalendarTab';
 import { WeatherTab } from './components/tabs/WeatherTab';
 import { VirtualKeyboard } from './components/VirtualKeyboard';
 import { WebMic } from './components/WebMic';
+import { AmbientBackground } from './components/AmbientBackground';
+import { ToastProvider } from './components/Toast';
+
+const tabVariants = {
+  initial: { opacity: 0, y: 16, scale: 0.98 },
+  animate: { opacity: 1, y: 0, scale: 1 },
+  exit: { opacity: 0, y: -8, scale: 0.98 },
+};
+
+const tabTransition = {
+  type: 'spring' as const,
+  stiffness: 300,
+  damping: 30,
+  mass: 0.8,
+};
 
 export default function App() {
   const [activeTab, setActiveTab] = React.useState<TabId>('visao-geral');
@@ -55,38 +71,59 @@ export default function App() {
 
   const currentHeaders = getTabTitle(activeTab);
 
+  const renderTab = () => {
+    switch (activeTab) {
+      case 'visao-geral': return <OverviewTab />;
+      case 'dispositivos': return <DevicesTab />;
+      case 'integracoes': return <IntegrationsTab />;
+      case 'rotinas': return <RoutinesTab />;
+      case 'satelites': return <SatellitesTab />;
+      case 'inteligencia': return <IntelligenceTab />;
+      case 'sonhos': return <DreamsTab />;
+      case 'calendario': return <CalendarTab />;
+      case 'clima': return <WeatherTab />;
+      case 'configuracoes': return <SettingsTab />;
+    }
+  };
+
   return (
-    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-[color:var(--bg-base)] text-[color:var(--text-primary)] selection:bg-[rgba(212,162,78,0.28)] md:flex-row">
-      {isServerMode && (
-        <VirtualKeyboard onHeightChange={setKeyboardHeight} />
-      )}
-      <WebMic />
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
-      
-      <main 
-        className="relative z-10 flex min-w-0 flex-1 flex-col px-4 pt-4 transition-all duration-300 ease-out md:px-8 md:pt-6"
-        style={{
-          paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined,
-          height: '100dvh'
-        }}
-      >
-        {activeTab !== 'visao-geral' && <Topbar title={currentHeaders.title} subtitle={currentHeaders.sub} />}
+    <ToastProvider>
+      <AmbientBackground />
+      <div className="grain-overlay" />
+      <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-[color:var(--bg-base)] text-[color:var(--text-primary)] selection:bg-[rgba(212,162,78,0.28)] md:flex-row">
+        {isServerMode && (
+          <VirtualKeyboard onHeightChange={setKeyboardHeight} />
+        )}
+        <WebMic />
+        <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
         
-        <div className="relative min-h-0 flex-1 overflow-hidden">
-          <div className="h-full overflow-x-hidden overflow-y-auto pb-28 md:pb-6 fade-up">
-            {activeTab === 'visao-geral' && <OverviewTab />}
-            {activeTab === 'dispositivos' && <DevicesTab />}
-            {activeTab === 'integracoes' && <IntegrationsTab />}
-            {activeTab === 'rotinas' && <RoutinesTab />}
-            {activeTab === 'satelites' && <SatellitesTab />}
-            {activeTab === 'inteligencia' && <IntelligenceTab />}
-            {activeTab === 'sonhos' && <DreamsTab />}
-            {activeTab === 'calendario' && <CalendarTab />}
-            {activeTab === 'clima' && <WeatherTab />}
-            {activeTab === 'configuracoes' && <SettingsTab />}
+        <main 
+          className="relative z-10 flex min-w-0 flex-1 flex-col px-4 pt-4 transition-all duration-300 ease-out md:px-8 md:pt-6"
+          style={{
+            paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined,
+            height: '100dvh'
+          }}
+        >
+          {activeTab !== 'visao-geral' && <Topbar title={currentHeaders.title} subtitle={currentHeaders.sub} />}
+          
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            <div className="h-full overflow-x-hidden overflow-y-auto pb-28 md:pb-6">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={activeTab}
+                  variants={tabVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  transition={tabTransition}
+                >
+                  {renderTab()}
+                </motion.div>
+              </AnimatePresence>
+            </div>
           </div>
-        </div>
-      </main>
-    </div>
+        </main>
+      </div>
+    </ToastProvider>
   );
 }
