@@ -59,8 +59,12 @@ WS_FALLBACK_HOSTS = [
 
 from dotenv import load_dotenv
 
-import openwakeword
-from openwakeword.model import Model as OWWModel
+try:
+    import openwakeword
+    from openwakeword.model import Model as OWWModel
+except ImportError:
+    openwakeword = None
+    OWWModel = None
 
 try:
     import vosk
@@ -131,9 +135,15 @@ class AudioConfig:
         default_factory=lambda: float(os.getenv("ALFREDO_SOFTWARE_GAIN", "2.0"))
     )
 
-    server_url: str = "http://pvserver:10001"
-    device_id: str = "server-satellite-sala"
-    room_id: str = "ROOM_LIVING"
+    server_url: str = field(
+        default_factory=lambda: os.getenv("ALFREDO_SERVER_URL", "http://pvserver:10001")
+    )
+    device_id: str = field(
+        default_factory=lambda: os.getenv("ALFREDO_DEVICE_ID", "server-satellite-sala")
+    )
+    room_id: str = field(
+        default_factory=lambda: os.getenv("ALFREDO_ROOM_ID", "ROOM_LIVING")
+    )
 
     @property
     def dashcam_max_bytes(self) -> int:
@@ -1335,6 +1345,119 @@ def _check_session_mode() -> None:
         s.set_session_mode(False)
 
 
+class _SoundDevicePlayer:
+    """Fallback de reprodução via sounddevice quando mpg123/ffplay não existem.
+
+    Suporta MP3 nativamente:
+      1. Tenta decodificar via mpg123 (subprocess) — detecta pelo sync word 0xFF 0xFB
+      2. Tenta decodificar via pydub (se instalado)
+      3. Último recurso: toca como PCM16 cru (útil para testes/streams PCM)
+
+    Simula a interface de subprocess.Popen:
+      - `stdin` (writeable) — escreva bytes de áudio (MP3 ou PCM)
+      - `poll()` / `wait(timeout)` / `kill()`
+    """
+
+    def __init__(self):
+        self._read_fd, self._write_fd = os.pipe()
+        self.stdin = open(self._write_fd, "wb", buffering=0)
+        self._closed = False
+        self._thread = threading.Thread(target=self._play_loop, daemon=True)
+        self._thread.start()
+
+    def _play_loop(self):
+        """Lê do pipe, decodifica se MP3, reproduz via sounddevice."""
+        try:
+            import shutil
+            import sounddevice as sd
+
+            _HAS_MPG123 = shutil.which("mpg123") is not None
+            try:
+                from pydub import AudioSegment
+                import io as _io
+                _HAS_PYDUB = True
+            except ImportError:
+                _HAS_PYDUB = False
+
+            buf = bytearray()
+            with sd.RawOutputStream(
+                samplerate=48000, channels=1, dtype="int16",
+            ) as stream:
+                while True:
+                    chunk = os.read(self._read_fd, 8192)
+                    if not chunk:
+                        break
+                    buf.extend(chunk)
+
+                    # ── Detecta MP3 pelo sync word (0xFF 0xFB ou 0xFF 0xFx) ──
+                    _is_mp3 = len(buf) >= 2 and buf[0] == 0xFF and (buf[1] & 0xE0) == 0xE0
+
+                    if _is_mp3:
+                        # Decodifica MP3 → PCM
+                        pcm = None
+                        if _HAS_MPG123:
+                            pcm = self._decode_via_mpg123(bytes(buf))
+                        elif _HAS_PYDUB:
+                            pcm = self._decode_via_pydub(bytes(buf))
+                        if pcm:
+                            stream.write(pcm)
+                        buf.clear()
+                    else:
+                        # PCM cru: escreve direto quando tiver quadro completo
+                        while len(buf) >= 4096:
+                            stream.write(bytes(buf[:4096]))
+                            buf = buf[4096:]
+
+        except Exception:
+            log.exception("Erro no _SoundDevicePlayer._play_loop")
+        finally:
+            try:
+                os.close(self._read_fd)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _decode_via_mpg123(data: bytes) -> bytes | None:
+        """Decodifica MP3 → PCM via mpg123 (stdin → stdout)."""
+        try:
+            proc = subprocess.Popen(
+                ["mpg123", "-q", "--stdout", "-"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            )
+            pcm, _ = proc.communicate(data, timeout=30)
+            return pcm
+        except Exception:
+            log.warning("Decodificação mpg123 falhou, tentando alternativa")
+            return None
+
+    @staticmethod
+    def _decode_via_pydub(data: bytes) -> bytes | None:
+        """Decodifica MP3 → PCM via pydub."""
+        try:
+            from pydub import AudioSegment
+            import io as _io
+            seg = AudioSegment.from_mp3(_io.BytesIO(data))
+            seg = seg.set_channels(1).set_frame_rate(48000)
+            return seg.raw_data
+        except Exception:
+            log.warning("Decodificação pydub falhou")
+            return None
+
+    def poll(self):
+        return -1 if self._closed else None
+
+    def wait(self, timeout=None):
+        self._thread.join(timeout=timeout)
+        return 0
+
+    def kill(self):
+        self._closed = True
+        try:
+            self.stdin.close()
+        except OSError:
+            pass
+
+
 def _start_playback() -> None:
     s = STATE
     s.set_playing(True)
@@ -1344,21 +1467,31 @@ def _start_playback() -> None:
             s.player_process.terminate()
         except Exception:
             pass
-    # ── ffplay otimizado para baixa latência (Compatível com Windows/Linux) ────
-    # nobuffer+fastseek: buffer mínimo do demuxer
-    # probesize 32: detecta o formato MP3 com menos dados
-    s.player_process = subprocess.Popen(
-        [
-            "ffplay", "-nodisp", "-autoexit",
-            "-fflags", "nobuffer",
-            "-flags", "low_delay",
-            "-probesize", "32",
-            "-analyzeduration", "0",
-            "-vn",
-            "-i", "pipe:0",
-        ],
-        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    import shutil
+    # ── mpg123: decodifica MP3 nativo, baixa latência (Android/Linux) ────────
+    if shutil.which("mpg123"):
+        s.player_process = subprocess.Popen(
+            ["mpg123", "-q", "-"],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    # ── ffplay: compatível com Windows/Linux ──────────────────────────────────
+    elif shutil.which("ffplay"):
+        s.player_process = subprocess.Popen(
+            [
+                "ffplay", "-nodisp", "-autoexit",
+                "-fflags", "nobuffer",
+                "-flags", "low_delay",
+                "-probesize", "32",
+                "-analyzeduration", "0",
+                "-vn",
+                "-i", "pipe:0",
+            ],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    else:
+        # Fallback sounddevice: decodifica MP3 via pydub ou toca cru como PCM
+        # (último recurso quando nenhum player externo existe)
+        s.player_process = _SoundDevicePlayer()
 
 
 def _stop_playback() -> None:
@@ -1366,10 +1499,16 @@ def _stop_playback() -> None:
     if s.player_process:
         try:
             s.player_process.stdin.close()
+        except Exception:
+            pass
+        try:
             s.player_process.wait(timeout=3)
         except subprocess.TimeoutExpired:
-            log.warning("ffplay não finalizou em 3s — forçando kill")
-            s.player_process.kill()
+            log.warning("Player não finalizou em 3s — forçando kill")
+            try:
+                s.player_process.kill()
+            except Exception:
+                pass
             s.player_process.wait(timeout=1)
         except Exception:
             pass
@@ -1700,6 +1839,10 @@ def _load_vosk() -> None:
 
 
 def _load_openwakeword() -> None:
+    if openwakeword is None:
+        log.warning("⚠️ OpenWakeWord não instalado (pip install openwakeword).")
+        STATE.oww_model = None
+        return
     log.info("🧠 Carregando OpenWakeWord (gatilho principal)...")
     try:
         paths = openwakeword.get_pretrained_model_paths()
@@ -1720,12 +1863,17 @@ def main() -> None:
     _load_vosk()
     _load_openwakeword()
 
-    # VAD-only mode DESATIVADO: apenas o OpenWakeWord ("alexa") inicia
-    # gravação — evita queimar tokens Groq com fala ambiente (TV, conversas).
-    # O modo mãos-livres (sessões quiz/receita) continua funcionando à parte.
-    STATE.vad_only_mode = False
-    log.info("🎤 Modo VAD passivo desativado — apenas OpenWakeWord ('alexa') ativa gravação.")
-    log.info("   Sessões interativas (mãos-livres) continuam funcionando normalmente.")
+    # VAD-only mode: se o OpenWakeWord não estiver disponível (ex: ARM/Termux
+    # sem onnxruntime), ativa o modo VAD-only como fallback. A detecção de
+    # fala será feita por energia (VAD + RMS threshold).
+    if STATE.oww_model is None:
+        STATE.vad_only_mode = True
+        log.info("🎤 OpenWakeWord não disponível — modo VAD-only ativado como fallback.")
+        log.info("   A detecção de fala será feita por energia (VAD + noise threshold).")
+    else:
+        STATE.vad_only_mode = False
+        log.info("🎤 Modo VAD passivo desativado — apenas OpenWakeWord ('alexa') ativa gravação.")
+        log.info("   Sessões interativas (mãos-livres) continuam funcionando normalmente.")
 
     # Agressividade baixa (1) — mais sensível a voz distante. Ainda
     # necessário para detecção de silêncio durante gravações ativas.

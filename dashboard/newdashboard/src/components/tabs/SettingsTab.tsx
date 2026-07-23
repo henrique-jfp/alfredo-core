@@ -26,20 +26,21 @@ export function SettingsTab() {
   const [newLocIcon, setNewLocIcon] = useState('📍');
 
   useEffect(() => {
-    api.getSettings().then((data) => {
-      setSettings(data || {});
-    }).catch((err) => {
-      console.error('Erro ao carregar configurações:', err);
-      setSettings({});
-    });
-    api.getLocations().then((data) => {
-      setLocations(Array.isArray(data) ? data as unknown as Location[] : []);
-      setLocationsLoading(false);
-    }).catch((err) => {
-      console.error('Erro ao carregar locais:', err);
-      setLocations([]);
-      setLocationsLoading(false);
-    });
+    Promise.all([
+      api.getSettings()
+        .then((data) => setSettings(data || {}))
+        .catch((err) => {
+          console.error('Erro ao carregar configurações:', err);
+          setSettings({});
+        }),
+      api.getLocations()
+        .then((data) => setLocations(Array.isArray(data) ? data as unknown as Location[] : []))
+        .catch((err) => {
+          console.error('Erro ao carregar locais:', err);
+          setLocations([]);
+        })
+        .finally(() => setLocationsLoading(false)),
+    ]);
   }, []);
 
   const handleChange = (key: string, value: string) => {

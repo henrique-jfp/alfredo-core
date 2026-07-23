@@ -13,11 +13,25 @@ Estratégia no M21 (Android/proot):
      falsos positivos de silêncio/ruído constante.
   3. CONFIRMAÇÃO MÚLTIPLA — exigimos 3 detecções positivas consecutivas
      em uma janela de 10 chunks (~300ms) antes de disparar.
+
+Fallback para ARM (Termux):
+  A openwakeword depende de onnxruntime, que não possui wheel para ARM
+  no Termux. Quando a importação falha, usamos um detector dummy que
+  sempre retorna False — o controller já possui detecção por energia
+  como mecanismo primário de ativação.
 """
 import numpy as np
-from openwakeword.model import Model as OWWModel
-from .logger import wake_logger
 from .config import config
+
+# Tenta importar openwakeword; se falhar (ex: ARM/Termux sem onnxruntime),
+# usamos um detector dummy. O controller já tem fallback por energia.
+try:
+    from openwakeword.model import Model as OWWModel
+    _HAVE_OWW = True
+except ImportError:
+    _HAVE_OWW = False
+
+from .logger import wake_logger
 
 
 class WakeWordDetector:
@@ -43,18 +57,24 @@ class WakeWordDetector:
     CONFIRM_WINDOW = 10      # janela máxima de chunks para contar
 
     def __init__(self):
-        try:
-            self.model = OWWModel()
+        self.model = None
+        if _HAVE_OWW:
+            try:
+                self.model = OWWModel()
+                wake_logger.info(
+                    "OpenWakeWord carregado (modelo: %s). "
+                    "Threshold OWW=%.3f, confirmação=%d",
+                    config.WAKEWORD_MODEL,
+                    self.OWW_THRESHOLD,
+                    self.CONFIRM_REQUIRED,
+                )
+            except Exception as e:
+                wake_logger.warning(f"Não foi possível carregar modelo OWW: {e}")
+        else:
             wake_logger.info(
-                "OpenWakeWord carregado (modelo: %s). "
-                "Threshold OWW=%.3f, confirmação=%d",
-                config.WAKEWORD_MODEL,
-                self.OWW_THRESHOLD,
-                self.CONFIRM_REQUIRED,
+                "OpenWakeWord não disponível (ARM/onnxruntime ausente). "
+                "Usando detecção por energia como fallback."
             )
-        except Exception as e:
-            wake_logger.error(f"Erro ao carregar modelo OpenWakeWord: {e}")
-            self.model = None
 
     def reset(self):
         """Reseta o estado interno para evitar re-detecção."""
@@ -83,6 +103,8 @@ class WakeWordDetector:
         """
         Analisa um chunk de áudio em busca da wake word.
         Retorna True se detectado com confirmação múltipla.
+        Se openwakeword não estiver disponível, retorna False
+        (o controller usa detecção por energia como fallback).
         """
         if not self.model:
             return False

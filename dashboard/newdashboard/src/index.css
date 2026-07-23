@@ -327,6 +327,23 @@ body {
   }
 }
 
+/* Weather display animations */
+@keyframes sunRay {
+  0%, 100% { opacity: 0.4; transform: translateY(-10%) scaleY(1); }
+  50% { opacity: 1; transform: translateY(-14%) scaleY(1.15); }
+}
+
+@keyframes splash {
+  0% { transform: translateY(0) scaleY(1); opacity: 0.5; }
+  100% { transform: translateY(-8px) scaleY(0.5); opacity: 0; }
+}
+
+@keyframes stormFlash {
+  0%, 85%, 92%, 100% { opacity: 0; }
+  88%, 90% { opacity: 1; }
+  95%, 97% { opacity: 0.6; }
+}
+
 /* Orb animations */
 @keyframes orbPulse {
   0%, 100% {

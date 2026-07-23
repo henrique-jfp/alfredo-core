@@ -6,7 +6,6 @@ import {
   Bell,
   CheckSquare,
   Clock,
-  Cloud,
   Cpu,
   MessageSquare,
   ShoppingCart,
@@ -23,6 +22,7 @@ import { Modal } from '../ui/Modal';
 import { AlfredoOrb } from '../AlfredoOrb';
 import { useAlfredoState } from '../../hooks/useAlfredoState';
 import { useToast } from '../Toast';
+import { CompactWeatherIcon } from '../WeatherDisplay';
 import { useIsVisible } from '../../hooks/useIsVisible';
 
 type WidgetKey = 'compras' | 'tarefas' | 'lembretes';
@@ -230,71 +230,6 @@ export function OverviewTab() {
         ? activeTimers.slice(0, 2)
         : alarms.slice(0, 2);
 
-  // --- Weather rendering ---
-  const WeatherIcon = React.memo(function WeatherIcon({ kind, temp }: { kind: string; temp?: number | string }) {
-    const sunRays = Array.from({ length: 8 }, (_, i) => (
-      <div key={i} className="absolute inset-0 flex items-center justify-center" style={{ transform: `rotate(${i * 45}deg)` }}>
-        <div className="w-[2px] h-5 rounded-full bg-gradient-to-t from-transparent via-brass-400/70 to-brass-300/40 origin-bottom" style={{ animation: `rayRotate 4s ${i * 0.3}s ease-in-out infinite` }} />
-      </div>
-    ));
-
-    const raindrops = Array.from({ length: 12 }, (_, i) => (
-      <div key={i} className="absolute w-[1.5px] h-3 rounded-full bg-gradient-to-b from-transparent via-blue-400/50 to-blue-300/30" style={{ left: `${10 + Math.random() * 80}%`, animation: `rainDrop ${0.6 + Math.random() * 0.4}s ${Math.random() * 0.8}s ease-in infinite`, opacity: 0 }} />
-    ));
-
-    const snowflakes = Array.from({ length: 15 }, (_, i) => (
-      <div key={i} className="absolute w-1.5 h-1.5 rounded-full bg-white/60" style={{ left: `${10 + Math.random() * 80}%`, animation: `snowFall ${2 + Math.random() * 2}s ${Math.random() * 2}s ease-in infinite`, opacity: 0 }} />
-    ));
-
-    const lightningBolt = (
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-[3px] h-16 skew-y-[12deg] rounded-full bg-gradient-to-b from-yellow-300 via-yellow-400 to-transparent shadow-[0_0_20px_rgba(250,204,21,0.6)]" style={{ animation: 'lightningFlash 3s ease-in-out infinite', marginTop: -20 }} />
-        <div className="w-[2px] h-10 skew-y-[-15deg] rounded-full bg-gradient-to-b from-yellow-400 to-transparent" style={{ marginTop: 12, marginLeft: 8 }} />
-      </div>
-    );
-
-    if (kind === 'sun') {
-      return (
-        <div className="relative w-14 h-14 flex items-center justify-center" style={{ animation: 'sunPulse 3s ease-in-out infinite' }}>
-          {sunRays}
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brass-300 to-brass-500 shadow-[0_0_30px_rgba(212,162,78,0.6)]" />
-        </div>
-      );
-    }
-    if (kind === 'rain') {
-      return (
-        <div className="relative w-14 h-14 flex items-center justify-center">
-          <Cloud className="absolute w-10 h-10 text-zinc-300/80 z-10" style={{ filter: 'drop-shadow(0 0 10px rgba(255,255,255,0.15))' }} />
-          {raindrops}
-        </div>
-      );
-    }
-    if (kind === 'snow') {
-      return (
-        <div className="relative w-14 h-14 flex items-center justify-center">
-          <Cloud className="absolute w-10 h-10 text-zinc-300/60 z-10" style={{ animation: 'cloudDrift 4s ease-in-out infinite' }} />
-          {snowflakes}
-        </div>
-      );
-    }
-    if (kind === 'storm') {
-      return (
-        <div className="relative w-14 h-14 flex items-center justify-center">
-          <div className="absolute w-12 h-12 rounded-full bg-zinc-700/60 blur-md" style={{ animation: 'cloudPulse 2s ease-in-out infinite' }} />
-          <Cloud className="absolute w-11 h-11 text-zinc-400 z-10" />
-          {lightningBolt}
-          {raindrops}
-        </div>
-      );
-    }
-    return (
-      <div className="relative w-14 h-14 flex items-center justify-center">
-        <Cloud className="w-11 h-11 text-zinc-300/70" style={{ animation: 'cloudDrift 5s ease-in-out infinite' }} />
-        <Cloud className="absolute w-9 h-9 text-zinc-400/40 -ml-6 -mt-4" style={{ animation: 'cloudDrift2 6s ease-in-out infinite' }} />
-      </div>
-    );
-  });
-
   const recentActivities = useMemo(() => history.slice(0, 6), [history]);
   const weatherCode = weather?.weather_code ?? -1;
   const weatherKind = useMemo(() => getWeatherKind(weatherCode), [weatherCode]);
@@ -345,8 +280,19 @@ export function OverviewTab() {
           </div>
         </div>
 
-        {/* Right: Clock + Weather + Timers */}
+        {/* Right: Weather Icon + Clock + Timers */}
         <div className="flex items-center gap-4 flex-wrap shrink-0">
+          <div className="alfredo-card p-2 md:p-3 flex items-center gap-3 shrink-0">
+            <CompactWeatherIcon kind={weatherKind} temp={weather?.temperature} />
+            <div className="flex flex-col min-w-0">
+              <span className="text-[15px] font-bold leading-none text-white tabular-nums">
+                {weather ? `${weather.temperature}°` : '--°'}
+              </span>
+              <span className="text-[10px] text-zinc-500 leading-tight mt-0.5 truncate max-w-[80px]">
+                {weather?.description || '...'}
+              </span>
+            </div>
+          </div>
           {hasPinnedTimers && pinnedTimers.slice(0, 2).map((timer) => (
             <TimerCard key={timer.id} timer={timer} onDelete={deleteTimer} />
           ))}

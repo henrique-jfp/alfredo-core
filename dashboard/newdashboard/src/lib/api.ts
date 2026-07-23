@@ -14,18 +14,32 @@ import {
   TVConfig,
 } from '../types';
 
+/**
+ * Default timeout for all API requests (15 seconds).
+ * If a backend endpoint hangs, the request will abort and throw
+ * instead of blocking the UI indefinitely.
+ */
+const API_TIMEOUT_MS = 15_000;
+
 async function fetchFromAPI<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  if (!response.ok) {
-    let detail = response.statusText;
-    try {
-      const errBody = await response.json();
-      if (errBody.detail) detail = errBody.detail;
-      else if (errBody.error) detail = errBody.error;
-    } catch {}
-    throw new Error(detail);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const errBody = await response.json();
+        if (errBody.detail) detail = errBody.detail;
+        else if (errBody.error) detail = errBody.error;
+      } catch {}
+      throw new Error(detail);
+    }
+    return await response.json();
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return await response.json();
 }
 
 export const api = {

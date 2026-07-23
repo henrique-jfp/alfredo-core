@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../lib/api';
 import { Activity, Brain, Server, ShieldAlert, Zap, Clock, DollarSign, Cpu, Trash2, Edit3, Save, X, Sparkles } from 'lucide-react';
 import { Memory, AIMetrics } from '../../types';
-import { EmptyState, MetricCard, SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
+import { EmptyState, MetricCard, SectionHeading, StatusPulse, SkeletonBlock, SkeletonKpiGrid } from '../ui/DashboardPrimitives';
 import { cn } from '../../lib/utils';
 
 export function IntelligenceTab() {
@@ -11,31 +11,42 @@ export function IntelligenceTab() {
   const [newFact, setNewFact] = useState('');
   const [editingMemoryId, setEditingMemoryId] = useState<number | null>(null);
   const [editingFactText, setEditingFactText] = useState('');
+  const [loadingMemories, setLoadingMemories] = useState(true);
+  const [loadingMetrics, setLoadingMetrics] = useState(true);
+
+  const fetchAll = async () => {
+    // Parallelize both fetches instead of sequential
+    setLoadingMemories(true);
+    setLoadingMetrics(true);
+    await Promise.all([
+      (async () => {
+        try {
+          const data = await api.getMemories();
+          setMemories(data);
+        } catch (e) {
+          console.error('Failed to load memories', e);
+        } finally {
+          setLoadingMemories(false);
+        }
+      })(),
+      (async () => {
+        try {
+          const data = await api.getAIMetrics();
+          setMetrics(data);
+        } catch (e) {
+          console.error('Failed to load AI metrics', e);
+        } finally {
+          setLoadingMetrics(false);
+        }
+      })(),
+    ]);
+  };
 
   useEffect(() => {
-    fetchMemories();
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 10000);
+    fetchAll();
+    const interval = setInterval(() => api.getAIMetrics().then(setMetrics).catch(console.error), 10000);
     return () => clearInterval(interval);
   }, []);
-
-  const fetchMemories = async () => {
-    try {
-      const data = await api.getMemories();
-      setMemories(data);
-    } catch (e) {
-      console.error('Failed to load memories', e);
-    }
-  };
-
-  const fetchMetrics = async () => {
-    try {
-      const data = await api.getAIMetrics();
-      setMetrics(data);
-    } catch (e) {
-      console.error('Failed to load AI metrics', e);
-    }
-  };
 
   const handleDelete = async (id: number) => {
     const confirmed = window.confirm('Tem certeza que deseja excluir esta memória?');
@@ -52,7 +63,7 @@ export function IntelligenceTab() {
     if (!newFact.trim()) return;
     try {
       await api.createMemory({ fact: newFact });
-      fetchMemories();
+      fetchAll();
       setNewFact('');
     } catch (e) {
       console.error('Failed to create memory', e);
@@ -65,7 +76,7 @@ export function IntelligenceTab() {
       await api.updateMemory(id, editingFactText);
       setEditingMemoryId(null);
       setEditingFactText('');
-      fetchMemories();
+      fetchAll();
     } catch (error) {
       console.error(error);
     }
