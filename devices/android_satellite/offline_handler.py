@@ -60,13 +60,13 @@ WORD_TIME = {"horas", "hora", "horario", "que horas"}
 
 # Mapeamento de cômodos (do mais específico para o genérico)
 _ROOM_MAP = [
-    (["quarto da laura", "quarto laura"], "quarto da laura"),
+    (["quarto da laura", "quarto laura", "meu quarto"], "quarto da laura"),
     (["quarto do casal", "quarto casal", "meu quarto"], "quarto do casal"),
     (["sala de jantar", "sala jantar"], "sala de jantar"),
     (["sala de estar"], "sala de estar"),
     (["sala"], "sala"),
     (["quarto"], "quarto"),
-    (["escritorio"], "escritorio"),
+    (["escritorio", "quartinho"], "escritorio"),
     (["cozinha"], "cozinha"),
     (["varanda", "sacada"], "varanda"),
     (["banheiro", "wc"], "banheiro"),
@@ -207,6 +207,8 @@ def _handle_light(text: str) -> bool:
         "quarto do casal": "ROOM_BEDROOM",
         "quarto da laura": "ROOM_DAUGHTER",
         "cozinha": "ROOM_KITCHEN",
+        "sala de jantar": "ROOM_DINING",
+        "escritorio": "ROOM_OFFICE",
     }
     db_room = room_id_map.get(room, room)
 

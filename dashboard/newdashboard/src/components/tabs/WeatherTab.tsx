@@ -417,7 +417,7 @@ export function WeatherTab() {
                       <MetricCard icon={Droplets} label="Umidade" value={`${current.humidity}%`} />
                       <MetricCard icon={Wind} label="Vento" value={`${current.wind_speed} m/s`} sub={getWindDir(current.wind_deg)} />
                       <MetricCard icon={Eye} label="Visibilidade" value={`${visKm} km`} />
-                      <MetricCard icon={Gauge} label="Pressão" value={`${current.pressure} hPa`} sub={current.pressure < 1010 ? "Baixo" : "Normal"} />
+                      <MetricCard icon={Gauge} label="Pressão" value={`${current.pressure} hPa`} sub={Number(current.pressure) < 1010 ? "Baixo" : "Normal"} />
                    </div>
 
                    {/* Previsão por Hora */}

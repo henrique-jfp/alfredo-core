@@ -242,7 +242,7 @@ class TimerSkill(Skill):
         action = kwargs.get("action")
             
         if action == "list":
-            timers = db.query(models.Timer).filter(models.Timer.is_active == True, models.Timer.room_id == room_id).all()
+            timers = db.query(models.Timer).filter(models.Timer.is_active == True, models.Timer.room_id.in_([room_id, "all"])).all()
             if not timers:
                 return {"direct_response": "Você não tem nenhum timer ativo.", "status": "success"}
             names = [f"{t.message or 'timer'}" for t in timers]
@@ -255,7 +255,7 @@ class TimerSkill(Skill):
         elif action == "delete":
             timer_id = kwargs.get("timer_id")
             timers = db.query(models.Timer).filter(
-                models.Timer.is_active == True, models.Timer.room_id == room_id
+                models.Timer.is_active == True, models.Timer.room_id.in_([room_id, "all"])
             ).order_by(models.Timer.expires_at.desc()).all()
             if not timers:
                 return {"error": "Nenhum timer ativo para cancelar.", "status": "fail"}
@@ -282,6 +282,8 @@ class TimerSkill(Skill):
             dur = kwargs.get("duration_seconds")
             target = kwargs.get("target_hour")
             msg = kwargs.get("message", "")
+            target_room = kwargs.get("target_room", "")
+            final_room_id = "all" if target_room and target_room.lower() == "all" else (target_room if target_room else room_id)
             
             tz = ZoneInfo("America/Sao_Paulo")
             now_sp = datetime.now(tz)
@@ -303,7 +305,7 @@ class TimerSkill(Skill):
                 return {"error": "Faltam parâmetros de tempo"}
                 
             new_timer = models.Timer(
-                room_id=room_id,
+                room_id=final_room_id,
                 duration_seconds=duration_seconds,
                 expires_at=expires_at,
                 message=msg,

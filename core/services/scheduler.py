@@ -128,7 +128,10 @@ class SchedulerManager:
                 timer.is_active = False
                 
                 # Gera notificação
-                devices = db.query(models.Device).filter(models.Device.room_id == timer.room_id).all()
+                if timer.room_id == "all":
+                    devices = db.query(models.Device).all()
+                else:
+                    devices = db.query(models.Device).filter(models.Device.room_id == timer.room_id).all()
                 active_connections = self.get_active_connections_cb()
                 
                 # Se for "timer", gera o áudio TTS. Se for "alarm", o satélite cuida do som.
@@ -164,8 +167,13 @@ class SchedulerManager:
                         logger.error(f"Erro ao gerar áudio do cronômetro: {e}")
                         tts_filename = None
                 
-                device, ws = self._get_first_connected_device(devices, active_connections)
-                if ws:
+                connected_devices = []
+                for device in devices:
+                    ws = active_connections.get(device.device_id)
+                    if ws:
+                        connected_devices.append((device, ws))
+                        
+                for device, ws in connected_devices:
                     try:
                         if timer.timer_type == "alarm":
                             await ws.send_json({

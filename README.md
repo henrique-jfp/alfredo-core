@@ -112,7 +112,7 @@ O agente Gemini tem acesso livre ao catálogo de *skills* abaixo e decide sozinh
 | Skill | Descrição |
 |---|---|
 | 💡 **SmartHomeTool** | Integração completa com o **Home Assistant** — descobre todos os dispositivos da casa e controla luzes, TVs, ares-condicionados e interruptores de forma natural (*"Apague a luz da sala e ligue a TV"*). |
-| ⏱️ **TimerTool** | Criação de cronômetros, alarmes e lembretes exatos, com alerta sonoro disparado no alto-falante físico do satélite. |
+| ⏱️ **TimerTool** | Criação de cronômetros, alarmes e lembretes exatos, com alerta sonoro. Suporta avisos individuais, em todos os satélites de um cômodo, ou broadcast (tocar na casa inteira simultaneamente). |
 
 ### 🎵 Entretenimento e Mídia
 | Skill | Descrição |

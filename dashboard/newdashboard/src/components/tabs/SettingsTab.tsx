@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, MapPin, Mic2, Rss, Palette, CheckCircle2, Sparkles, Trash2, Plus } from 'lucide-react';
+import { Settings, MapPin, Mic, Rss, Palette, Check, Sparkles, Trash2, Plus } from 'lucide-react';
 import { api } from '../../lib/api';
 import { SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
 import { cn } from '../../lib/utils';
@@ -95,7 +95,7 @@ export function SettingsTab() {
           <div className="alfredo-card p-6">
             <div className="flex items-center gap-4 border-b border-white/5 pb-4">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
-                <Mic2 className="h-5 w-5" />
+                <Mic className="h-5 w-5" />
               </div>
               <div>
                 <h2 className="text-[18px] font-semibold text-[color:var(--text-primary)]">Assistente</h2>
@@ -308,7 +308,7 @@ export function SettingsTab() {
                 >
                   <div className="flex items-center justify-between">
                     <div className={cn('h-10 w-10 rounded-2xl', theme.swatch)} />
-                    {theme.active ? <CheckCircle2 className="h-4 w-4 text-brass-400" /> : <Palette className="h-4 w-4 text-[color:var(--text-tertiary)]" />}
+                    {theme.active ? <Check className="h-4 w-4 text-brass-400" /> : <Palette className="h-4 w-4 text-[color:var(--text-tertiary)]" />}
                   </div>
                   <div className="mt-4 text-[15px] font-semibold text-[color:var(--text-primary)]">{theme.name}</div>
                   <div className="mt-2 rounded-2xl border border-white/5 bg-black/20 p-3">

@@ -206,7 +206,7 @@ export function OverviewTab() {
   const alarms = timers.filter((t) => t.timer_type === 'alarm' || (t.message && t.message.toLowerCase().includes('despertar')));
   const nextAlarm = alarms.length > 0 ? [...alarms].sort((a, b) => new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime())[0] : null;
 
-  const WeatherIcon = React.memo(function WeatherIcon({ kind, temp }: { kind: string; temp?: number }) {
+  const WeatherIcon = React.memo(function WeatherIcon({ kind, temp }: { kind: string; temp?: number | string }) {
     const sunRays = Array.from({ length: 8 }, (_, i) => (
       <div key={i} className="absolute inset-0 flex items-center justify-center" style={{ transform: `rotate(${i * 45}deg)` }}>
         <div className="w-[2px] h-5 rounded-full bg-gradient-to-t from-transparent via-brass-400/70 to-brass-300/40 origin-bottom" style={{ animation: `rayRotate 4s ${i * 0.3}s ease-in-out infinite` }} />

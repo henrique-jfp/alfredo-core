@@ -12,7 +12,7 @@ class Config:
     CHUNK = 480  # 480 frames * 2 bytes = 960 bytes (30ms at 16kHz)
     
     # VAD config
-    SILENCE_TIMEOUT_MS = 800
+    SILENCE_TIMEOUT_MS = 500
     VAD_MODE = 3 # Agressivo
     
     # Wake Word config

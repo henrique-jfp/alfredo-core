@@ -129,7 +129,8 @@ class AgentRouter:
                                 "duration_seconds": {"type": "integer", "description": "Duração em segundos para timers relativos (ex: daqui a 5 min = 300)"},
                                 "target_hour": {"type": "integer", "description": "Hora absoluta (0-23) para alarmes ou despertadores (ex: às 7 da manhã = 7, às 3 da tarde = 15)"},
                                 "target_minute": {"type": "integer", "description": "Minuto absoluto (0-59) para alarmes (ex: 7h43 = 43). Padrão é 0."},
-                                "message": {"type": "string", "description": "Mensagem ou motivo do alarme/lembrete"}
+                                "message": {"type": "string", "description": "Mensagem ou motivo do alarme/lembrete"},
+                                "target_room": {"type": "string", "description": "Cômodo onde o timer/alarme deve tocar. Use 'all' para tocar na casa toda, ou um ID específico. Deixe vazio para usar o cômodo atual."}
                             },
                             "required": ["action"]
                         }

@@ -47,8 +47,8 @@ cmd = (
 cmd2 = (
     'nohup /data/data/com.termux/files/usr/bin/proot-distro login ubuntu '
     '-- bash -c '
-    '"export PULSE_SERVER=127.0.0.1 '
-    'export PYTHONUNBUFFERED=1 '
+    '"export PULSE_SERVER=127.0.0.1; '
+    'export PYTHONUNBUFFERED=1; '
     'cd /root/alfredo-core && '
     'while true; do '
     'echo \\"[\\$(date)] (Re)iniciando satelite...\\"; '
