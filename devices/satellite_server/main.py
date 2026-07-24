@@ -686,7 +686,6 @@ def clean_audio(samples: np.ndarray, state) -> np.ndarray:
     if sos is not False and sos is not None:
         try:
             from scipy.signal import sosfilt
-            import numpy as np
 
             if not hasattr(state, "audio_filter_zi") or state.audio_filter_zi is None:
                 state.audio_filter_zi = np.zeros((sos.shape[0], 2), dtype=np.float32)
