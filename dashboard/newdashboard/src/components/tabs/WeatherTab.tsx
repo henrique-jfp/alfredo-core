@@ -22,7 +22,7 @@ interface WeatherIconProps {
 }
 
 const sizeMap: Record<WeatherIconSize, number> = {
-  sm: 48,
+  sm: 36,
   md: 72,
   lg: 120,
   xl: 160,
