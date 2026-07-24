@@ -678,10 +678,9 @@ def is_confirmed_speech(vad_says_speech: bool, rms: float, threshold: float) -> 
     return bool(vad_says_speech) and rms > threshold
 
 
-def clean_audio(samples: np.ndarray) -> np.ndarray:
-    """Pipeline de limpeza de áudio: remove DC offset + high-pass 80Hz."""
+def clean_audio(samples: np.ndarray, state) -> np.ndarray:
+    """Pipeline de limpeza de áudio contínuo: high-pass 80Hz mantendo o estado (zi)."""
     audio = samples.astype(np.float32)
-    audio -= np.mean(audio)
 
     sos = _get_highpass_filter()
     if sos is not False and sos is not None:
@@ -1030,7 +1029,7 @@ def _audio_processing_worker() -> None:
         # O scipy filter é a operação mais pesada; está aqui no worker, não no
         # callback, para não causar buffer overflow.
         float32_data = np.frombuffer(bytes_data, dtype=np.int16).astype(np.float32)
-        cleaned = clean_audio(float32_data)
+        cleaned = clean_audio(float32_data, s)
         bytes_data = cleaned.astype(np.int16).tobytes()
 
         # ── Encaminha para o stream ao vivo (Dashboard) ────────────────────
