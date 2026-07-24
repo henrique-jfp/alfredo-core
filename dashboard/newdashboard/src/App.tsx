@@ -56,16 +56,16 @@ export default function App() {
 
   const getTabTitle = (tab: TabId) => {
     switch (tab) {
-      case 'visao-geral': return { title: 'Visão Geral', sub: 'Centro de controle da sua casa inteligente.' };
-      case 'dispositivos': return { title: 'Dispositivos', sub: 'Controle manual de aparelhos, luzes e sensores.' };
-      case 'integracoes': return { title: 'Integrações', sub: 'Conecte serviços externos para expandir os poderes.' };
-      case 'rotinas': return { title: 'Rotinas Automáticas', sub: 'Ensine o Alfredo a ter iniciativa própria.' };
-      case 'satelites': return { title: 'Controle de Frota', sub: 'Gerencie os satélites espalhados pela casa.' };
-      case 'inteligencia': return { title: 'Inteligência', sub: 'Controle o Cérebro, as APIs e a Memória.' };
-      case 'sonhos': return { title: 'Diário de Sonhos', sub: 'Exploração psicanalítica do seu subconsciente.' };
-      case 'calendario': return { title: 'Calendário', sub: 'Compromissos, eventos e lembretes da agenda.' };
-      case 'clima': return { title: 'Clima', sub: 'Condições atuais e previsão do tempo para sua região.' };
-      case 'configuracoes': return { title: 'Configurações', sub: 'Ajuste parâmetros globais, endereços e chaves.' };
+      case 'visao-geral': return { title: 'Visão Geral', sub: 'Centro de controle da sua casa inteligente.', eyebrow: undefined };
+      case 'dispositivos': return { title: 'Dispositivos', sub: 'Controle manual de aparelhos, luzes e sensores.', eyebrow: 'Casa Inteligente' };
+      case 'integracoes': return { title: 'Integrações', sub: 'Conecte serviços externos para expandir os poderes.', eyebrow: 'Conexões Externas' };
+      case 'rotinas': return { title: 'Rotinas Automáticas', sub: 'Ensine o Alfredo a ter iniciativa própria.', eyebrow: 'Automação' };
+      case 'satelites': return { title: 'Controle de Frota', sub: 'Gerencie os satélites espalhados pela casa.', eyebrow: 'Rede de Nós' };
+      case 'inteligencia': return { title: 'Inteligência', sub: 'Controle o Cérebro, as APIs e a Memória.', eyebrow: 'Núcleo Cognitivo' };
+      case 'sonhos': return { title: 'Diário de Sonhos', sub: 'Exploração psicanalítica do seu subconsciente.', eyebrow: 'Astrofísica do Sono' };
+      case 'calendario': return { title: 'Calendário', sub: 'Compromissos, eventos e lembretes da agenda.', eyebrow: 'Agenda' };
+      case 'clima': return { title: 'Clima', sub: 'Condições atuais e previsão do tempo para sua região.', eyebrow: 'Meteorologia' };
+      case 'configuracoes': return { title: 'Configurações', sub: 'Ajuste parâmetros globais, endereços e chaves.', eyebrow: 'Sistema' };
     }
   };
 
@@ -104,7 +104,7 @@ export default function App() {
             height: '100dvh'
           }}
         >
-          {activeTab !== 'visao-geral' && <Topbar title={currentHeaders.title} subtitle={currentHeaders.sub} />}
+          {activeTab !== 'visao-geral' && <Topbar title={currentHeaders.title} subtitle={currentHeaders.sub} eyebrow={currentHeaders.eyebrow} />}
           
           <div className="relative min-h-0 flex-1 overflow-hidden">
             <div className="h-full overflow-x-hidden overflow-y-auto pb-28 md:pb-6">

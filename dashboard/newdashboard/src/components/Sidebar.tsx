@@ -148,24 +148,39 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       </aside>
 
       {/* Mobile Bottom Navigation */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 flex h-16 items-center justify-around border-t border-white/10 bg-[rgba(11,12,14,0.96)] px-2 backdrop-blur-3xl pb-safe">
-        {navSections.flatMap((section) => section.items).map((item) => {
-          const isActive = activeTab === item.id;
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.id}
-              onClick={() => onTabChange(item.id)}
-              className={cn(
-                "flex flex-col items-center justify-center w-14 h-14 rounded-xl transition-all",
-                isActive ? "text-brass-400" : "text-zinc-500 hover:text-zinc-300"
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-[rgba(11,12,14,0.96)] backdrop-blur-3xl pb-safe">
+        <div
+          className="flex h-16 items-center gap-1 overflow-x-auto px-2 hide-scrollbar"
+          style={{ scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}
+        >
+          {navSections.map((section, sectionIndex) => (
+            <React.Fragment key={section.label}>
+              {sectionIndex > 0 && (
+                <div className="mx-1 h-6 w-px flex-shrink-0 bg-white/10" aria-hidden="true" />
               )}
-            >
-              <Icon className={cn("w-5 h-5 mb-0.5 transition-transform", isActive && "scale-110")} strokeWidth={isActive ? 2.5 : 2} />
-              <span className="text-[8px] font-medium tracking-tight truncate max-w-full px-0.5 leading-tight">{item.label}</span>
-            </button>
-          );
-        })}
+              {section.items.map((item) => {
+                const isActive = activeTab === item.id;
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onTabChange(item.id)}
+                    style={{ scrollSnapAlign: 'start' }}
+                    className={cn(
+                      "flex flex-shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl px-2.5 py-1.5 transition-all min-w-[52px]",
+                      isActive ? "bg-brass-500/15 text-brass-400" : "text-zinc-500 hover:text-zinc-300"
+                    )}
+                    aria-pressed={isActive}
+                    aria-label={item.label}
+                  >
+                    <Icon className={cn("w-5 h-5 transition-transform", isActive && "scale-110")} strokeWidth={isActive ? 2.5 : 2} />
+                    <span className="text-[9px] font-medium tracking-tight truncate max-w-[52px] leading-tight">{item.label}</span>
+                  </button>
+                );
+              })}
+            </React.Fragment>
+          ))}
+        </div>
       </div>
     </>
   );

@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Music2, HelpCircle, X, ExternalLink, CheckCircle, Sparkles, Shield, Radio, Calendar, Link as LinkIcon, Loader2 } from 'lucide-react';
+import { Music2, HelpCircle, X, ExternalLink, CheckCircle, Sparkles, Shield, Radio, Calendar, Link as LinkIcon, Loader2, AlertCircle } from 'lucide-react';
 import { api } from '../../lib/api';
-import { SectionHeading, StatusPulse, SkeletonBlock } from '../ui/DashboardPrimitives';
+import { SectionHeading, StatusPulse, SkeletonBlock, EmptyState } from '../ui/DashboardPrimitives';
 import { Modal } from '../ui/Modal';
+import { useToast } from '../Toast';
 import type { IntegrationsData } from '../../types';
 
 export function IntegrationsTab() {
+  const { toast } = useToast();
   const [data, setData] = useState<IntegrationsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [saving, setSaving] = useState(false);
@@ -22,7 +25,7 @@ export function IntegrationsTab() {
         setClientId(d.spotify.is_configured ? '••••••••' : '');
         setClientSecret(d.spotify.is_configured ? '••••••••' : '');
       })
-      .catch(() => {})
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -50,16 +53,37 @@ export function IntegrationsTab() {
 
   const handleTestSpotify = async () => {
     try {
-      const data = await api.testSpotify();
-      if (data.status === 'success') {
-        alert('Teste bem-sucedido! O Spotify respondeu.');
+      const result = await api.testSpotify();
+      if (result.status === 'success') {
+        toast('success', 'Teste bem-sucedido!', 'O Spotify respondeu corretamente.');
       } else {
-        alert('Erro no teste: ' + data.error);
+        toast('error', 'Erro no teste', result.error || 'O Spotify retornou um erro.');
       }
     } catch (e) {
-      alert('Erro de rede ao testar.');
+      toast('error', 'Erro de rede', 'Não foi possível conectar ao Spotify.');
     }
   };
+
+  if (loadError) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <EmptyState
+          icon={AlertCircle}
+          tone="danger"
+          title="Erro ao carregar integrações"
+          description="Não foi possível buscar os dados de integrações. Verifique se o servidor está acessível."
+          action={
+            <button
+              onClick={() => { setLoadError(false); setLoading(true); }}
+              className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)] hover:bg-white/[0.06]"
+            >
+              Tentar novamente
+            </button>
+          }
+        />
+      </div>
+    );
+  }
 
   if (loading) {
     return (

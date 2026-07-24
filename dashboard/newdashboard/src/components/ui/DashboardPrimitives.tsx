@@ -111,6 +111,9 @@ export function MetricCard({
   className?: string;
 }) {
   const styles = toneStyles[tone];
+  // useId() garante IDs únicos por instância — IDs SVG têm escopo de documento
+  const uid = React.useId();
+  const gradientId = `spark-${uid}`;
   const points = sparkline && sparkline.length > 1
     ? sparkline.map((point, index) => `${(index / (sparkline.length - 1)) * 100},${100 - point * 100}`).join(' ')
     : '';
@@ -127,9 +130,9 @@ export function MetricCard({
           {detail && <div className="mt-1 text-[12px] text-[color:var(--text-secondary)]">{detail}</div>}
         </div>
         {sparkline && sparkline.length > 1 && (
-          <svg viewBox="0 0 100 40" className="h-12 w-24 shrink-0 overflow-visible">
+          <svg viewBox="0 0 100 40" className="h-12 w-24 shrink-0 overflow-visible" aria-hidden="true">
             <defs>
-              <linearGradient id={`spark-${label}`} x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="rgba(212,162,78,0.6)" />
                 <stop offset="100%" stopColor="rgba(212,162,78,0.05)" />
               </linearGradient>

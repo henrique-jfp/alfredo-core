@@ -61,10 +61,10 @@ function formatCountdown(expiresAt: string) {
 
 function TimerCard({
   timer,
-  onDelete,
+  onRequestDelete,
 }: {
   timer: TimerItem;
-  onDelete: (id: number) => void;
+  onRequestDelete: (timer: TimerItem) => void;
 }) {
   const [timeLeft, setTimeLeft] = useState(() => formatCountdown(timer.expires_at));
 
@@ -89,17 +89,13 @@ function TimerCard({
 
   return (
     <button
-      onClick={() => {
-        if (window.confirm(`Você quer cancelar ${label.toLowerCase()} ${timer.message ? `(${timer.message})` : ''}?`)) {
-          onDelete(timer.id);
-        }
-      }}
+      onClick={() => onRequestDelete(timer)}
       className={cn(
         'group flex min-w-0 flex-col justify-between rounded-2xl border p-4 text-left transition-all duration-200 hover:-translate-y-0.5',
         accent,
         glow
       )}
-      title={label}
+      title={`Cancelar ${label}`}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
@@ -152,6 +148,7 @@ export function OverviewTab() {
   const [activeWidget, setActiveWidget] = useState<WidgetKey>('compras');
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
+  const [confirmDeleteTimer, setConfirmDeleteTimer] = useState<TimerItem | null>(null);
 
   const fetchData = useCallback(async () => {
     setIsRefreshing(true);
@@ -177,12 +174,21 @@ export function OverviewTab() {
   useEffect(() => {
     fetchData();
     const dataInterval = setInterval(() => {
-      if (isVisible) fetchData();
+      // Só faz fetch se o componente está visivel no viewport E a aba do browser está ativa
+      if (isVisible && document.visibilityState === 'visible') fetchData();
     }, 10000);
     const clockInterval = setInterval(() => setTime(new Date()), 1000);
+
+    // Recarrega quando o usuário retorna para a aba (complementa o IntersectionObserver)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isVisible) fetchData();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       clearInterval(dataInterval);
       clearInterval(clockInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [fetchData, isVisible]);
 
@@ -213,6 +219,7 @@ export function OverviewTab() {
     try {
       await api.deleteTimer(id);
       toast('success', 'Timer removido');
+      setConfirmDeleteTimer(null);
       fetchData();
     } catch (e) {
       console.error(e);
@@ -294,7 +301,7 @@ export function OverviewTab() {
             </div>
           </div>
           {hasPinnedTimers && pinnedTimers.slice(0, 2).map((timer) => (
-            <TimerCard key={timer.id} timer={timer} onDelete={deleteTimer} />
+            <TimerCard key={timer.id} timer={timer} onRequestDelete={setConfirmDeleteTimer} />
           ))}
           <ClockDisplay time={time} />
         </div>
@@ -605,6 +612,43 @@ export function OverviewTab() {
             })
           )}
         </div>
+      </Modal>
+
+      {/* ═══════ CONFIRM DELETE TIMER MODAL ═══════ */}
+      <Modal
+        open={confirmDeleteTimer !== null}
+        onClose={() => setConfirmDeleteTimer(null)}
+        title="Cancelar timer"
+        maxWidth="max-w-sm"
+      >
+        {confirmDeleteTimer && (
+          <div className="flex flex-col gap-5">
+            <p className="text-[14px] leading-relaxed text-[color:var(--text-secondary)]">
+              Deseja cancelar o{' '}
+              <span className="font-semibold text-[color:var(--text-primary)]">
+                {confirmDeleteTimer.timer_type === 'alarm' || confirmDeleteTimer.message?.toLowerCase().includes('despertar')
+                  ? 'despertador'
+                  : 'timer'}
+              </span>
+              {confirmDeleteTimer.message ? ` "${confirmDeleteTimer.message}"` : ''}?
+              Esta ação não pode ser desfeita.
+            </p>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setConfirmDeleteTimer(null)}
+                className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)] hover:bg-white/[0.06] hover:text-[color:var(--text-primary)] transition-colors"
+              >
+                Manter
+              </button>
+              <button
+                onClick={() => deleteTimer(confirmDeleteTimer.id)}
+                className="alfredo-pill border-rose-500/30 bg-rose-500/15 text-rose-400 hover:bg-rose-500/25 transition-colors"
+              >
+                Cancelar timer
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

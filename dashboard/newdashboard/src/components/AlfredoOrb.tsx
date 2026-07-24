@@ -87,29 +87,8 @@ const strokeMap = {
 export function AlfredoOrb({ state, size = 'md', pulse = true, className, onClick }: AlfredoOrbProps) {
   const config = stateConfig[state];
 
-  return (
-    <motion.button
-      onClick={onClick}
-      className={cn(
-        'relative flex items-center justify-center rounded-full transition-all duration-700',
-        sizeMap[size],
-        config.glow,
-        className,
-        onClick && 'cursor-pointer'
-      )}
-      animate={{
-        scale: pulse && (state === 'listening' || state === 'thinking' || state === 'speaking') ? [1, 1.03, 1] : 1,
-      }}
-      transition={{
-        duration: state === 'listening' ? 1.5 : 2,
-        repeat: pulse && state !== 'idle' ? Infinity : 0,
-        ease: 'easeInOut',
-      }}
-      whileHover={onClick ? { scale: 1.05 } : undefined}
-      whileTap={onClick ? { scale: 0.95 } : undefined}
-      aria-label={`Alfredo — ${config.label}`}
-      tabIndex={onClick ? 0 : -1}
-    >
+  const orbContent = (
+    <>
       {/* Outer glow rings */}
       <AnimatePresence>
         {(state === 'listening' || state === 'thinking' || state === 'speaking') && (
@@ -187,6 +166,52 @@ export function AlfredoOrb({ state, size = 'md', pulse = true, className, onClic
           {config.label}
         </span>
       </div>
+    </>
+  );
+
+  const sharedMotionProps = {
+    animate: {
+      scale: pulse && (state === 'listening' || state === 'thinking' || state === 'speaking') ? [1, 1.03, 1] : 1,
+    },
+    transition: {
+      duration: state === 'listening' ? 1.5 : 2,
+      repeat: pulse && state !== 'idle' ? Infinity : 0,
+      ease: 'easeInOut' as const,
+    },
+  };
+
+  const sharedClassName = cn(
+    'relative flex items-center justify-center rounded-full transition-all duration-700',
+    sizeMap[size],
+    config.glow,
+    className,
+  );
+
+  // Sem onClick: elemento puramente visual — usar div com role="img" em vez de button
+  if (!onClick) {
+    return (
+      <motion.div
+        {...sharedMotionProps}
+        className={sharedClassName}
+        role="img"
+        aria-label={`Alfredo — ${config.label}`}
+      >
+        {orbContent}
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.button
+      onClick={onClick}
+      className={cn(sharedClassName, 'cursor-pointer')}
+      {...sharedMotionProps}
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
+      aria-label={`Alfredo — ${config.label}`}
+    >
+      {orbContent}
     </motion.button>
   );
 }
+

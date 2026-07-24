@@ -3,6 +3,7 @@ import { Settings, MapPin, Mic, Rss, Palette, Check, Sparkles, Trash2, Plus } fr
 import { api } from '../../lib/api';
 import { SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
 import { cn } from '../../lib/utils';
+import { useToast } from '../Toast';
 
 interface Location {
   id: number;
@@ -13,6 +14,7 @@ interface Location {
 }
 
 export function SettingsTab() {
+  const { toast } = useToast();
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
 
@@ -51,8 +53,10 @@ export function SettingsTab() {
     setIsSaving(true);
     try {
       await api.saveSettings(settings);
+      toast('success', 'Configurações salvas', 'Todas as alterações foram aplicadas.');
     } catch (e) {
       console.error('Erro ao salvar:', e);
+      toast('error', 'Erro ao salvar', e instanceof Error ? e.message : 'Tente novamente.');
     } finally {
       setIsSaving(false);
     }
