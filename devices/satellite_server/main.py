@@ -664,201 +664,6 @@ def get_rms(data: bytes) -> float:
 def is_confirmed_speech(vad_says_speech: bool, rms: float, threshold: float) -> bool:
     """Confirma fala combinando o veredito espectral do WebRTC VAD com a
     energia (RMS) do chunk, usando o `noise_threshold` calibrado no boot.
-        return False
-    log.info("⚡ [OFFLINE] Volume absoluto detectado: %d", target)
-    threading.Thread(target=_tv_volume_absolute, args=(target,), daemon=True).start()
-    return True
-
-
-def _music_stop() -> None:
-    _stop_current_music()
-    _server_request("POST", "/api/spotify/control", json={"action": "pause"}, timeout=3)
-
-
-def _handle_music(text: str) -> bool:
-    if not _has_any(text, WORD_MUSIC):
-        return False
-    if _has_any(text, ACTION_SYNONYMS_STOP):
-        log.info("⚡ [OFFLINE] Parando música")
-        threading.Thread(target=_music_stop, daemon=True).start()
-        return True
-    return False
-
-
-def _speak_offline(text: str) -> None:
-    """TTS local mínimo via espeak-ng, só pra respostas curtas (hora).
-    Degrada graciosamente se não estiver instalado — não é um substituto
-    do TTS do servidor (Edge TTS), só um atalho pra esse caso pontual."""
-    try:
-        subprocess.run(
-            ["espeak-ng", "-v", "pt-br", "-s", "150", text],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=6, check=True,
-        )
-    except FileNotFoundError:
-        log.warning(
-            "⚠️ [OFFLINE] espeak-ng não instalado — resposta de voz local indisponível "
-            "(instale com: sudo apt install espeak-ng). Hora calculada: %s", text
-        )
-    except Exception as e:
-        log.warning("⚠️ [OFFLINE] Falha ao falar hora localmente: %s", e)
-
-
-def _handle_time(text: str) -> bool:
-    if not _has_any(text, WORD_TIME):
-        return False
-    now = datetime.now()
-    frase = f"Agora são {now.hour} horas e {now.minute} minutos."
-    log.info("⚡ [OFFLINE] Hora solicitada: %s", frase)
-    threading.Thread(target=_speak_offline, args=(frase,), daemon=True).start()
-    return True
-
-
-# Ordem importa: mais específico primeiro. Cada handler recebe o texto já
-# normalizado e retorna True se tratou o comando (interrompe o pipeline
-# normal de STT/LLM pra esse trecho de fala).
-_OFFLINE_INTENT_HANDLERS: list[Callable[[str], bool]] = [
-    _handle_light,
-    _handle_tv,
-    _handle_volume,   # "volume no 15" — antes do handler de música
-    _handle_music,
-    _handle_time,
-]
-
-
-def _check_offline_command(text: str) -> bool:
-    normalized = _normalize(text)
-    if not normalized:
-        return False
-    log.debug("[DIAG] _check_offline_command testando: '%s'", normalized)
-    for handler in _OFFLINE_INTENT_HANDLERS:
-        if handler(normalized):
-            log.info("⚡ [OFFLINE] Handler %s executou para: '%s'", handler.__name__, normalized)
-            _offline_beep()
-            return True
-        else:
-            log.debug("[DIAG] Handler %s não匹配 para: '%s'", handler.__name__, normalized)
-    log.debug("[DIAG] Nenhum handler offline匹配 para: '%s'", normalized)
-    return False
-
-
-# --------------------------------------------------------------------------
-# Áudio: descoberta de dispositivo, stream, limpeza de sinal
-# --------------------------------------------------------------------------
-def find_input_device(name_substring: Optional[str]) -> tuple[Optional[int], int, float]:
-    """Procura um dispositivo de entrada com fallback por prioridade."""
-    try:
-        devices = sd.query_devices()
-        preferred_terms = []
-        if name_substring:
-            preferred_terms.append(name_substring)
-        preferred_terms.extend(["omnivision", "ps3 eye", "ps3", "eye", "usb camera"])
-
-        for term in preferred_terms:
-            term_lower = term.lower()
-            for idx, dev in enumerate(devices):
-                if dev.get("max_input_channels", 0) > 0 and term_lower in dev.get("name", "").lower():
-                    log.info(
-                        "🎙️ [ÁUDIO] Dispositivo preferido encontrado: [%s] %s (%s canais, %sHz)",
-                        idx, dev["name"], dev["max_input_channels"], dev.get("default_samplerate"),
-                    )
-                    return idx, int(dev["max_input_channels"]), float(dev.get("default_samplerate") or CFG.rate)
-
-        for idx, dev in enumerate(devices):
-            if dev.get("max_input_channels", 0) > 0:
-                log.warning(
-                    "⚠️ [ÁUDIO] Usando primeiro input disponível: [%s] %s (%s canais, %sHz)",
-                    idx, dev["name"], dev["max_input_channels"], dev.get("default_samplerate"),
-                )
-                return idx, int(dev["max_input_channels"]), float(dev.get("default_samplerate") or CFG.rate)
-    except Exception as e:
-        log.error("⚠️ [ÁUDIO] Erro ao buscar dispositivo preferido: %s", e)
-    log.warning("⚠️ [ÁUDIO] Nenhum dispositivo de entrada encontrado, usando padrão do sistema.")
-    return None, CFG.channels, float(CFG.rate)
-
-
-def open_input_stream(
-    device_index: Optional[int], device_channels: int, samplerate: float, callback
-) -> sd.InputStream:
-    """Abre o stream tentando a taxa preferida e depois o sample rate nativo do device."""
-    attempts: list[float] = []
-    preferred_rate = float(CFG.rate)
-    native_rate = float(samplerate or CFG.rate)
-
-    for rate in (preferred_rate, native_rate):
-        if rate in attempts:
-            continue
-        attempts.append(rate)
-        try:
-            log.info("🎚️ [ÁUDIO] Tentando abrir InputStream em %s Hz...", rate)
-            return sd.InputStream(
-                device=device_index,
-                samplerate=rate,
-                channels=device_channels,
-                dtype=CFG.dtype,
-                blocksize=CFG.blocksize,
-                callback=callback,
-            )
-        except Exception as exc:
-            log.warning("⚠️ [ÁUDIO] Falha ao abrir stream em %s Hz: %s", rate, exc)
-
-    raise RuntimeError(
-        f"Não foi possível abrir nenhum InputStream válido para o device {device_index} "
-        f"com taxas testadas: {attempts}"
-    )
-
-
-def _run_audio_mixer_commands(commands: list[list[str]]) -> None:
-    """Tenta aplicar comandos de áudio com fallback entre pactl e amixer."""
-    for cmd in commands:
-        try:
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        except Exception as exc:
-            log.warning("⚠️ [ÁUDIO] Falha ao executar %s: %s", " ".join(cmd), exc)
-
-
-def apply_capture_level(percent: str) -> None:
-    _run_audio_mixer_commands([
-        ["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{percent}%"],
-        ["amixer", "sset", "Capture", f"{percent}%"],
-        ["amixer", "-c", "1", "sset", "Mic", f"{percent}%"],
-    ])
-
-
-def apply_master_level(percent: str) -> None:
-    _run_audio_mixer_commands([
-        ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{percent}%"],
-        ["amixer", "sset", "Master", f"{percent}%"],
-    ])
-
-
-_highpass_sos = None  # cache do filtro high-pass (calculado uma vez)
-
-
-def _get_highpass_filter():
-    """Retorna coeficientes SOS do filtro high-pass 80Hz, com cache."""
-    global _highpass_sos
-    if _highpass_sos is None:
-        try:
-            from scipy.signal import butter
-
-            _highpass_sos = butter(4, 80, btype="highpass", fs=16000, output="sos")
-            log.info("🎛️ [ÁUDIO] Filtro high-pass 80Hz (scipy) ativado.")
-        except ImportError:
-            log.warning("⚠️ [ÁUDIO] scipy não disponível — filtro high-pass desativado.")
-            _highpass_sos = False
-    return _highpass_sos
-
-
-def get_rms(data: bytes) -> float:
-    samples = array.array("h", data[: len(data) - (len(data) % 2)])
-    if not samples:
-        return 0.0
-    return math.sqrt(sum(s * s for s in samples) / len(samples))
-
-
-def is_confirmed_speech(vad_says_speech: bool, rms: float, threshold: float) -> bool:
-    """Confirma fala combinando o veredito espectral do WebRTC VAD com a
-    energia (RMS) do chunk, usando o `noise_threshold` calibrado no boot.
 
     BUG CORRIGIDO: antes, vad.is_speech() sozinho decidia se um chunk de
     10ms era "fala". O VAD analisa espectro, não volume — e com o
@@ -889,10 +694,8 @@ def clean_audio(samples: np.ndarray, state) -> np.ndarray:
             audio, state.audio_filter_zi = sosfilt(sos, audio, zi=state.audio_filter_zi)
             audio = audio.astype(np.float32)
         except Exception:
-            # falha silenciosa — reseta para DC removal
             audio -= np.mean(audio)
     else:
-        # Sem scipy
         audio -= np.mean(audio)
 
     return audio
@@ -1356,17 +1159,86 @@ def _audio_processing_worker() -> None:
 
 
 def _process_recording_chunk(bytes_data: bytes) -> None:
+    cfg = CFG
+    s = STATE
+
+    s.recording_buffer.extend(bytes_data)
+    s.full_audio_buffer.extend(bytes_data)
+    s.live_recording_bytes += len(bytes_data)
+
+    if s.vosk_rec:
+        if s.vosk_rec.AcceptWaveform(bytes_data):
+            res = json.loads(s.vosk_rec.Result())
+            text = res.get("text", "")
+            if text:
+                s.accumulated_vosk_text += " " + text
+                log.info("🧠 [VOSK] Texto final: '%s' (acumulado: '%s')", text, s.accumulated_vosk_text.strip())
+                if _check_offline_command(s.accumulated_vosk_text):
+                    _finish_recording(cancel=True)
+                    return
+        else:
+            res = json.loads(s.vosk_rec.PartialResult())
+            partial = res.get("partial", "")
+            if partial:
+                log.info("🧠 [VOSK] Parcial: '%s'", partial)
+                if _check_offline_command(partial):
+                    _finish_recording(cancel=True)
+                    return
+
+    if s.vosk_rec and _is_emergency_stop(s.accumulated_vosk_text):
+        log.info("🛑 Comando de emergência detectado! Abortando.")
+        _finish_recording(cancel=True)
+        return
+
+    offset = 0
+    while offset + 320 <= len(s.recording_buffer):
+        chunk = s.recording_buffer[offset:offset + 320]
+        offset += 320
+        vad_raw_result = s.vad.is_speech(chunk, cfg.rate)
+        rms = get_rms(chunk)
+
+        # BUG CORRIGIDO: exige VAD + energia acima do ruído calibrado no
+        # boot para considerar "fala real" (ver is_confirmed_speech acima).
+        is_speech = is_confirmed_speech(vad_raw_result, rms, s.noise_threshold)
+
+        if is_speech:
+            s.noise_gate_hold = cfg.noise_gate_hold_frames
+        else:
+            if s.noise_gate_hold > 0:
+                s.noise_gate_hold -= 1
+                is_speech = True  # bridge de consoantes fracas
+
+        if is_speech:
+            if not s.has_spoken:
+                s.has_spoken = True
+                s.silence_frames = 0
+            else:
+                s.silence_frames = 0
+        elif s.has_spoken:
+            s.silence_frames += 1
+
+    s.recording_buffer = bytearray(s.recording_buffer[offset:])
+
+    total_frames = len(s.full_audio_buffer) // 320
+    # live_frames conta só o áudio capturado desde o início desta gravação,
+    # SEM o preload do dashcam — teto de "tempo máximo" com significado consistente.
+    live_frames = s.live_recording_bytes // 320
+
+    # ── VAD Adaptativo: corte de silêncio baseado na duração da fala ──────────
+    # Quanto mais longa a fala, mais tempo de pausa natural permitimos.
+    # live_frames = frames capturados DESTA gravação (sem o dashcam buffer).
+    #
+    # Nível 1 (< 0.5s de fala): corte rápido em 400ms — "liga a luz" não tem pausa.
+    # Nível 2 (0.5-2s):  pausa natural de 600ms — frases médias.
+    # Nível 3 (2-5s):    pausa de 800ms — perguntas mais longas.
+    # Nível 4 (> 5s):    pausa de 1.0s — relatos longos (quiz, receitas).
+    # Ganho vs antes (1.5-2.0s fixo): economiza 600ms a 1.4s por interação.
     if not s.has_spoken:
         # Nunca falou ainda — timeout longo para quem demorou a começar
         max_silence = int(4.0 * cfg.rate / 160)  # 4s sem fala = cancela
-    elif live_frames < int(0.5 * cfg.rate / 160):
-        max_silence = int(0.4 * cfg.rate / 160)  # 400ms para frases curtíssimas
-    elif live_frames < int(2.0 * cfg.rate / 160):
-        max_silence = int(0.6 * cfg.rate / 160)  # 600ms para frases normais
-    elif live_frames < int(5.0 * cfg.rate / 160):
-        max_silence = int(0.8 * cfg.rate / 160)  # 800ms para perguntas longas
     else:
-        max_silence = int(1.0 * cfg.rate / 160)  # 1.0s máximo absoluto
+        # Fixo agressivo de 500ms para reduzir latência
+        max_silence = int(0.5 * cfg.rate / 160)
     timeout_frames = int(20 * cfg.rate / 160) if s.session_mode else int(5 * cfg.rate / 160)
     max_total = int(8 * cfg.rate / 160)  # 8s máximo de fala nova
 
