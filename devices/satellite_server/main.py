@@ -1055,7 +1055,10 @@ def _audio_processing_worker() -> None:
 
             if s.calibration_frames >= required_frames:
                 avg_noise = s.calibration_sum / s.calibration_frames
-                s.noise_threshold = avg_noise * 1.8 + 100
+                # Multiplicador 3.5x: margem ampla para ignorar TV/rádio de fundo.
+                # Se a TV estiver ligada durante a calibração, o noise floor já
+                # inclui o áudio ambiente; com 3.5x evitamos falso-positivos.
+                s.noise_threshold = avg_noise * 3.5 + 100
                 log.info("🎙️ [CALIBRAÇÃO] Ruído de fundo médio: %.1f", avg_noise)
                 log.info("🎙️ [CALIBRAÇÃO] Noise Threshold dinâmico definido para: %.1f", s.noise_threshold)
                 s.is_calibrated = True
@@ -1345,14 +1348,15 @@ def _check_session_mode() -> None:
 
 
 class _SoundDevicePlayer:
-    """Fallback de reprodução via sounddevice quando mpg123/ffplay não existem.
+    """Reprodução via sounddevice (PortAudio). Player principal no Android/Termux.
 
-    Suporta MP3 nativamente:
-      1. Tenta decodificar via mpg123 (subprocess) — detecta pelo sync word 0xFF 0xFB
-      2. Tenta decodificar via pydub (se instalado)
-      3. Último recurso: toca como PCM16 cru (útil para testes/streams PCM)
+    Bufferiza todo o áudio recebido até EOF (stdin fechado), então:
+      1. Detecta se é MP3 (sync word 0xFF 0xFx)
+      2. Se MP3: decodifica via mpg123 (--stdout) ou pydub
+      3. Se PCM: toca direto como int16 48kHz mono
+      4. Reproduz via RawOutputStream do sounddevice (PortAudio)
 
-    Simula a interface de subprocess.Popen:
+    Simula interface de subprocess.Popen:
       - `stdin` (writeable) — escreva bytes de áudio (MP3 ou PCM)
       - `poll()` / `wait(timeout)` / `kill()`
     """
@@ -1365,7 +1369,7 @@ class _SoundDevicePlayer:
         self._thread.start()
 
     def _play_loop(self):
-        """Lê do pipe, decodifica se MP3, reproduz via sounddevice."""
+        """Lê todo o pipe, decodifica se MP3, reproduz via sounddevice."""
         try:
             import shutil
             import sounddevice as sd
@@ -1378,34 +1382,52 @@ class _SoundDevicePlayer:
             except ImportError:
                 _HAS_PYDUB = False
 
+            # ── Bufferiza TODOS os dados até EOF ────────────────────────────
             buf = bytearray()
+            while True:
+                chunk = os.read(self._read_fd, 8192)
+                if not chunk:
+                    break
+                buf.extend(chunk)
+
+            if not buf:
+                log.debug("[SoundDevicePlayer] Buffer vazio, nada a tocar")
+                return
+
+            # ── Detecta MP3 pelo sync word ──────────────────────────────────
+            _is_mp3 = len(buf) >= 2 and buf[0] == 0xFF and (buf[1] & 0xE0) == 0xE0
+            total_bytes = len(buf)
+
+            if _is_mp3:
+                log.info("[SoundDevicePlayer] Decodificando MP3 (%d bytes)...", total_bytes)
+                pcm: bytes | None = None
+
+                if _HAS_MPG123:
+                    pcm = self._decode_via_mpg123(bytes(buf))
+                if pcm is None and _HAS_PYDUB:
+                    pcm = self._decode_via_pydub(bytes(buf))
+                if pcm is None:
+                    log.warning("[SoundDevicePlayer] Não foi possível decodificar MP3 — sem saída")
+                    return
+
+                log.info("[SoundDevicePlayer] PCM decodificado: %d bytes", len(pcm))
+            else:
+                # PCM cru assume-se 48kHz mono int16
+                log.info("[SoundDevicePlayer] Reproduzindo PCM cru (%d bytes, 48kHz 16bit mono)...", total_bytes)
+                pcm = bytes(buf)
+
+            # ── Reproduz via sounddevice ────────────────────────────────────
             with sd.RawOutputStream(
                 samplerate=48000, channels=1, dtype="int16",
             ) as stream:
-                while True:
-                    chunk = os.read(self._read_fd, 8192)
-                    if not chunk:
-                        break
-                    buf.extend(chunk)
+                # Escreve em blocos de 4096 para não travar o callback
+                offset = 0
+                while offset < len(pcm):
+                    chunk_size = min(4096, len(pcm) - offset)
+                    stream.write(pcm[offset:offset + chunk_size])
+                    offset += chunk_size
 
-                    # ── Detecta MP3 pelo sync word (0xFF 0xFB ou 0xFF 0xFx) ──
-                    _is_mp3 = len(buf) >= 2 and buf[0] == 0xFF and (buf[1] & 0xE0) == 0xE0
-
-                    if _is_mp3:
-                        # Decodifica MP3 → PCM
-                        pcm = None
-                        if _HAS_MPG123:
-                            pcm = self._decode_via_mpg123(bytes(buf))
-                        elif _HAS_PYDUB:
-                            pcm = self._decode_via_pydub(bytes(buf))
-                        if pcm:
-                            stream.write(pcm)
-                        buf.clear()
-                    else:
-                        # PCM cru: escreve direto quando tiver quadro completo
-                        while len(buf) >= 4096:
-                            stream.write(bytes(buf[:4096]))
-                            buf = buf[4096:]
+            log.info("[SoundDevicePlayer] Playback concluído (%d bytes PCM)", len(pcm))
 
         except Exception:
             log.exception("Erro no _SoundDevicePlayer._play_loop")
@@ -1417,29 +1439,33 @@ class _SoundDevicePlayer:
 
     @staticmethod
     def _decode_via_mpg123(data: bytes) -> bytes | None:
-        """Decodifica MP3 → PCM via mpg123 (stdin → stdout)."""
+        """Decodifica MP3 → PCM 48kHz via mpg123 (stdin → stdout).
+
+        Usa `-r 48000` para resample obrigatório: o Edge TTS gera MP3 em
+        22050Hz, e tocar PCM 22050Hz como se fosse 48000Hz acelera a voz.
+        """
         try:
             proc = subprocess.Popen(
-                ["mpg123", "-q", "--stdout", "-"],
+                ["mpg123", "-q", "--stdout", "-r", "48000", "-"],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             )
             pcm, _ = proc.communicate(data, timeout=30)
             return pcm
-        except Exception:
-            log.warning("Decodificação mpg123 falhou, tentando alternativa")
+        except Exception as e:
+            log.warning("Decodificação mpg123 falhou: %s", e)
             return None
 
     @staticmethod
     def _decode_via_pydub(data: bytes) -> bytes | None:
-        """Decodifica MP3 → PCM via pydub."""
+        """Decodifica MP3 → PCM 48kHz mono via pydub."""
         try:
             from pydub import AudioSegment
             import io as _io
             seg = AudioSegment.from_mp3(_io.BytesIO(data))
-            seg = seg.set_channels(1).set_frame_rate(48000)
+            seg = seg.set_frame_rate(48000).set_channels(1)
             return seg.raw_data
-        except Exception:
-            log.warning("Decodificação pydub falhou")
+        except Exception as e:
+            log.warning("Decodificação pydub falhou: %s", e)
             return None
 
     def poll(self):
@@ -1467,15 +1493,14 @@ def _start_playback() -> None:
         except Exception:
             pass
     import shutil
-    # ── mpg123: decodifica MP3 nativo, baixa latência (Android/Linux) ────────
-    if shutil.which("mpg123"):
-        log.info("▶️ Iniciando playback via mpg123")
-        s.player_process = subprocess.Popen(
-            ["mpg123", "-q", "-"],
-            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-    # ── ffplay: compatível com Windows/Linux ──────────────────────────────────
-    elif shutil.which("ffplay"):
+    # ── SoundDevicePlayer (PortAudio): player principal ───────────────────────
+    # Usa sounddevice (PortAudio) que funciona no Android (OpenSL ES) e Windows
+    # (WASAPI). Decodifica MP3 via mpg123 --stdout ou pydub, depois toca PCM.
+    # Preferido sobre mpg123 direto porque o driver de saída do mpg123 pode não
+    # funcionar no Termux (ALSA quebrado no Android).
+    _has_sd = True
+    # ── ffplay: apenas quando não tem mpg123 no sistema (Windows/Linux) ───────
+    if not shutil.which("mpg123") and shutil.which("ffplay"):
         log.info("▶️ Iniciando playback via ffplay")
         s.player_process = subprocess.Popen(
             [
@@ -1490,9 +1515,7 @@ def _start_playback() -> None:
             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
     else:
-        log.info("▶️ Iniciando playback via SoundDevicePlayer (fallback)")
-        # Fallback sounddevice: decodifica MP3 via pydub ou toca cru como PCM
-        # (último recurso quando nenhum player externo existe)
+        log.info("▶️ Iniciando playback via SoundDevicePlayer")
         s.player_process = _SoundDevicePlayer()
 
 

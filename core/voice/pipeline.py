@@ -16,7 +16,13 @@ from core.api.satellite import manager
 
 logger = logging.getLogger("alfredo.voice_pipeline")
 
-_WAKE_WORDS = ["alfredo", "alfre", "fredo", "al fredo", "hey alfredo", "ok alfredo", "alexa", "é alexa"]
+# Inclui variações fonéticas para tolerar erros do Whisper:
+# "alexa" → "alex" (Whisper corta vogal final), "é alexa" + "é alex"
+_WAKE_WORDS = [
+    "alfredo", "alfre", "fredo", "al fredo",
+    "hey alfredo", "ok alfredo",
+    "alexa", "alex", "é alexa", "é alex", "alex e",
+]
 
 # Respostas de confirmação tão curtas que não merecem TTS
 _QUICK_ACK = {"ok", "ok.", "oque", "oke"}

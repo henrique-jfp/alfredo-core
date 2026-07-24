@@ -143,8 +143,10 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
                 if total_bytes == 0:
                     delay = 0
                 else:
-                    # Margem de 3500ms para Bluetooth/Buffer do Android
-                    delay = expected_duration - elapsed + 3.5
+                    # Margem reduzida para 500ms: o SoundDevicePlayer (padrão)
+                    # processa o pipe imediatamente após fechar stdin em
+                    # _stop_playback, sem buffer adicional como ffplay/mpv.
+                    delay = expected_duration - elapsed + 0.5
                     
                 satellite_logger.info(f"[TTS_END DELAY] bytes={total_bytes}, exp_dur={expected_duration:.2f}s, elapsed={elapsed:.2f}s, delay={delay:.2f}s")
                 if delay > 0:

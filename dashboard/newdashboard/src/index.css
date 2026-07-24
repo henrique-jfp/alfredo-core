@@ -17,13 +17,13 @@
 
 :root {
   --bg-base: #0b0c0e;
-  --bg-surface: #131417;
-  --bg-surface-2: #1b1d21;
+  --bg-surface: #15161a;
+  --bg-surface-2: #1e2025;
   --border-subtle: #26282d;
   --border-strong: #34363c;
   --text-primary: #f5f3ee;
-  --text-secondary: #a8a9ad;
-  --text-tertiary: #6b6c70;
+  --text-secondary: #b8babe;
+  --text-tertiary: #7a7b80;
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(0, 0, 0, 0.5);
   --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.5), 0 16px 40px -12px rgba(0, 0, 0, 0.6);
   --shadow-brass-glow: 0 0 0 1px rgba(212, 162, 78, 0.8), 0 0 24px rgba(212, 162, 78, 0.18);
@@ -104,12 +104,6 @@ body {
   .glass-deep {
     @apply rounded-3xl border border-white/10 bg-black/40 backdrop-blur-xl transition-all duration-300;
     box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05), 0 10px 40px rgba(0, 0, 0, 0.5);
-  }
-  .glass-panel {
-    @apply rounded-2xl border border-white/5 bg-white/5 transition-all duration-300;
-  }
-  .glass-panel-hover {
-    @apply hover:bg-white/10 hover:border-white/10 hover:-translate-y-0.5;
   }
   .alfredo-surface {
     @apply rounded-xl border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-2)];
@@ -396,6 +390,21 @@ body {
 .animate-gradient-shift {
   background-size: 200% 200%;
   animation: gradientShift 8s ease-in-out infinite;
+}
+
+/* Respect user motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-spin,
+  .animate-pulse,
+  .animate-bounce {
+    animation: none !important;
+  }
 }
 
 /* Grain overlay for texture */
