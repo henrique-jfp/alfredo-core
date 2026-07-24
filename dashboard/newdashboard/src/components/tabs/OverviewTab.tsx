@@ -22,7 +22,7 @@ import { Modal } from '../ui/Modal';
 import { AlfredoOrb } from '../AlfredoOrb';
 import { useAlfredoState } from '../../hooks/useAlfredoState';
 import { useToast } from '../Toast';
-import { CompactWeatherIcon } from '../WeatherDisplay';
+import { WeatherIconByCode } from '../WeatherDisplay';
 import { useIsVisible } from '../../hooks/useIsVisible';
 
 type WidgetKey = 'compras' | 'tarefas' | 'lembretes';
@@ -283,7 +283,7 @@ export function OverviewTab() {
         {/* Right: Weather Icon + Clock + Timers */}
         <div className="flex items-center gap-4 flex-wrap shrink-0">
           <div className="alfredo-card p-2 md:p-3 flex items-center gap-3 shrink-0">
-            <CompactWeatherIcon kind={weatherKind} temp={weather?.temperature} />
+            <WeatherIconByCode code={weatherCode} size="sm" />
             <div className="flex flex-col min-w-0">
               <span className="text-[15px] font-bold leading-none text-white tabular-nums">
                 {weather ? `${weather.temperature}°` : '--°'}

@@ -1469,12 +1469,14 @@ def _start_playback() -> None:
     import shutil
     # ── mpg123: decodifica MP3 nativo, baixa latência (Android/Linux) ────────
     if shutil.which("mpg123"):
+        log.info("▶️ Iniciando playback via mpg123")
         s.player_process = subprocess.Popen(
             ["mpg123", "-q", "-"],
             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
     # ── ffplay: compatível com Windows/Linux ──────────────────────────────────
     elif shutil.which("ffplay"):
+        log.info("▶️ Iniciando playback via ffplay")
         s.player_process = subprocess.Popen(
             [
                 "ffplay", "-nodisp", "-autoexit",
@@ -1488,6 +1490,7 @@ def _start_playback() -> None:
             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
     else:
+        log.info("▶️ Iniciando playback via SoundDevicePlayer (fallback)")
         # Fallback sounddevice: decodifica MP3 via pydub ou toca cru como PCM
         # (último recurso quando nenhum player externo existe)
         s.player_process = _SoundDevicePlayer()
@@ -1777,6 +1780,7 @@ def websocket_loop() -> None:
                         continue
 
                     if isinstance(message, bytes):
+                        log.info("📥 [TTS] Recebidos %d bytes de áudio do servidor", len(message))
                         if not s.player_process:
                             _start_playback()
                         if s.player_process:
