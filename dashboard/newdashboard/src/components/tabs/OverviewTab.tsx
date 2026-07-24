@@ -272,38 +272,45 @@ export function OverviewTab() {
         animate="visible"
         className="flex items-start justify-between gap-6 flex-wrap"
       >
-        {/* Left: Orb + Greeting */}
+        {/* Left: Orb + Clock */}
         <div className="flex items-center gap-5">
           <AlfredoOrb state={alfredoState} size="xl" pulse />
-          <div className="flex flex-col gap-1">
-            <h2 className="text-2xl font-semibold tracking-tight text-[color:var(--text-primary)]">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[color:var(--text-tertiary)]">
               {greeting}
-            </h2>
-            <p className="text-[13px] text-[color:var(--text-secondary)] leading-relaxed max-w-[240px]">
-              {weather
-                ? `${weather.description}, ${weather.temperature}°`
-                : 'Alfredo está pronto para ajudar.'}
-            </p>
+            </span>
+            <ClockDisplay time={time} />
           </div>
         </div>
 
-        {/* Right: Weather Icon + Clock + Timers */}
+        {/* Right: Weather animation + temp info + Timers */}
         <div className="flex items-center gap-4 flex-wrap shrink-0">
-          <div className="alfredo-card p-2 md:p-3 flex items-center gap-3 shrink-0">
-            <WeatherIconByCode code={weatherCode} size="sm" />
-            <div className="flex flex-col min-w-0">
-              <span className="text-[15px] font-bold leading-none text-white tabular-nums">
-                {weather ? `${weather.temperature}°` : '--°'}
-              </span>
-              <span className="text-[10px] text-zinc-500 leading-tight mt-0.5 truncate max-w-[80px]">
-                {weather?.description || '...'}
-              </span>
-            </div>
-          </div>
           {hasPinnedTimers && pinnedTimers.slice(0, 2).map((timer) => (
             <TimerCard key={timer.id} timer={timer} onRequestDelete={setConfirmDeleteTimer} />
           ))}
-          <ClockDisplay time={time} />
+          {weather && (
+            <div className="alfredo-card p-4 md:p-5 flex items-center gap-4 shrink-0">
+              <WeatherIconByCode code={weatherCode} size="md" />
+              <div className="flex flex-col min-w-0">
+                <span className="text-[40px] md:text-[48px] font-bold leading-none text-white tabular-nums tracking-tighter">
+                  {weather.temperature}°
+                </span>
+                <span className="mt-1 text-[13px] capitalize text-[color:var(--text-secondary)] leading-tight">
+                  {weather.description}
+                </span>
+                <div className="mt-2 flex items-center gap-3 text-[12px] font-mono">
+                  <span className="text-rose-300">↑ {weather.max_temp}°</span>
+                  <span className="text-sky-300">↓ {weather.min_temp}°</span>
+                </div>
+              </div>
+            </div>
+          )}
+          {!weather && (
+            <div className="alfredo-card p-4 flex items-center gap-3 shrink-0">
+              <WeatherIconByCode code={weatherCode} size="md" />
+              <span className="text-[color:var(--text-tertiary)] text-[13px]">Carregando...</span>
+            </div>
+          )}
         </div>
       </motion.div>
 

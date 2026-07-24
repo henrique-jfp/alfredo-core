@@ -7,7 +7,7 @@ class VoiceActivityDetector:
     def __init__(self):
         self.vad = webrtcvad.Vad(config.VAD_MODE)
         # O threshold de ruído poderia ser dinâmico ou calibrado, por enquanto mantemos fixo.
-        self.noise_threshold = 200.0 
+        self.noise_threshold = 600.0 
         vad_logger.info(f"VAD Inicializado (Modo: {config.VAD_MODE})")
 
     def is_speech(self, audio_chunk: bytes) -> bool:
