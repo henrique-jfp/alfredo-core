@@ -453,6 +453,45 @@ def _handle_tv(text: str) -> bool:
         log.info("⚡ [OFFLINE] Desligando TV (comando absoluto, sem toggle)")
         threading.Thread(target=_tv_control, args=("power", {"state": "off"}), daemon=True).start()
         return True
+
+    # ---- Botões de Controle Remoto ----
+    if _has_any(text, {"netflix"}):
+        log.info("⚡ [OFFLINE] TV Key: Netflix")
+        threading.Thread(target=_tv_control, args=("key", {"key_code": "KEY_NETFLIX"}), daemon=True).start()
+        return True
+    if _has_any(text, {"youtube"}):
+        log.info("⚡ [OFFLINE] TV Key: YouTube")
+        threading.Thread(target=_tv_control, args=("key", {"key_code": "KEY_YOUTUBE"}), daemon=True).start()
+        return True
+    if _has_any(text, {"prime video", "amazon prime"}):
+        log.info("⚡ [OFFLINE] TV Key: Prime Video")
+        threading.Thread(target=_tv_control, args=("key", {"key_code": "KEY_PRIME_VIRTUAL"}), daemon=True).start()
+        return True
+    if _has_any(text, {"samsung tv plus", "samsung tv"}):
+        log.info("⚡ [OFFLINE] TV Key: Samsung TV Plus")
+        threading.Thread(target=_tv_control, args=("key", {"key_code": "KEY_CUSTOM"}), daemon=True).start() # Muitas vezes CUSTOM ou EXTRA1
+        return True
+    if _has_any(text, {"play", "tocar", "iniciar", "continua"}):
+        log.info("⚡ [OFFLINE] TV Key: Play")
+        threading.Thread(target=_tv_control, args=("key", {"key_code": "KEY_PLAY"}), daemon=True).start()
+        return True
+    if _has_any(text, {"pause", "pausar", "pausa"}):
+        log.info("⚡ [OFFLINE] TV Key: Pause")
+        threading.Thread(target=_tv_control, args=("key", {"key_code": "KEY_PAUSE"}), daemon=True).start()
+        return True
+    if _has_any(text, {"voltar", "volta"}):
+        log.info("⚡ [OFFLINE] TV Key: Return")
+        threading.Thread(target=_tv_control, args=("key", {"key_code": "KEY_RETURN"}), daemon=True).start()
+        return True
+    if _has_any(text, {"home", "menu", "inicio"}):
+        log.info("⚡ [OFFLINE] TV Key: Home")
+        threading.Thread(target=_tv_control, args=("key", {"key_code": "KEY_HOME"}), daemon=True).start()
+        return True
+    if _has_any(text, {"chama a bixby", "bixby", "alexa da tv", "assistente da tv"}):
+        log.info("⚡ [OFFLINE] TV Key: Bixby/Voice")
+        threading.Thread(target=_tv_control, args=("key", {"key_code": "KEY_BT_VOICE"}), daemon=True).start()
+        return True
+
     return False
 
 

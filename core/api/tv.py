@@ -112,6 +112,14 @@ async def tv_open_app(room_id: str, app_id: str, db: Session = Depends(get_db)):
     await tv.open_app(app_id)
     return {"status": "success"}
 
+@router.post("/control/{room_id}/key")
+async def tv_send_key(room_id: str, key_code: str, db: Session = Depends(get_db)):
+    """Envia uma tecla bruta (KEY_NETFLIX, KEY_BT_VOICE, KEY_HOME, etc) para a TV."""
+    tv = _get_tv_manager(room_id, db)
+    asyncio.create_task(tv.send_key(key_code))
+    return {"status": "success", "key": key_code}
+
+
 @router.get("/status/{room_id}")
 async def tv_status(room_id: str, db: Session = Depends(get_db)):
     tv = _get_tv_manager(room_id, db)
