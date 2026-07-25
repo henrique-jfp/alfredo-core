@@ -270,3 +270,13 @@ Todos os avisos podem ser reenviados.
 Eu armazenaria o estado da notificação no banco (`last_notification_sent`, `notification_stage`, etc.). Assim o sistema continua consistente após reinicializações.
 
 ---
+
+# 20. Dashboard Interativo de Mídia (Spotify/YouTube)
+
+**O Problema Hoje:** 
+O Dashboard apenas observa passivamente a mídia tocando (Mostra a arte do álbum no Spotify). Se o usuário quiser escolher o que tocar ou onde tocar, precisa usar a voz ou ir no app oficial.
+
+**A Solução (Grandes Melhorias):**
+- **Painel de Busca Universal:** Uma barra no Dashboard que pesquisa em tempo real no YouTube e Spotify.
+- **Seletor de Satélite de Áudio:** Ao escolher um vídeo ou música, o usuário pode clicar em um dropdown no Dashboard escolhendo o destino (Ex: Tocar na `Sala`, Tocar no `Quarto`, ou `Tocar em Todos (Multi-room)`).
+- O backend (`alfredo-core`) interceptaria a URI do Spotify ou a URL do YouTube e enviaria o payload correto para as instâncias do satélite destino (via Websocket/MQTT).
