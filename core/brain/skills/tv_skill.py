@@ -230,8 +230,8 @@ ANTENNA_CHANNEL_MAP = {
 
 # IDs de app fixos conhecidos (fallback: busca dinâmica na TV se não achar aqui)
 KNOWN_APP_IDS = {
-    "netflix": "11101200001",
-    "youtube": "111299001912",
+    "netflix": "3201907018807,11101200001",
+    "youtube": "3201512006785,111299001912",
     "spotify": "3201606009684",
     "amazon prime": "3201512006785",
     "prime video": "3201512006785",
