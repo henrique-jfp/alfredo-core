@@ -233,12 +233,14 @@ KNOWN_APP_IDS = {
     "netflix": "3201907018807,11101200001",
     "youtube": "3201512006785,111299001912",
     "spotify": "3201606009684",
-    "amazon prime": "3201512006785",
-    "prime video": "3201512006785",
-    "prime": "3201512006785",
+    "amazon prime": "3201910019365,3201512006785",
+    "prime video": "3201910019365,3201512006785",
+    "prime": "3201910019365,3201512006785",
     "globoplay": "3201603008210",
     "disney": "3201901017640",
-    "hbo": "3201807016597",
+    "hbo max": "3202301029760,3201807016597,3201601007230",
+    "hbo": "3202301029760,3201807016597,3201601007230",
+    "max": "3202301029760,3201807016597,3201601007230",
     "apple tv": "3201807016597",
     "claro tv+": "3201910019378",
     "claro tv": "3201910019378",
@@ -360,13 +362,13 @@ class TVSkill:
                     # Se há mais comandos na fila (ex: abrir app) e a TV estava desligada,
                     # aguarda o Tizen iniciar a rede WebSocket
                     if idx < len(actions) - 1:
-                        # Em TVs Samsung, a rede pode demorar até 10-15s após ligar.
-                        for _ in range(15):
+                        # Em TVs Samsung, a rede pode demorar até 25s após ligar.
+                        for _ in range(25):
                             time.sleep(1)
                             # Tenta checar se já está online
                             check = _run_async(tv.get_status())
                             if check.get("status") != "offline":
-                                time.sleep(2)  # Dá mais 2s pra estabilizar
+                                time.sleep(3)  # Dá mais 3s pra estabilizar APIs
                                 break
 
             elif action == "power_off":
