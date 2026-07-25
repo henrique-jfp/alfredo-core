@@ -209,7 +209,7 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
         manager.disconnect_satellite(device_id)
 
 @router.websocket("/dashboard")
-async def websocket_dashboard_endpoint(websocket: WebSocket, db: Session = Depends(get_db)):
+async def websocket_dashboard_endpoint(websocket: WebSocket):
     await manager.connect_dashboard(websocket)
     try:
         while True:
@@ -233,18 +233,26 @@ async def websocket_dashboard_endpoint(websocket: WebSocket, db: Session = Depen
             elif command == "SET_VOLUME" and len(parts) > 2:
                 volume = int(parts[2])
                 # Save to DB
-                device = db.query(models.Device).filter(models.Device.device_id == device_id).first()
-                if device:
-                    device.volume = volume
-                    db.commit()
+                db = SessionLocal()
+                try:
+                    device = db.query(models.Device).filter(models.Device.device_id == device_id).first()
+                    if device:
+                        device.volume = volume
+                        db.commit()
+                finally:
+                    db.close()
                 await manager.send_command_to_satellite(device_id, "SET_VOLUME", {"value": volume})
             elif command == "SET_BRIGHTNESS" and len(parts) > 2:
                 brightness = int(parts[2])
                 # Save to DB
-                device = db.query(models.Device).filter(models.Device.device_id == device_id).first()
-                if device:
-                    device.brightness = brightness
-                    db.commit()
+                db = SessionLocal()
+                try:
+                    device = db.query(models.Device).filter(models.Device.device_id == device_id).first()
+                    if device:
+                        device.brightness = brightness
+                        db.commit()
+                finally:
+                    db.close()
                 await manager.send_command_to_satellite(device_id, "SET_BRIGHTNESS", {"value": brightness})
             elif command == "SET_ALSA_CAPTURE" and len(parts) > 2:
                 val = parts[2]
