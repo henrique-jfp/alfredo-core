@@ -351,44 +351,49 @@ class SamsungTVManager:
         app_ids = [aid.strip() for aid in app_id.split(",") if aid.strip()]
         logger.info("Abrindo app ids=%s name=%s na TV %s", app_ids, name or "?", self.ip)
 
-        # ── Estratégia 1: Tecla de atalho Samsung ──────────────────────────
-        shortcut_key = _APP_SHORTCUTS.get(name) if name else None
-        if shortcut_key:
-            result = await self._run_local_command(self.tv.send_key, shortcut_key)
-            if result is not self._LOCAL_FAIL:
-                logger.info("App %s: tecla de atalho %s enviada.", app_id, shortcut_key)
-                return True
-
-        # ── Estratégia 2: DEEP_LINK ────────────────────────────────────────
-        for aid in app_ids:
-            result = await self._run_local_command(self.tv.run_app, aid, "DEEP_LINK")
-            if result is not self._LOCAL_FAIL:
-                logger.info("App %s: DEEP_LINK enviado (sem garantia).", aid)
-                return True
-
-        # ── Estratégia 3: NATIVE_LAUNCH ────────────────────────────────────
-        for aid in app_ids:
-            result = await self._run_local_command(self.tv.run_app, aid, "NATIVE_LAUNCH")
-            if result is not self._LOCAL_FAIL:
-                logger.info("App %s: NATIVE_LAUNCH enviado (sem garantia).", aid)
-                return True
-
-        # ── Estratégia 4: custom.launchapp ─────────────────────────────────
-        # Como custom.launchapp pode dar falso positivo (HTTP 200 mas a TV ignora),
-        # nós enviamos todos os IDs e NÃO damos early return imediatamente.
-        # Assim garantimos que o ID correto (seja velho ou novo) será tentado.
+        # ── O ULTIMATE SHOTGUN APPROACH ────────────────────────────────────
+        # As APIs da Samsung (SmartThings e WebSockets) costumam retornar sucesso (200 OK)
+        # mesmo quando a TV ignora o comando. Portanto, disparar apenas um e retornar
+        # causa falhas silenciosas. Vamos disparar TODOS os métodos conhecidos, para
+        # todos os IDs (novos e velhos) do app. Como todos têm o mesmo objetivo (abrir o app),
+        # a TV processará o que funcionar e ignorará o resto.
         any_success = False
+
+        # 1. REST API (Porta 8001) - Mais confiável para apps com ID
+        for aid in app_ids:
+            result = await self._run_local_command(self.tv.rest_app_run, aid)
+            if result is not self._LOCAL_FAIL:
+                logger.info("App %s: REST API rest_app_run executado.", aid)
+                any_success = True
+
+        # 2. SmartThings custom.launchapp
         for aid in app_ids:
             for args in ([aid], [{"appId": aid, "metaData": {}}]):
                 ok = await self._st_command("custom.launchapp", "launchApp", args)
                 if ok:
-                    logger.info("App %s: custom.launchapp aceitou (args=%s).", aid, args)
+                    logger.info("App %s: SmartThings custom.launchapp aceitou (args=%s).", aid, args)
                     any_success = True
-        
+
+        # 3. WebSocket run_app (Porta 8002) - DEEP_LINK e NATIVE_LAUNCH
+        for aid in app_ids:
+            r1 = await self._run_local_command(self.tv.run_app, aid, "DEEP_LINK")
+            r2 = await self._run_local_command(self.tv.run_app, aid, "NATIVE_LAUNCH")
+            if r1 is not self._LOCAL_FAIL or r2 is not self._LOCAL_FAIL:
+                logger.info("App %s: WebSocket run_app enviado.", aid)
+                any_success = True
+
+        # 4. Tecla de Atalho (KEY_NETFLIX, etc.)
+        shortcut_key = _APP_SHORTCUTS.get(name) if name else None
+        if shortcut_key:
+            result = await self._run_local_command(self.tv.send_key, shortcut_key)
+            if result is not self._LOCAL_FAIL:
+                logger.info("App %s: tecla de atalho %s enviada.", app_ids, shortcut_key)
+                any_success = True
+
         if any_success:
             return True
 
-        logger.error("Todas as estratégias falharam para abrir app %s.", app_id)
+        logger.error("Todas as estratégias falharam fatalmente para abrir app %s.", app_ids)
         return False
 
     async def get_status(self):
