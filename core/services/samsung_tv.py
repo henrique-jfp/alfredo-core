@@ -342,15 +342,40 @@ class SamsungTVManager:
         evitando bombardear a TV com comandos conflitantes.
 
         Estratégias (em ordem de prioridade):
-          1. Tecla de atalho Samsung (KEY_NETFLIX, KEY_YOUTUBE etc.)
-          2. run_app DEEP_LINK via WebSocket local
-          3. run_app NATIVE_LAUNCH via WebSocket local
-          4. SmartThings custom.launchapp — fallback genérico
+          1. SmartThings samsungvd.mediaInputSource (nome do app, ex: 'Netflix')
+          2. SmartThings mediaInputSource (nome do app, ex: 'YouTube')
+          3. Tecla de atalho Samsung (KEY_NETFLIX, KEY_YOUTUBE etc.)
+          4. run_app DEEP_LINK via WebSocket local
+          5. run_app NATIVE_LAUNCH via WebSocket local
+          6. SmartThings custom.launchapp — fallback genérico (ID do app)
         """
         name = app_name.lower() if app_name else ""
         logger.info("Abrindo app id=%s name=%s na TV %s", app_id, name or "?", self.ip)
 
-        # ── Estratégia 1: Tecla de atalho Samsung ──────────────────────────
+        # ── Estratégia 1: samsungvd.mediaInputSource ───────────────────────
+        # Muito confiável em TVs Tizen novas. Usa o NOME do app (ex: 'Netflix')
+        if name:
+            # Algumas TVs esperam título com primeira maiúscula
+            app_title = name.title() if name != 'claro tv+' else 'Claro tv+'
+            ok = await self._st_command("samsungvd.mediaInputSource", "setInputSource", [app_title])
+            if ok:
+                logger.info("App %s: samsungvd.mediaInputSource='%s' aceito.", app_id, app_title)
+                return True
+
+            # Tenta também tudo em minúsculo só por precaução
+            ok = await self._st_command("samsungvd.mediaInputSource", "setInputSource", [name])
+            if ok:
+                logger.info("App %s: samsungvd.mediaInputSource='%s' aceito.", app_id, name)
+                return True
+
+        # ── Estratégia 2: mediaInputSource (padrão OCF) ────────────────────
+        if name:
+            ok = await self._st_command("mediaInputSource", "setInputSource", [name.title()])
+            if ok:
+                logger.info("App %s: mediaInputSource='%s' aceito.", app_id, name.title())
+                return True
+
+        # ── Estratégia 3: Tecla de atalho Samsung ──────────────────────────
         shortcut_key = _APP_SHORTCUTS.get(name) if name else None
         if shortcut_key:
             result = await self._run_local_command(self.tv.send_key, shortcut_key)
@@ -358,19 +383,19 @@ class SamsungTVManager:
                 logger.info("App %s: tecla de atalho %s enviada.", app_id, shortcut_key)
                 return True
 
-        # ── Estratégia 2: DEEP_LINK ────────────────────────────────────────
+        # ── Estratégia 4: DEEP_LINK ────────────────────────────────────────
         result = await self._run_local_command(self.tv.run_app, app_id, "DEEP_LINK")
         if result is not self._LOCAL_FAIL:
             logger.info("App %s: DEEP_LINK enviado (sem garantia).", app_id)
             return True
 
-        # ── Estratégia 3: NATIVE_LAUNCH ────────────────────────────────────
+        # ── Estratégia 5: NATIVE_LAUNCH ────────────────────────────────────
         result = await self._run_local_command(self.tv.run_app, app_id, "NATIVE_LAUNCH")
         if result is not self._LOCAL_FAIL:
             logger.info("App %s: NATIVE_LAUNCH enviado (sem garantia).", app_id)
             return True
 
-        # ── Estratégia 4: custom.launchapp ─────────────────────────────────
+        # ── Estratégia 6: custom.launchapp ─────────────────────────────────
         for args in (
             [app_id],
             [{"appId": app_id, "metaData": {}}],
