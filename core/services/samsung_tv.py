@@ -388,10 +388,20 @@ class SamsungTVManager:
                 logger.info("App %s: tecla de atalho %s enviada.", app_ids, shortcut_key)
                 any_success = True
 
+        # 5. SmartThings samsungvd.mediaInputSource (nome do app, ex: 'claro')
+        # Algumas TVs mais recentes aceitam abrir o app passando o nome como input source
+        if not any_success and name:
+            for title in [name, name.title(), name.upper()]:
+                ok = await self._st_command("samsungvd.mediaInputSource", "setInputSource", [title])
+                if ok:
+                    logger.info("App %s: samsungvd.mediaInputSource='%s' aceito.", app_id, title)
+                    any_success = True
+                    break
+
         if any_success:
             return True
 
-        logger.error("Todas as estratégias falharam fatalmente para abrir app %s.", app_ids)
+        logger.error("Todas as estratégias falharam fatalmente para abrir app %s (id=%s).", name, app_ids)
         return False
 
     async def get_status(self):

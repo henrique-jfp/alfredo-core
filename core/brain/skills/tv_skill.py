@@ -242,9 +242,6 @@ KNOWN_APP_IDS = {
     "hbo": "3202301029760,3201807016597,3201601007230",
     "max": "3202301029760,3201807016597,3201601007230",
     "apple tv": "3201807016597",
-    "claro tv+": "3201910019378",
-    "claro tv": "3201910019378",
-    "claro": "3201910019378",
 }
 
 
@@ -267,10 +264,9 @@ def _resolve_app_id(tv: SamsungTVManager, app_name: str) -> Optional[str]:
 
 def _open_app_by_name(tv: SamsungTVManager, app_name: str) -> bool:
     app_id = _resolve_app_id(tv, app_name)
-    if app_id:
-        _run_async(tv.open_app(app_id, app_name=app_name))
-        return True
-    return False
+    # Mesmo sem ID, tenta abrir (para bater nos fallbacks de nome no samsung_tv.py)
+    _run_async(tv.open_app(app_id or "", app_name=app_name))
+    return True
 
 
 def _send_channel_digits(tv: SamsungTVManager, channel: Any) -> None:
