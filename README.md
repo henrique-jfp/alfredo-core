@@ -8,9 +8,10 @@
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
-![Gemini](https://img.shields.io/badge/Gemini_2.5_Flash-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white)
-![ESP32](https://img.shields.io/badge/ESP32--S3-E7352C?style=for-the-badge&logo=espressif&logoColor=white)
-![Status](https://img.shields.io/badge/status-em%20desenvolvimento-yellow?style=for-the-badge)
+![Gemini](https://img.shields.io/badge/Gemini_3.1_Flash_Lite-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white)
+![Groq](https://img.shields.io/badge/Groq_Whisper_Large_V3-F55036?style=for-the-badge&logo=groq&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
+![Status](https://img.shields.io/badge/status-em%20produção-success?style=for-the-badge)
 
 </div>
 
@@ -21,8 +22,6 @@
 **Alfredo OS** é um ecossistema completo de assistente doméstico inteligente, construído do zero para rodar em hardware modesto (um Celeron de segunda mão) sem abrir mão de uma experiência de voz fluida, contextual e "agêntica" — no mesmo espírito de uma Alexa ou Google Home, mas 100% autoral, extensível e sem *vendor lock-in*.
 
 O projeto nasceu de uma premissa simples: **um computador fraco não precisa gerar um assistente fraco.** Toda a inteligência pesada (transcrição, raciocínio, síntese de voz) é delegada a APIs de nuvem gratuitas ou de altíssimo custo-benefício, enquanto o servidor local atua apenas como orquestrador de tráfego, mantendo a latência baixa e o custo operacional próximo de zero.
-
-> 💡 Se você quer entender o "porquê" por trás de cada decisão técnica, veja a seção [Filosofia de Arquitetura](#-filosofia-de-arquitetura-agentic-first) abaixo.
 
 ---
 
@@ -46,104 +45,151 @@ O projeto nasceu de uma premissa simples: **um computador fraco não precisa ger
 
 Alfredo abandona o modelo clássico de assistentes engessados por árvores de "palavras-chave" e *intents* fixos. Em vez disso, ele opera sob três pilares:
 
-### 1. Cérebro Agente, não um roteador de regras
-O **Gemini 2.5 Flash** não é usado como "fallback" quando tudo mais falha — ele é o **roteador principal** do sistema. Cada frase do usuário é interpretada contextualmente pelo modelo, que decide autonomamente:
-- Se nenhuma ferramenta é necessária (conversa livre, dúvidas gerais, tradução, piadas);
-- Qual ferramenta (ou combinação de ferramentas) deve ser invocada;
-- Como encadear múltiplas *tool calls* em uma única solicitação ("Toque uma música e apague as luzes").
+### 1. Roteamento em 3 Camadas para Latência Mínima
 
-### 2. Satélites "burros" e captura híbrida de áudio
-Os dispositivos espalhados pela casa (ou o próprio servidor com microfone local) funcionam estritamente como interfaces de I/O, sem inteligência própria:
-- **Vosk** (reconhecimento offline e leve) cuida exclusivamente da *wake word*, sem consumir rede nem enviar áudio contínuo para a nuvem;
-- Ao ser acionada, a gravação é controlada por **WebRTC VAD + filtro RMS**, que detecta o fim da frase com precisão e corta ruídos de fundo (ventiladores, estática);
-- Um **pipeline único de áudio** via `sounddevice` elimina conflitos de dispositivo (ALSA) e processos zumbis — problema clássico em soluções caseiras baseadas em `arecord`/`aplay` soltos.
+Cada frase do usuário passa por um **pipeline de decisão progressivo**, onde cada nível é mais rápido que o anterior:
 
-### 3. Nuvem inteligente, custo próximo de zero
-O hardware local (mesmo um Celeron fraco) atua apenas como orquestrador de rede, delegando todo o processamento pesado:
+| Camada | Tecnologia | Latência | Finalidade |
+|--------|-----------|----------|------------|
+| **1 — Semantic Router** | Regex local (8 módulos) | **< 5ms** | Comandos diretos: TV, timer, smart home, listas, música, clima, calendário |
+| **2 — Groq Fast Path** | `llama-3.3-70b-versatile` | **~300ms** | Conversas simples sem tools: saudações, piadas, conhecimento geral, agradecimentos |
+| **3 — Gemini Tool Calling** | `gemini-3.1-flash-lite` | **~2-3s** | Decisões complexas com function calling, RAG, sessões multi-turn |
+
+Quando uma camada consegue responder, as seguintes são puladas — resultando em respostas instantâneas para a maioria dos comandos do dia a dia.
+
+### 2. Pipeline de Streaming Real (3 Estágios)
+
+A resposta de voz nunca espera o LLM terminar de pensar:
+
+```
+LLM tokens → Stage 1: enfileira frases completas
+                  ↓
+Stage 2: TTS sintetiza cada frase imediatamente (Edge-TTS ou Piper)
+                  ↓
+Stage 3: chunks de áudio são yield para o satélite em paralelo
+```
+
+Resultado: o **TTFA (Time-To-First-Audio)** chega a menos de 1 segundo, mesmo para respostas longas.
+
+### 3. Satélites "burros" e captura híbrida de áudio
+
+Os dispositivos espalhados pela casa funcionam estritamente como interfaces de I/O, sem inteligência própria:
+- **OpenWakeWord** (ou Vosk) cuida exclusivamente da *wake word*, offline, sem consumir rede;
+- Ao ser acionada, a gravação é controlada por **WebRTC VAD + filtro RMS**, que detecta o fim da frase com precisão;
+- Um **pipeline único de áudio** via `sounddevice` elimina conflitos de dispositivo (ALSA) e processos zumbis.
+
+### 4. Nuvem inteligente, custo próximo de zero
+
+O hardware local atua apenas como orquestrador, delegando todo o processamento pesado:
 
 | Etapa | Tecnologia | Observação |
 |---|---|---|
-| **STT** (fala → texto) | Whisper-Large-V3 via **Groq API** | Velocidade de inferência extremamente alta |
-| **Raciocínio / Roteamento** | **Gemini 2.5 Flash** | Suporte nativo a *tool/function calling* |
-| **Resiliência de quota** | Round-Robin nativo de múltiplas API keys Gemini | Contorna o limite de RPM (`429 Quota Exceeded`) sem custo extra |
-| **TTS** (texto → fala) | **Microsoft Edge TTS** (vozes neurais `FranciscaNeural`, `AntonioNeural`, `DuarteNeural`...) | 100% nuvem, resposta quase instantânea |
+| **STT** (fala → texto) | Whisper-Large-V3 via **Groq API** | Inferência ultrarrápida, com fallback para Gemini 1.5 Flash |
+| **Raciocínio rápido** | **Groq** (`llama-3.3-70b`) | Fast path para queries conversacionais (~300ms) |
+| **Raciocínio / Tool Calling** | **Gemini 3.1 Flash Lite** | Suporte nativo a function calling, RAG e sessões |
+| **Resiliência de quota** | Round-Robin nativo de múltiplas API keys | Contorna rate limits sem custo extra |
+| **TTS** (texto → fala) | **Microsoft Edge TTS** (vozes neurais) | Cache em memória + disco; 3 estágios de streaming |
+| **TTS Local** (fallback) | **Piper TTS** | Síntese offline, sem dependência de nuvem |
 
 ---
 
 ## 🔄 Como Funciona uma Interação (Fim a Fim)
 
 ```
-🎙️ Satélite ouve a wake word (Vosk, offline)
-        │
-        ▼
+🎙️ Satélite detecta wake word (OpenWakeWord / Vosk, offline)
+         │
+         ▼
 🗣️ VAD + RMS detectam início/fim da fala e capturam o áudio
-        │
-        ▼
-☁️ Áudio enviado ao servidor central (FastAPI / WebSocket)
-        │
-        ▼
-📝 STT via Groq (Whisper-Large-V3) transcreve a fala
-        │
-        ▼
-🧠 Router Agêntico (Gemini 2.5 Flash) interpreta o texto
-        │
-        ├── Decide chamar 0, 1 ou N Tools (Skills) em paralelo/sequência
-        │        │
-        │        ▼
-        │   ⚙️ Skills executam (Home Assistant, Spotify, Clima, Memória...)
-        │
-        ▼
-💬 Resposta final é sintetizada em linguagem natural
-        │
-        ▼
-🔊 TTS via Edge TTS gera o áudio da resposta
-        │
-        ▼
-📡 Áudio devolvido ao satélite, que reproduz no alto-falante físico
+         │
+         ▼
+☁️ Áudio enviado ao servidor via WebSocket (/api/ws/satellite/{id})
+         │
+         ▼
+📝 STT via Groq Whisper Large V3 transcreve a fala (ou Vosk local)
+         │
+         ▼
+╔═══════════════════════════════════════════════════════╗
+║              ROTEADOR AGÊNTICO (3 NÍVEIS)            ║
+║                                                       ║
+║  NÍVEL 1 — Semantic Router (Regex, < 5ms)             ║
+║  ├── TV, timer, smart home, listas, clima, música     ║
+║  ├── YouTube, calendário → resposta direta            ║
+║  └── Se não bater → cai para Nível 2                  ║
+║                                                       ║
+║  NÍVEL 2 — Groq Fast Path (llama-3.3-70b, ~300ms)    ║
+║  ├── Saudações, piadas, conhecimento geral            ║
+║  └── Se falhar ou tool necessária → cai para Nível 3  ║
+║                                                       ║
+║  NÍVEL 3 — Gemini Tool Calling (~2-3s)                ║
+║  ├── Decide qual tool chamar (0, 1 ou N)              ║
+║  ├── Injeta contexto: RAG, memórias, sessão ativa     ║
+║  └── Executa Skill e retorna resposta                 ║
+╚═══════════════════════════════════════════════════════╝
+         │
+         ▼
+⚙️ Skills executam ações (Spotify, TV, Home Assistant, Clima...)
+         │
+         ▼
+💬 Resposta em linguagem natural gerada
+         │
+         ▼
+╔═══════════════════════════════════════════════════════╗
+║              PIPELINE DE STREAMING REAL               ║
+║  Stage 1: LLM → fila de frases completas              ║
+║  Stage 2: Frases → áudio (Edge-TTS com cache)         ║
+║  Stage 3: Chunks de áudio → WebSocket → satélite      ║
+╚═══════════════════════════════════════════════════════╝
+         │
+         ▼
+📡 Satélite reproduz áudio no alto-falante
 ```
 
 ---
 
 ## 🛠️ Ferramentas Nativas (Tools/Skills)
 
-O agente Gemini tem acesso livre ao catálogo de *skills* abaixo e decide sozinho quando e como acioná-las.
+O agente decide sozinho quando e como acionar cada skill. Atualmente são **18 skills** registradas:
 
 ### 🏠 Automação e Casa Inteligente
 | Skill | Descrição |
 |---|---|
-| 💡 **SmartHomeTool** | Integração completa com o **Home Assistant** — descobre todos os dispositivos da casa e controla luzes, TVs, ares-condicionados e interruptores de forma natural (*"Apague a luz da sala e ligue a TV"*). |
-| ⏱️ **TimerTool** | Criação de cronômetros, alarmes e lembretes exatos, com alerta sonoro. Suporta avisos individuais, em todos os satélites de um cômodo, ou broadcast (tocar na casa inteira simultaneamente). |
+| 💡 **SmartHomeTool** | Integração completa com **Home Assistant** — controle de luzes, ventiladores, tomadas por cômodo. Comando offline direto (`/api/smart-home/offline`) sem passar pelo LLM. |
+| 📺 **TVTool** | Controle completo de TVs Samsung: ligar/desligar (SmartThings + WOL), volume absoluto (SmartThings), mute/unmute, abertura de apps (Netflix, YouTube, Globoplay, Disney+...), troca de canais (antena e Claro tv+), seleção de fonte HDMI. Suporta múltiplos cômodos. |
+| ⏱️ **TimerTool** | Cronômetros, alarmes e lembretes com alerta sonoro. Suporta avisos por cômodo ou broadcast. |
 
 ### 🎵 Entretenimento e Mídia
 | Skill | Descrição |
 |---|---|
-| 🎵 **MusicTool** | Spotify Connect nativo via daemon próprio (`spotifyd`) — comandos diretos (*"Toque The Beatles"*, *"Próxima"*, *"Pause"*, *"Volume máximo"*) sem depender de celular pareado. Fallback de segurança via YouTube (`yt-dlp`). |
-| ▶️ **YouTubeTool** | Reprodução independente de áudio do YouTube — lives (CazéTV, GloboNews), podcasts (Flow, Podpah), músicas fora do Spotify. Usa `yt-dlp` + busca com *scoring* por similaridade de canal para transmissões ao vivo. |
-| 📰 **NewsTool** | Manchetes recentes e notícias de última hora do Brasil e do mundo, via NewsAPI. |
+| 🎵 **MusicTool** | Spotify Connect nativo via daemon `spotifyd` — tocar, pausar, pular, volume. Fallback para YouTube via `yt-dlp` quando não há dispositivo Spotify disponível. |
+| ▶️ **YouTubeTool** | Reprodução de áudio do YouTube — lives (CazéTV, GloboNews), podcasts, conteúdo fora do Spotify. |
+| 📰 **NewsTool** | Manchetes do Brasil e do mundo por categoria via NewsAPI. |
+| 🎬 **MediaTool** | Recomendações de filmes e séries via TMDB (gênero, ano/década). |
 
 ### 🧠 Memória e Produtividade
 | Skill | Descrição |
 |---|---|
-| 🧠 **MemoryTool** | Memória de longo prazo persistente — Alfredo memoriza fatos vitais do usuário (alergias, hábitos, preferências) e injeta esse contexto *always-on* silenciosamente em respostas futuras. |
-        | 📝 **ListTool** | Gerenciamento de listas de compras e tarefas (*"Adicione pão na minha lista de mercado"*). |
-| 📅 **CalendarTool** | Agenda completa com leitura por voz (`"O que tenho amanhã?"`), adição (`"Marque dentista próxima terça às 14h"`), **reagendamento** (`"Move a reunião para quinta"` / `"Adia em 30 minutos"`), **cancelamento inteligente** (pergunta qual quando há múltiplos), **múltiplos lembretes** (`"Me lembre 1 hora, 15 min e 5 min antes"`), **detecção de conflitos** (`"Você já tem dentista às 14h"`), **datas naturais** (`"depois de amanhã"`, `"daqui a 3 dias"`, `"mês que vem"`, `"próxima terça"`), **sincronia bidirecional com Google Calendar** (OAuth + push/pull automático a cada 5 min), e **dashboard visual** com visão semanal. |
+| 🧠 **MemoryTool** | Memória de longo prazo com **RAG (embedding + cosine similarity)** — Alfredo memoriza fatos, alergias, preferências e injeta contexto relevante em respostas futuras. |
+| 📝 **ListTool** | Listas de compras e tarefas com suporte a listas específicas (ex: `compras_churrasco`). Envio por Telegram. |
+| 📅 **CalendarTool** | Agenda completa: leitura, adição, remoção e reagendamento com suporte a **datas em português** (`amanhã`, `depois de amanhã`, `próxima terça`, `daqui a 3 dias`, `mês que vem`). Múltiplos lembretes (`1 hora, 15 min e 5 min antes`). Detecção de conflitos. Sincronia bidirecional com Google Calendar via OAuth 2.0. |
+| 🔄 **RoutineTool** | Criação/edição/exclusão de rotinas agendadas por voz (`"Toda segunda às 7h acende a luz do quarto"`). |
 
 ### 🧭 Utilidades Gerais
 | Skill | Descrição |
 |---|---|
-| 🕒 **TimeTool** | Hora e data com base no fuso horário do servidor. |
-| 🌤️ **WeatherTool** | Previsão do tempo local e global, via Open-Meteo. |
-| 🚗 **TrafficTool** | Tempo de deslocamento em tempo real com coordenadas GPS, via Mapbox. |
+| 🕒 **TimeTool** | Hora e data atuais. |
+| 🌤️ **WeatherTool** | Previsão do tempo atual e estendida (até 5 dias) via Open-Meteo. Cache em banco. |
+| 🚗 **TrafficTool** | Tempo de deslocamento entre origens e destinos salvos via Google Maps API. |
+| 🌍 **TranslateTool** | Tradução entre idiomas e mini-aulas de idiomas (`"Como se fala obrigado em inglês?"`). |
 
 ### 🎓 Habilidades Especiais
 | Skill | Descrição |
 |---|---|
-| 🍳 **RecipeTool** | Guia receitas culinárias passo a passo, com contexto persistido em banco (pausa segura por horas) e harmonizações de vinhos/queijos. |
-| ☁️ **DreamTool** | Diário psicanalítico de sonhos — extrai semântica dos relatos e exibe uma nuvem de palavras animada no Dashboard. |
-| 🏫 **QuizTool** | Modo tarefa escolar — quizzes interativos de matemática e história, avaliação verbal das respostas e estado de sessão persistido em banco. |
+| 🍳 **RecipeTool** | Receitas passo a passo com sessão persistida em banco (pausa segura por horas) e harmonização de vinhos. |
+| ☁️ **DreamTool** | Diário de sonhos com extração de temas e nuvem de palavras animada no Dashboard. |
+| 🏫 **QuizTool** | Modo tarefa escolar — quizzes interativos com avaliação e persistência de sessão. |
 
 ### 💬 Conversação Nativa
-Quando nenhuma ferramenta é necessária, Alfredo usa seu conhecimento geral para bater papo, responder dúvidas complexas, traduzir textos ou contar piadas de forma fluida.
+Quando nenhuma ferramenta é necessária, Alfredo usa seu conhecimento geral para bater papo, responder dúvidas, traduzir textos ou contar piadas — tudo via **Groq Fast Path** em ~300ms, sem acionar o Gemini.
 
 ---
 
@@ -152,44 +198,39 @@ Quando nenhuma ferramenta é necessária, Alfredo usa seu conhecimento geral par
 A topologia física do Alfredo é organizada em dois papéis distintos: o **Nó Central** (fixo na sala) e os **Satélites Burros** (espalhados pelos cômodos).
 
 ### 🧠 Nó Central — Servidor + Satélite + Dashboard (sala)
-Diferente de uma arquitetura clássica de "hub escondido + dispositivos na casa", o Alfredo concentra tudo em um único equipamento fixado na parede da sala, acumulando três papéis ao mesmo tempo:
-- **Cérebro/Servidor:** roda a API FastAPI, o roteador agêntico (Gemini) e o banco de dados;
-- **Satélite local:** tem microfone e alto-falante próprios, funcionando como mais um ponto de captura de voz da casa (a sala não fica "surda" só porque o servidor está lá);
-- **Dashboard físico:** a tela fica exposta na parede, exibindo o painel **"Obsidian & Brass"** (status, rotinas, nuvem de sonhos etc.) como uma espécie de "quadro inteligente" central da casa.
+Um único equipamento na parede da sala acumula três papéis:
+- **Cérebro/Servidor:** API FastAPI, roteador agêntico, banco SQLite;
+- **Satélite local:** microfone e alto-falante próprios (a sala não fica "surda");
+- **Dashboard físico:** tela expondo o painel web como "quadro inteligente".
 
 | Item | Especificação |
 |---|---|
 | Hardware | HP Pavilion x360 11-N226BR |
 | CPU | Intel Celeron N2830 Dual-Core 2.16GHz |
 | RAM | 4GB DDR3L + ZRAM |
-| Microfone | Ps3 Eye(array de 4 mics) |
-| SO | Ubuntu Server 26.04 LTS (Resolute) |
-| Papel | Roteador de tráfego de rede, API FastAPI, banco SQLite, **e** captura de voz + exibição do dashboard local. Nenhum processamento pesado de áudio/IA roda localmente — tudo é delegado à nuvem (ver [Filosofia de Arquitetura](#-filosofia-de-arquitetura-agentic-first)). |
-
-> Como o x360 tem tela sensível ao toque e dobra 360°, ele se presta bem a ficar "pregado" na parede em modo *tablet*, servindo de tela fixa para o dashboard sem hardware extra.
+| Microfone | Ps3 Eye (array de 4 mics) |
+| SO | Ubuntu Server 26.04 LTS |
+| Papel | Roteador de rede + API + banco + captura de voz + dashboard local |
 
 ### 📡 Satélites (demais cômodos)
-Os outros cômodos recebem satélites focados apenas em I/O (captam áudio via wake word local + VAD e reproduzem a resposta), delegando 100% do raciocínio ao Nó Central pela rede.
+Captam áudio via wake word local + VAD e reproduzem a resposta, delegando 100% do raciocínio ao Nó Central.
 
-Como o servidor é **agnóstico a hardware** e reage exclusivamente às *capabilities* que o satélite declara no momento do registro, **cada cômodo pode ter um hardware completamente diferente**. 
-
-Atualmente os satélites em uso/avaliação são:
+O servidor é **agnóstico a hardware** — reage exclusivamente às *capabilities* declaradas no registro do dispositivo.
 
 #### 🛏️ Quarto do Casal (Satélite Android Fixo)
 | Item | Especificação |
 |---|---|
-| Hardware | Smartphone Samsung M21s (reaproveitado) |
-| Áudio | Conectado via cabo P2 a uma caixa de som externa |
-| Software | App local modular em Python (Termux/OpenWakeWord/WebRTC VAD) |
+| Hardware | Samsung M21s (reaproveitado) |
+| Áudio | Caixa externa via P2 |
+| Software | Python (Termux) + OpenWakeWord + WebRTC VAD |
 
-#### 🤖 Outros Cômodos (Ex: ESP32)
-| Item | Especificação (protótipo avaliado) |
+#### 🖥️ Escritório (Satélite Desktop)
+| Item | Especificação |
 |---|---|
-| Hardware | DeepSeek AI Voice Robot Ball (ESP32-S3 WROOM-1-N16R8) |
-| Display | 1.28" 240×240 IPS (GC9A01) |
-| Firmware | C++ (ESP-IDF / PlatformIO) com protocolo compartilhado |
+| Software | Python com Vosk wake word + VAD |
+| Conexão | WebSocket + HTTP |
 
-> Isso torna o projeto extremamente flexível — basta implementar o protocolo HTTP/WS padrão (JSON/Binário) em qualquer dispositivo com microfone e alto-falante, com zero alterações no servidor.
+> Basta implementar o protocolo HTTP/WS padrão em qualquer dispositivo com microfone e alto-falante — zero alterações no servidor.
 
 ---
 
@@ -197,35 +238,70 @@ Atualmente os satélites em uso/avaliação são:
 
 ```
 alfredo-core/
-├── core/                    # Motor principal em Python
-│   ├── api/                  # FastAPI: endpoints REST/WebSocket, satélites, Spotify, TV, dashboard
-│   ├── brain/                 # Cérebro agêntico
-│   │   ├── router.py           # Roteador principal (Gemini 2.5 Flash + tool calling)
-│   │   ├── skills/              # Implementação de cada Tool (Music, Weather, Memory, Recipe...)
-│   │   ├── memory/              # Persistência de memória de longo prazo (SQLAlchemy)
-│   │   └── context/              # Gerenciamento de contexto conversacional
-│   ├── services/               # Serviços auxiliares compartilhados
-│   └── voice/                   # Pipeline de voz
-│       ├── stt/                   # Speech-to-Text (Groq / Whisper)
-│       └── tts/                   # Text-to-Speech (Edge TTS / Piper)
-├── firmware/                  # Código-fonte C++ (ESP-IDF / PlatformIO) dos satélites
-│   ├── satellite-deepseek-ball/    # Firmware do robô-bola ESP32-S3 (um dos protótipos avaliados)
-│   └── shared-protocol/             # Especificação do protocolo HTTP/WS multi-hardware
-├── devices/                   # Gerenciamento e monitoramento de saúde dos satélites
-├── integrations/               # Conectores externos
-│   └── homeassistant/, music/, weather/, calendar/, contacomigo/, ai_fallback/
-├── dashboard/                  # Painel web de administração ("Obsidian & Brass")
-│   ├── frontend/                # Interface legada
-│   ├── newdashboard/             # Nova interface (React)
-│   └── backend/                  # API de suporte ao dashboard
-├── deploy/                     # Scripts de instalação e atualização (install.sh, update.sh)
-├── scripts/                    # Utilitários operacionais (satélite local, diagnóstico de mic, migrações...)
-├── docs/                       # Documentação funcional, guias e onboarding de clientes
-├── tests/                      # Testes automatizados
-├── config/                     # Configuração de ambiente (.env)
-├── requirements.txt             # Dependências Python do servidor
-├── start.sh / restart.sh         # Scripts de execução em produção (screen sessions)
-└── config.yml                   # Configuração do túnel Cloudflare (ingress)
+├── core/                          # Motor principal em Python
+│   ├── api/                        # FastAPI: endpoints REST/WS
+│   │   ├── main.py                  # App principal, startup, rotas globais
+│   │   ├── dashboard.py             # API do dashboard (stats, CRUD, config)
+│   │   ├── satellite.py             # WebSocket + REST dos satélites
+│   │   ├── spotify.py               # Auth OAuth do Spotify
+│   │   ├── tv.py                    # CRUD de configurações de TV
+│   │   ├── smart_home.py            # CRUD de cômodos + devices + offline control
+│   │   ├── google_auth.py           # OAuth do Google Calendar
+│   │   └── schemas.py               # Schemas Pydantic
+│   ├── brain/                       # Cérebro agêntico
+│   │   ├── router.py                 # Roteador principal (3 níveis)
+│   │   ├── semantic_router.py        # Roteador regex ultrarrápido (<5ms)
+│   │   ├── routers/                  # Definições de rotas
+│   │   │   ├── tv.py, timer.py, music.py, lists.py
+│   │   │   ├── weather_time.py, calendar.py, youtube.py
+│   │   │   └── smart_home.py
+│   │   ├── skills/                   # 18 Skills (Weather, Timer, TV, Music...)
+│   │   │   ├── base.py               # Interface base Skill
+│   │   │   └── *.py                  # Implementações
+│   │   └── memory/                   # Banco de dados
+│   │       ├── database.py            # SQLite + SQLAlchemy engine
+│   │       └── models.py              # 15 modelos (Device, Interaction, Event...)
+│   ├── services/                    # Serviços de integração
+│   │   ├── key_manager.py            # Round-robin + cooldown de API keys
+│   │   ├── spotify_service.py        # Spotify Connect (Spotipy)
+│   │   ├── samsung_tv.py             # SmartThings + SamsungTVWS + WOL
+│   │   ├── home_assistant.py         # Home Assistant REST
+│   │   ├── calendar_service.py       # Calendário local (timezone, queries)
+│   │   ├── google_calendar.py        # Google Calendar OAuth + sync
+│   │   ├── weather_service.py        # Open-Meteo com cache
+│   │   ├── youtube_service.py        # yt-dlp
+│   │   ├── embedding_service.py      # Embeddings para RAG
+│   │   ├── scheduler.py              # Loop de timers, eventos, rotinas
+│   │   ├── env_manager.py            # Gerenciamento de .env
+│   │   └── mail_service.py           # Serviço de e-mail
+│   └── voice/                       # Pipeline de voz
+│       ├── pipeline.py               # Streaming 3 estágios (LLM→frases→áudio)
+│       ├── stt/
+│       │   └── engine.py             # Groq Whisper / Vosk / Gemini fallback
+│       └── tts/
+│           └── engine.py             # Edge-TTS / Piper com cache
+├── devices/                         # Implementações de satélites
+│   ├── satellite_server/             # Linux (OpenWakeWord + VAD)
+│   └── satellite_desktop/            # Desktop (Vosk + VAD)
+├── dashboard/                       # Painel web (React)
+│   ├── frontend/                     # Build estático (montado em /)
+│   └── newdashboard/                 # Nova interface React (Vite + TS)
+├── config/                          # Configurações auxiliares
+│   └── .env.example                  # Exemplo de variáveis de ambiente
+├── scripts/                         # Utilitários
+│   ├── db_tools/                     # Migrações, queries, fixes
+│   ├── seed_rooms.py, setup_spotify.py, mock_satellite.py
+│   └── test_*.py                    # Scripts de teste avulsos
+├── tests/                           # Testes automatizados
+├── docs/                            # Documentação
+├── deploy/                          # Scripts de instalação
+│   ├── install.sh
+│   └── update.sh
+├── tmp/                             # Áudio temporário (gitignorado)
+├── config.yml                       # Cloudflare Tunnel ingress
+├── requirements.txt                 # Dependências Python
+├── start.sh / restart.sh            # Scripts de execução
+└── .env                             # Configuração sensível (não versionado)
 ```
 
 ---
@@ -233,27 +309,29 @@ alfredo-core/
 ## 🧰 Stack Tecnológica
 
 **Backend & IA**
-- `FastAPI` + `uvicorn[standard]` + `websockets` — API e comunicação em tempo real com satélites
-- `google-generativeai` — Gemini 2.5 Flash (roteador agêntico / tool calling)
-- `groq` — Whisper-Large-V3 (STT ultrarrápido)
-- `edge-tts` — Síntese de voz neural na nuvem (com suporte opcional a `piper-tts` local)
-- `SQLAlchemy` — Persistência de memória, listas, timers e sessões
+- `FastAPI` + `uvicorn[standard]` + `websockets` — API REST e comunicação em tempo real
+- `google-generativeai` — Gemini 3.1 Flash Lite (tool calling, RAG)
+- `groq` — Whisper-Large-V3 (STT) + llama-3.3-70b (fast path conversacional)
+- `edge-tts` — Síntese de voz neural (cloud, com cache em memória + disco)
+- `piper-tts` — Síntese de voz local (fallback opcional)
+- `SQLAlchemy` — ORM com SQLite (WAL mode, pool de conexões)
 
 **Áudio e Voz**
-- `sounddevice`, `soundfile`, `numpy` — Captura e processamento de áudio em pipeline único
-- `webrtcvad` — Detecção de atividade de voz (VAD)
-- `vosk` — Reconhecimento offline da *wake word*
+- `sounddevice`, `soundfile`, `numpy` — Captura e processamento de áudio
+- `webrtcvad` — Detecção de atividade de voz (VAD) modo agressivo
+- `openwakeword` — Wake word offline no satélite server
+- `vosk` — Wake word / STT local (fallback)
 
 **Integrações**
-- `spotipy` + `spotifyd` — Controle nativo do Spotify Connect
-- `yt-dlp` — Extração de áudio do YouTube (fallback de música e lives)
-- `httpx` / `requests` — Chamadas HTTP a serviços externos (clima, trânsito, notícias, Home Assistant)
+- `spotipy` — Controle do Spotify Connect
 - `samsungtvws`, `wakeonlan` — Controle de TVs Samsung
-- `google-api-python-client`, `google-auth-oauthlib`, `google-auth-httplib2` — Sincronia bidirecional com Google Calendar
-- Cloudflare Tunnel — Exposição segura da API sem *port forwarding*
-
-**Firmware**
-- ESP-IDF / PlatformIO em C++ para os satélites ESP32-S3
+- `requests` / `httpx` — Chamadas HTTP (Home Assistant, SmartThings, Telegram, APIs)
+- `yt-dlp` — Extração de áudio do YouTube
+- `google-api-python-client`, `google-auth-oauthlib` — Google Calendar OAuth 2.0
+- `python-dotenv` — Carregamento de variáveis de ambiente
+- `pydantic` — Validação de schemas
+- `dateparser` — Parsing de datas em português (`search_dates`)
+- Cloudflare Tunnel — Exposição segura da API sem port forwarding
 
 ---
 
@@ -261,13 +339,13 @@ alfredo-core/
 
 ### Pré-requisitos
 - Linux baseado em Debian/Ubuntu (recomendado: Ubuntu Server 24.04+)
-- Acesso à internet para download de pacotes e modelos
+- Acesso à internet
 - Chaves de API gratuitas do **Groq** e do **Google Gemini**
 
 ### Passo a passo
 
 ```bash
-# 1. Clone o repositório na máquina de destino
+# 1. Clone o repositório
 git clone https://github.com/henrique-jfp/alfredo-core.git
 cd alfredo-core
 
@@ -279,26 +357,25 @@ chmod +x deploy/install.sh
 O script cuida de:
 1. Instalar dependências de sistema (Python3, pip, venv);
 2. Criar o ambiente virtual e instalar `requirements.txt`;
-3. Baixar os modelos offline de STT (Vosk) e TTS (Piper);
-4. Guiar a criação interativa do arquivo `config/.env`;
-5. Registrar o serviço `alfredo.service` no `systemd`.
+3. Baixar modelos offline (Vosk, Piper) se configurados;
+4. Guiar a criação interativa do arquivo `.env` (na raiz do projeto);
+5. Registrar os serviços `alfredo-api.service` e `alfredo-satellite.service` no `systemd`.
 
 ```bash
-# 3. Ajuste fino das variáveis de ambiente
-nano config/.env
+# 3. Ajuste fino das variáveis de ambiente no .env (raiz do projeto)
+nano .env
 
-# 4. Inicie o serviço
-sudo systemctl start alfredo.service
+# 4. Inicie os serviços
+sudo systemctl start alfredo-api.service
+sudo systemctl start alfredo-satellite.service
 
 # 5. Acompanhe os logs
-sudo journalctl -u alfredo.service -f
+sudo journalctl -u alfredo-api.service -f
 ```
-
-> 🔄 **Atualizações:** para versões futuras, basta rodar `./deploy/update.sh` — ele puxa o código mais recente do Git, atualiza as dependências e reinicia o serviço automaticamente.
 
 ### Execução manual (modo desenvolvimento)
 ```bash
-./start.sh     # sobe API (uvicorn), satélite local e spotifyd em sessões screen separadas
+./start.sh     # sobe API (uvicorn), satélite local e spotifyd
 ./restart.sh   # reinicia os processos
 ```
 
@@ -306,58 +383,82 @@ sudo journalctl -u alfredo.service -f
 
 ## ⚙️ Configuração
 
-Toda a configuração sensível vive em `config/.env` (nunca commitado). Principais grupos de variáveis:
+Toda configuração sensível vive no arquivo `.env` na raiz do projeto (nunca versionado). Um exemplo está em `config/.env.example`.
 
-- **Identidade da família:** `FAMILY_NAME`, `ADMIN_NAME`
-- **Chaves de API:** Gemini (com suporte a múltiplas keys em round-robin), Groq, NewsAPI, Mapbox
-- **Home Assistant:** URL e token de acesso de longa duração
-- **Spotify:** credenciais OAuth (`spotipy`) + configuração do `spotifyd.conf`
-- **Google Calendar:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (credenciais OAuth 2.0) + `PUBLIC_URL` (domínio público com túnel Cloudflare para callback OAuth)
-- **Banco de dados:** caminho do SQLite local
+**Chaves de API:**
+- `GEMINI_API_KEYS` — Uma ou mais chaves Gemini (separadas por vírgula, round-robin automático)
+- `GROQ_API_KEYS` — Uma ou mais chaves Groq
 
-Consulte `docs/INSTALL.md` para o guia completo de provisionamento de um novo servidor, e `docs/CLIENT_ONBOARDING.md` para o fluxo de onboarding de uma nova família/cliente.
+**Integrações:**
+- `HOME_ASSISTANT_URL`, `HOME_ASSISTANT_TOKEN` — URL e token do Home Assistant
+- `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` — Credenciais Spotify (OAuth)
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — Credenciais Google Calendar (OAuth)
+- `PUBLIC_URL` — URL pública (para callback OAuth via Cloudflare Tunnel)
+- `GOOGLE_MAPS_API_KEY` — Para a skill de trânsito
+- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — Para envio de listas por Telegram
+
+**Áudio:**
+- `STT_BACKEND` — `groq` (padrão) ou `vosk`
+- `TTS_BACKEND` — `edge` (padrão) ou `piper`
+
+Consulte `docs/INSTALL.md` para o guia completo de provisionamento.
 
 ---
 
 ## 📊 Dashboard de Administração
 
-O diretório `dashboard/` contém o painel web **"Obsidian & Brass"**, usado para:
-- Visualizar e editar a memória de longo prazo do Alfredo;
-- Gerenciar rotinas, listas e lembretes;
-- Acompanhar status de saúde da API e dos satélites conectados;
-- Explorar a nuvem de sonhos gerada pela `DreamTool`;
-- **Visualizar compromissos da agenda** em visão semanal com navegação por datas.
+O diretório `dashboard/` contém o painel web acessível via navegador (montado na raiz `/` do servidor):
 
-A pasta possui duas gerações de interface: `frontend/` (legada) e `newdashboard/` (React, em evolução), além de um `backend/` de suporte dedicado.
+- **Overview** — Status da API, satélites conectados, KPIs
+- **Inteligência** — Memórias, métricas de IA (tokens, latência, RPM)
+- **Satélites** — Dispositivos registrados, volume, brilho, online/offline
+- **Calendário** — Visão semanal com navegação por datas
+- **Rotinas** — CRUD de automações agendadas
+- **Listas** — Compras e tarefas
+- **Integrações** — Spotify, Google Calendar, TV
+- **Sonhos** — Diário com nuvem de palavras
+- **Dispositivos** — Cômodos e smart devices (Home Assistant)
+- **Configurações** — Voz do assistente, nome, API keys
+
+Há duas gerações: `frontend/` (build estável atual, servida em produção) e `newdashboard/` (React/Vite/TypeScript, em evolução).
 
 ### 🔐 Google Calendar (OAuth 2.0)
 
-A sincronia com Google Calendar segue o fluxo OAuth padrão:
-
 1. **Adicione a redirect URI** no [Google Cloud Console](https://console.cloud.google.com/apis/credentials):
    ```
-   https://henriquedejesus.dev/api/auth/google/callback
+   https://seudominio.com/api/auth/google/callback
    http://localhost:10001/api/auth/google/callback
    ```
-2. **Autorize** acessando no navegador: `GET /api/auth/google/authorize`
-3. O servidor troca o código por um token **refresh** e inicia sincronia automática a cada 5 minutos.
-
-Endpoints disponíveis:
-
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| GET | `/api/auth/google/authorize` | Redireciona para OAuth do Google |
-| GET | `/api/auth/google/callback` | Callback OAuth — recebe e armazena o token |
-| GET | `/api/auth/google/status` | Status da integração (conectado, eventos pendentes) |
-| POST | `/api/auth/google/sync` | Dispara sincronia manual bidirecional |
-| GET | `/api/dashboard/events` | Eventos do calendário em intervalo de datas |
+2. **Autorize** acessando: `GET /api/auth/google/authorize`
+3. O servidor inicia sincronia automática a cada 5 minutos.
 
 ---
 
 ## 🗺️ Roadmap
 
-✅ **Google Calendar Sync** — implementado. Sincronia bidirecional via OAuth 2.0.  
-Consulte `docs/ALFREDO_CHECKLIST.md` e `docs/ideiasFeatures.md` para o backlog vivo de funcionalidades planejadas e em avaliação.
+### ✅ Implementado
+- [x] Roteamento em 3 camadas (Semantic Router + Groq Fast Path + Gemini Tool Calling)
+- [x] Pipeline de streaming real (LLM → frases → áudio em paralelo)
+- [x] 18 skills nativas (TV, Smart Home, Música, YouTube, Clima, Listas, Timer, Agenda...)
+- [x] Google Calendar Sync — bidirecional via OAuth 2.0 (push/pull a cada 5 min)
+- [x] Memória de longo prazo com RAG (embedding + cosine similarity)
+- [x] SmartThings para controle absoluto de TV (mute, volume, power on/off)
+- [x] Suporte a múltiplas chaves Gemini/Groq com round-robin e cooldown
+- [x] Dashboard React com 10 abas de gerenciamento
+- [x] Wake word offline (OpenWakeWord e Vosk)
+- [x] Sincronia Spotify + fallback YouTube
+- [x] Scheduler de timers, eventos e rotinas
+- [x] Satélites Android (Termux) e Desktop
+- [x] Home Assistant — controle de dispositivos inteligentes
+- [x] Endpoint offline de smart home (bypass do LLM)
+
+### 🔜 Em andamento / Planejado
+- [ ] OCR / câmera para ler display de micro-ondas e ar-condicionado
+- [ ] Suporte a múltiplos usuários com perfis de voz
+- [ ] Modo hóspede (privacidade limitada)
+- [ ] Skill de lembretes geolocalizados (ex: "me lembre de comprar leite quando chegar no mercado")
+
+Consulte `docs/ALFREDO_CHECKLIST.md` para o backlog completo.
 
 ---
 
@@ -365,13 +466,13 @@ Consulte `docs/ALFREDO_CHECKLIST.md` e `docs/ideiasFeatures.md` para o backlog v
 
 Este é um projeto pessoal em evolução constante, mas sugestões, issues e PRs são bem-vindos. Ao contribuir:
 1. Abra uma *issue* descrevendo o problema ou a ideia;
-2. Siga a organização modular existente (`core/brain/skills/` para novas ferramentas, `firmware/` seguindo o `shared-protocol` para novos hardwares);
-3. Rode os testes em `tests/` antes de abrir um PR.
+2. Siga a organização modular existente — novas skills vão em `core/brain/skills/`;
+3. Execute os testes em `tests/` antes de abrir um PR.
 
 ---
 
 <div align="center">
 
-*Desenvolvido com ❤️ sob os princípios de Clean Code, Domain-Driven Design (DDD) e Agentic Frameworks.*
+*Desenvolvido com ❤️ sob os princípios de simplicidade, resiliência e "custo zero".*
 
 </div>
