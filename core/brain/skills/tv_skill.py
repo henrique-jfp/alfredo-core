@@ -380,6 +380,11 @@ class TVSkill:
             elif action == "unmute":
                 _run_async(tv.set_mute(False))
 
+            elif action == "send_key":
+                key_code = op.get("key_code")
+                if key_code:
+                    _run_async(tv.send_key(key_code))
+
             elif action == "volume_up":
                 for _ in range(3):
                     _run_async(tv.send_key("KEY_VOLUP"))
