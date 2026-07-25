@@ -351,20 +351,18 @@ class SamsungTVManager:
         app_ids = [aid.strip() for aid in app_id.split(",") if aid.strip()]
         logger.info("Abrindo app ids=%s name=%s na TV %s", app_ids, name or "?", self.ip)
 
-        # ── O ULTIMATE SHOTGUN APPROACH ────────────────────────────────────
-        # As APIs da Samsung (SmartThings e WebSockets) costumam retornar sucesso (200 OK)
-        # mesmo quando a TV ignora o comando. Portanto, disparar apenas um e retornar
-        # causa falhas silenciosas. Vamos disparar TODOS os métodos conhecidos, para
-        # todos os IDs (novos e velhos) do app. Como todos têm o mesmo objetivo (abrir o app),
-        # a TV processará o que funcionar e ignorará o resto.
-        any_success = False
-
         # 1. REST API (Porta 8001) - Mais confiável para apps com ID
+        # Se a REST API retornar True, o app com certeza abriu (ou não retornaria True).
+        # Retornamos cedo para evitar bombardear a TV com requisições redundantes.
         for aid in app_ids:
             result = await self._run_local_command(self.tv.rest_app_run, aid)
-            if result is not self._LOCAL_FAIL:
-                logger.info("App %s: REST API rest_app_run executado.", aid)
-                any_success = True
+            # Se for True, ou um dicionário indicando sucesso
+            if result is True or (isinstance(result, dict) and str(result.get("status", "")).startswith("2")):
+                logger.info("App %s: REST API rest_app_run executado com sucesso.", aid)
+                return True
+
+        logger.warning("REST API falhou/indisponível. Iniciando Fallback (Shotgun)...")
+        any_success = False
 
         # 2. SmartThings custom.launchapp
         for aid in app_ids:
