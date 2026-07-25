@@ -279,9 +279,9 @@ class TimerSkill(Skill):
             return {"direct_response": f"OK, {label} cancelado.", "status": "success"}
             
         elif action == "create":
-            dur = kwargs.get("duration_seconds")
+            dur = kwargs.get("duration_seconds") or kwargs.get("duration")
             target = kwargs.get("target_hour")
-            msg = kwargs.get("message", "")
+            msg = kwargs.get("message", "") or kwargs.get("label", "")
             target_room = kwargs.get("target_room", "")
             final_room_id = "all" if target_room and target_room.lower() == "all" else (target_room if target_room else room_id)
             
