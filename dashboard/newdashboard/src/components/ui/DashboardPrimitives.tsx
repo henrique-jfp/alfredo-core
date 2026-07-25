@@ -119,15 +119,15 @@ export function MetricCard({
     : '';
 
   return (
-    <div className={cn('alfredo-card p-4 md:p-5 fade-up', className)}>
-      <div className="flex items-start justify-between gap-4">
+    <div className={cn('alfredo-card p-3.5 md:p-4 fade-up', className)}>
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl border', styles.ring, styles.bg, styles.text)}>
-            <Icon className="h-5 w-5" />
+          <div className={cn('flex h-8 w-8 items-center justify-center rounded-[10px] border', styles.ring, styles.bg, styles.text)}>
+            <Icon className="h-4 w-4" />
           </div>
-          <div className="mt-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[color:var(--text-tertiary)]">{label}</div>
-          <div className="mt-1 text-[28px] md:text-[32px] font-semibold tracking-tight text-[color:var(--text-primary)]">{value}</div>
-          {detail && <div className="mt-1 text-[12px] text-[color:var(--text-secondary)]">{detail}</div>}
+          <div className="mt-2.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-[color:var(--text-tertiary)]">{label}</div>
+          <div className="mt-0.5 text-[24px] md:text-[28px] font-bold tracking-tight text-[color:var(--text-primary)]">{value}</div>
+          {detail && <div className="mt-0.5 text-[11px] font-medium text-[color:var(--text-secondary)]">{detail}</div>}
         </div>
         {sparkline && sparkline.length > 1 && (
           <svg viewBox="0 0 100 40" className="h-12 w-24 shrink-0 overflow-visible" aria-hidden="true">

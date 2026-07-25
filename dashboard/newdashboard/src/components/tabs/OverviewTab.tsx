@@ -272,9 +272,8 @@ export function OverviewTab() {
         animate="visible"
         className="flex items-start justify-between gap-6 flex-wrap"
       >
-        {/* Left: Orb + Clock */}
-        <div className="flex items-center gap-5">
-          <AlfredoOrb state={alfredoState} size="xl" pulse />
+        {/* Left: Clock */}
+        <div className="flex items-center">
           <ClockDisplay time={time} />
         </div>
 

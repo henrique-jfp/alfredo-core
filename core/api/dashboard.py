@@ -49,8 +49,10 @@ def get_stats(db: Session = Depends(get_db)):
     # Total de interações realizadas
     total_interactions = db.query(models.Interaction).count()
     
-    # Satélites/Dispositivos cadastrados
-    devices_registered = db.query(models.Device).count()
+    # Satélites/Dispositivos cadastrados e ONLINE (vistos nos últimos 5 minutos)
+    from datetime import datetime, timedelta, timezone
+    five_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
+    devices_registered = db.query(models.Device).filter(models.Device.last_seen >= five_mins_ago).count()
     
     # Quantidade de cronômetros rodando no momento
     active_timers = db.query(models.Timer).filter(models.Timer.is_active == True).count()
