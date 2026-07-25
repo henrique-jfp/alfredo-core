@@ -130,18 +130,14 @@ ROUTES = [
     Route(r"(?=.*\bclaro\b)" + _and("canal") + rf"(?=.*\b(?P<channel_name>{_CHANNEL_NAMES})\b)",
           "manage_tv", {"action": "app_channel_change", "app_name": "claro tv+"}, None, True),
 
-    # ---- ABRIR APP E BIXBY (Atalhos Diretos) ----
+    # ---- ABRIR APP ----
+    # NOTA: NÃO colocar rotas de send_key para apps (KEY_NETFLIX, KEY_YOUTUBE etc)
+    # aqui — elas casariam junto com a rota genérica open_app abaixo (ambas
+    # são batchable), gerando DOIS comandos conflitantes no mesmo lote.
+    # A lógica de atalhos já existe dentro de samsung_tv.py open_app() como
+    # fallback (Estratégia 4), e SmartThings custom.launchapp é a prioridade.
     Route(_and("chama|chamar|abre|abrir|ativa|ativar", "bixby|assistente da tv|alexa da tv"),
           "manage_tv", {"action": "send_key", "key_code": "KEY_BT_VOICE"}, None, True),
-          
-    Route(r"(?=.*\b(?:abre|abri|abrir|coloca|colocar)\b)(?=.*\bnetflix\b)",
-          "manage_tv", {"action": "send_key", "key_code": "KEY_NETFLIX"}, None, True),
-          
-    Route(r"(?=.*\b(?:abre|abri|abrir|coloca|colocar)\b)(?=.*\byoutube\b)",
-          "manage_tv", {"action": "send_key", "key_code": "KEY_YOUTUBE"}, None, True),
-          
-    Route(r"(?=.*\b(?:abre|abri|abrir|coloca|colocar)\b)(?=.*\b(?:prime video|amazon prime|prime)\b)",
-          "manage_tv", {"action": "send_key", "key_code": "KEY_PRIME_VIRTUAL"}, None, True),
 
     Route(r"(?=.*\b(?:abre|abri|abrir|coloca|colocar)\b)"
           rf"(?=.*\b(?P<app_name>{_APPS})\b)" + _not("canal"),

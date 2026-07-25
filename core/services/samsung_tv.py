@@ -338,13 +338,14 @@ class SamsungTVManager:
     async def open_app(self, app_id: str, app_name: str = ""):
         """Abre um aplicativo na TV — tenta múltiplas estratégias em ordem.
 
-        Estratégias:
-          1. SmartThings mediaInputSource (std) — YouTube
-          2. SmartThings samsungvd.mediaInputSource — Netflix e outros
-          3. SmartThings custom.launchapp — fallback genérico
-          4. Tecla de atalho Samsung (KEY_NETFLIX, KEY_YOUTUBE)
-          5. run_app DEEP_LINK via WebSocket local
-          6. run_app NATIVE_LAUNCH via WebSocket local
+        Cada estratégia retorna imediatamente se bem-sucedida (early return),
+        evitando bombardear a TV com comandos conflitantes.
+
+        Estratégias (em ordem de prioridade):
+          1. SmartThings custom.launchapp — mais confiável
+          2. Tecla de atalho Samsung (KEY_NETFLIX, KEY_YOUTUBE etc.)
+          3. run_app DEEP_LINK via WebSocket local
+          4. run_app NATIVE_LAUNCH via WebSocket local
         """
         name = app_name.lower() if app_name else ""
         logger.info("Abrindo app id=%s name=%s na TV %s", app_id, name or "?", self.ip)
@@ -357,9 +358,9 @@ class SamsungTVManager:
             ok = await self._st_command("custom.launchapp", "launchApp", args)
             if ok:
                 logger.info("App %s: custom.launchapp aceitou (args=%s).", app_id, args)
-                break
+                return True
 
-        # ── Estratégia 4: Tecla de atalho Samsung ──────────────────────────
+        # ── Estratégia 2: Tecla de atalho Samsung ──────────────────────────
         shortcut_key = _APP_SHORTCUTS.get(name) if name else None
         if shortcut_key:
             result = await self._run_local_command(self.tv.send_key, shortcut_key)
@@ -367,13 +368,13 @@ class SamsungTVManager:
                 logger.info("App %s: tecla de atalho %s enviada.", app_id, shortcut_key)
                 return True
 
-        # ── Estratégia 5: DEEP_LINK ────────────────────────────────────────
+        # ── Estratégia 3: DEEP_LINK ────────────────────────────────────────
         result = await self._run_local_command(self.tv.run_app, app_id, "DEEP_LINK")
         if result is not self._LOCAL_FAIL:
             logger.info("App %s: DEEP_LINK enviado (sem garantia).", app_id)
             return True
 
-        # ── Estratégia 6: NATIVE_LAUNCH ────────────────────────────────────
+        # ── Estratégia 4: NATIVE_LAUNCH ────────────────────────────────────
         result = await self._run_local_command(self.tv.run_app, app_id, "NATIVE_LAUNCH")
         if result is not self._LOCAL_FAIL:
             logger.info("App %s: NATIVE_LAUNCH enviado (sem garantia).", app_id)
