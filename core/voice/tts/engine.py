@@ -206,8 +206,8 @@ class TTSEngine:
         clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
         logger.info(f"Iniciando stream TTS para: '{clean_text}'")
 
-        pattern = r'<lang="([^"]+)">(.*?)</lang>'
-        parts = re.split(pattern, clean_text)
+        pattern = r'<lang="([^"]+)">(.*?)(?:</lang>|$)'
+        parts = re.split(pattern, clean_text, flags=re.DOTALL)
         parsed_segments = []
         i = 0
         while i < len(parts):
@@ -225,6 +225,9 @@ class TTSEngine:
             parsed_segments = [(self.current_voice_name, clean_text)]
 
         for voice, segment_text in parsed_segments:
+            segment_text = re.sub(r'</?lang[^>]*>', '', segment_text).strip()
+            if not segment_text:
+                continue
             communicate = edge_tts.Communicate(segment_text, voice, rate='+10%')
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
@@ -237,8 +240,8 @@ class TTSEngine:
             clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', sentence)
             if not clean_text.strip():
                 continue
-            pattern = r'<lang="([^"]+)">(.*?)</lang>'
-            parts = re.split(pattern, clean_text)
+            pattern = r'<lang="([^"]+)">(.*?)(?:</lang>|$)'
+            parts = re.split(pattern, clean_text, flags=re.DOTALL)
             parsed_segments = []
             i = 0
             while i < len(parts):
@@ -255,6 +258,9 @@ class TTSEngine:
             if not parsed_segments:
                 parsed_segments = [(self.current_voice_name, clean_text)]
             for voice, segment_text in parsed_segments:
+                segment_text = re.sub(r'</?lang[^>]*>', '', segment_text).strip()
+                if not segment_text:
+                    continue
                 cached = await self.get_cached_audio(segment_text)
                 if cached:
                     yield cached
@@ -398,7 +404,8 @@ class PiperTTS:
         logger.info("Iniciando stream TTS encadeado (LLM -> Piper)...")
 
         async for sentence in text_generator:
-            clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', sentence).strip()
+            clean_text = re.sub(r'</?lang[^>]*>', '', sentence)
+            clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', clean_text).strip()
             if not clean_text:
                 continue
 
