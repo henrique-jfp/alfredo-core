@@ -435,8 +435,19 @@ def _tv_volume_absolute(target: int) -> None:
 
 
 def _handle_tv(text: str) -> bool:
-    if not _has_any(text, WORD_TV):
+    # Palavras-chave que indicam comando direto pra TV sem precisar falar "TV"
+    direct_commands = {
+        "netflix", "youtube", "prime video", "amazon prime", "samsung tv plus", "samsung tv",
+        "play", "tocar", "iniciar", "continua",
+        "pause", "pausar", "pausa",
+        "voltar", "volta",
+        "home", "menu", "inicio",
+        "chama a bixby", "bixby", "alexa da tv", "assistente da tv"
+    }
+    
+    if not _has_any(text, WORD_TV) and not _has_any(text, direct_commands):
         return False
+        
     if _has_any(text, ACTION_SYNONYMS_MUTE):
         log.info("⚡ [OFFLINE] Mutando TV")
         threading.Thread(target=_tv_control, args=("mute", {"state": "true"}), daemon=True).start()

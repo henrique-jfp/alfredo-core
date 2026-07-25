@@ -83,12 +83,7 @@ export function SpotifyCard() {
   }, [state]);
 
   if (!state || (!state.is_playing && !state.track_name)) {
-    return (
-      <div className="alfredo-card flex h-[200px] flex-col items-center justify-center p-6">
-        <Music className="mb-3 h-10 w-10 text-emerald-400/70" />
-        <p className="text-sm font-medium text-[color:var(--text-secondary)]">Spotify desconectado ou pausado</p>
-      </div>
-    );
+    return null;
   }
 
   const progressPercent = state.duration_ms
