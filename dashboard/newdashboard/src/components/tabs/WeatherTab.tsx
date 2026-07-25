@@ -147,7 +147,7 @@ function CloudSunSVG({ w }: { w: number }) {
       {/* Front clouds (drifting) */}
       <g transform="translate(6, 30)">
         <animateTransform attributeName="transform" type="translate" values="6,30;14,30;6,30" dur="14s" repeatCount="indefinite" />
-        <CloudSVG w={w * 0.8} color="#9ca3af" />
+        <CloudSVG w={80} color="#9ca3af" />
       </g>
       <g>
         <ellipse cx="60" cy="52" rx="28" ry="14" fill="#b0b8c4" opacity="0.7">
@@ -173,8 +173,8 @@ function RainSVG({ w, isNight = false }: { w: number; isNight?: boolean }) {
   return (
     <svg viewBox="0 0 100 100" width={w} height={w} className="overflow-visible">
       {/* Cloud */}
-      <g transform="translate(20, 5)">
-        <CloudSVG w={w * 0.9} color={isNight ? '#232838' : '#2d3748'} dark />
+      <g transform="translate(5, 5)">
+        <CloudSVG w={90} color={isNight ? '#232838' : '#2d3748'} dark />
       </g>
       {/* Rain streaks with stagger */}
       {RAIN_DROPS.map(({ x, delay }) => (
@@ -222,8 +222,8 @@ function StormSVG({ w, isNight = false }: { w: number; isNight?: boolean }) {
         </filter>
       </defs>
       {/* Very dark cloud */}
-      <g transform="translate(16, 5)">
-        <CloudSVG w={w * 0.95} color={isNight ? '#131320' : '#1a1a28'} dark />
+      <g transform="translate(2.5, 5)">
+        <CloudSVG w={95} color={isNight ? '#131320' : '#1a1a28'} dark />
       </g>
       {/* Flash background */}
       <rect x="0" y="0" width="100" height="100" fill="rgba(255,250,210,0.08)" rx="50%">
@@ -274,8 +274,8 @@ const SNOW_FLAKES = [
 function SnowSVG({ w, isNight = false }: { w: number; isNight?: boolean }) {
   return (
     <svg viewBox="0 0 100 100" width={w} height={w} className="overflow-visible">
-      <g transform="translate(0, 5)">
-        <CloudSVG w={w * 0.85} color={isNight ? '#566172' : '#6b7b8d'} />
+      <g transform="translate(7.5, 5)">
+        <CloudSVG w={85} color={isNight ? '#566172' : '#6b7b8d'} />
       </g>
       {SNOW_FLAKES.map(({ cx, delay, sway, dur }) => (
         <circle key={`snow-${cx}-${delay}`} cx={cx} cy="50" r="1.8" fill="white" opacity="0.8">
