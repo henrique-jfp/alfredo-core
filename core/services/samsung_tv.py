@@ -349,29 +349,7 @@ class SamsungTVManager:
         name = app_name.lower() if app_name else ""
         logger.info("Abrindo app id=%s name=%s na TV %s", app_id, name or "?", self.ip)
 
-        # ── Estratégia 1: mediaInputSource (comando padrão SmartThings) ────
-        # YouTube está no enum oficial do mediaInputSource nesta TV.
-        if name == "youtube":
-            ok = await self._st_command(
-                "mediaInputSource", "setInputSource", ["YouTube"]
-            )
-            if ok:
-                logger.info("App %s: mediaInputSource YouTube aceito.", app_id)
-                return True
-
-        # ── Estratégia 2: samsungvd.mediaInputSource ───────────────────────
-        # Capability Samsung que aceita nomes de app como argumento.
-        source_name = name.replace(" tv+", "").replace("tv", "").strip()
-        if not source_name:
-            source_name = name
-        ok = await self._st_command(
-            "samsungvd.mediaInputSource", "setInputSource", [source_name]
-        )
-        if ok:
-            logger.info("App %s: samsungvd.mediaInputSource='%s' aceito.", app_id, source_name)
-            return True
-
-        # ── Estratégia 3: custom.launchapp ─────────────────────────────────
+        # ── Estratégia 1: custom.launchapp ─────────────────────────────────
         for args in (
             [app_id],
             [{"appId": app_id, "metaData": {}}],
