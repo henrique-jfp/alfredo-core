@@ -173,7 +173,7 @@ function RainSVG({ w, isNight = false }: { w: number; isNight?: boolean }) {
   return (
     <svg viewBox="0 0 100 100" width={w} height={w} className="overflow-visible">
       {/* Cloud */}
-      <g transform="translate(9, 5)">
+      <g transform="translate(14, 5)">
         <CloudSVG w={w * 0.9} color={isNight ? '#232838' : '#2d3748'} dark />
       </g>
       {/* Rain streaks with stagger */}
@@ -222,7 +222,7 @@ function StormSVG({ w, isNight = false }: { w: number; isNight?: boolean }) {
         </filter>
       </defs>
       {/* Very dark cloud */}
-      <g transform="translate(6.5, 5)">
+      <g transform="translate(11.5, 5)">
         <CloudSVG w={w * 0.95} color={isNight ? '#131320' : '#1a1a28'} dark />
       </g>
       {/* Flash background */}
