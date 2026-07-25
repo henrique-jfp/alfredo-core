@@ -606,7 +606,8 @@ def find_input_device(name_substring: Optional[str]) -> tuple[Optional[int], int
         preferred_terms = []
         if name_substring:
             preferred_terms.append(name_substring)
-        preferred_terms.extend(["pulse", "aec_source", "default", "omnivision", "ps3 eye", "ps3", "eye", "usb camera"])
+        preferred_terms.extend(["aec_source", "omnivision", "ps3 eye", "ps3", "eye", "usb camera", "pulse", "default"])
+
 
         for term in preferred_terms:
             term_lower = term.lower()
