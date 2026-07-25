@@ -1311,8 +1311,8 @@ def _process_recording_chunk(bytes_data: bytes) -> None:
 def _start_recording() -> None:
     s = STATE
     s.is_recording = True
-    s.recording_buffer = bytearray()
-    s.live_recording_bytes = 0
+    s.recording_buffer = bytearray(s.dashcam_buffer)
+    s.live_recording_bytes = len(s.dashcam_buffer)
     s.vad_speech_frames = 0
     s.accumulated_vosk_text = ""
 
