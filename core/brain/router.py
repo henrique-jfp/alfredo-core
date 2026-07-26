@@ -25,6 +25,7 @@ from core.brain.skills.tv_skill import TVSkill
 from core.brain.skills.youtube_skill import YouTubeSkill
 from core.brain.skills.routine_skill import RoutineSkill
 from core.brain.skills.smart_home_skill import SmartHomeSkill
+from core.brain.skills.book_reading_skill import BookReadingSkill
 from core.services.key_manager import (
     next_gemini_key, next_groq_key,
     mark_gemini_cooldown, mark_groq_cooldown,
@@ -60,7 +61,8 @@ class AgentRouter:
             "manage_tv": TVSkill(),
             "play_youtube": YouTubeSkill(),
             "manage_routine": RoutineSkill(),
-            "manage_smart_device": SmartHomeSkill()
+            "manage_smart_device": SmartHomeSkill(),
+            "manage_book_reading": BookReadingSkill()
         }
         # Groq client será criado sob demanda com a chave selecionada
         self._groq_client_cache = {}
@@ -475,6 +477,38 @@ class AgentRouter:
                                 "speed": {
                                     "type": "string",
                                     "description": "Velocidade do ventilador (apenas para action='set_speed'). Valores: 'off', 'low', 'medium', 'high'."
+                                }
+                            },
+                            "required": ["action"]
+                        }
+                    },
+                    {
+                        "name": "manage_book_reading",
+                        "description": (
+                            "GERENCIAR LEITURA DE LIVROS/EBOOKS: use esta ferramenta para ler, pausar, "
+                            "retomar, parar ou listar livros da biblioteca do Alfredo. "
+                            "EXEMPLOS:\n"
+                            "- 'Leia o Senhor dos Anéis'\n"
+                            "- 'Continua a leitura'\n"
+                            "- 'Para de ler'\n"
+                            "- 'Quais livros temos?'\n"
+                            "- 'Leia o capítulo 3 do Harry Potter'"
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "description": "Ação: 'play' (iniciar leitura), 'pause' (pausar), 'resume' (retomar), 'stop' (parar), 'list' (listar livros)",
+                                    "enum": ["play", "pause", "resume", "stop", "list"]
+                                },
+                                "title": {
+                                    "type": "string",
+                                    "description": "Título do livro (busca fuzzy — não precisa ser exato)"
+                                },
+                                "chapter_index": {
+                                    "type": "integer",
+                                    "description": "Índice do capítulo (0-based, opcional). Se omitido, começa do início ou de onde parou."
                                 }
                             },
                             "required": ["action"]

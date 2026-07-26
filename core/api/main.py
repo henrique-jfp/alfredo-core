@@ -491,6 +491,9 @@ app.include_router(google_auth_router)
 from core.api.smart_home import router as smart_home_router
 app.include_router(smart_home_router)
 
+from core.api.library import router as library_router
+app.include_router(library_router)
+
 @app.get("/api/audio/{filename}")
 def get_audio(filename: str):
     """Endpoint para fornecer arquivos de áudio gerados pelo TTS para o hardware baixar."""

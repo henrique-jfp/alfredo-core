@@ -219,3 +219,27 @@ export const DREAM_THEME_GROUPS = {
   introspection: ['introspecção', 'passado', 'infância', 'água', 'casa', 'família'],
   love: ['amor', 'paixão', 'encontro', 'abraço'],
 } as const;
+
+export interface Book {
+  id: number;
+  title: string;
+  author: string | null;
+  added_at: string;
+  source_filename: string;
+  format: 'pdf' | 'epub';
+  total_chapters: number;
+  cover_path: string | null;
+}
+
+export interface BookChapter {
+  id: number;
+  book_id: number;
+  index: number;
+  title: string | null;
+  has_annotation: boolean;
+  has_audio: boolean;
+}
+
+export interface BookDetail extends Book {
+  chapters: BookChapter[];
+}

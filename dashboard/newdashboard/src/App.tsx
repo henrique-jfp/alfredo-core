@@ -12,6 +12,7 @@ import { IntegrationsTab } from './components/tabs/IntegrationsTab';
 import { DevicesTab } from './components/tabs/DevicesTab';
 import { CalendarTab } from './components/tabs/CalendarTab';
 import { WeatherTab } from './components/tabs/WeatherTab';
+import { LibraryTab } from './components/tabs/LibraryTab';
 import { VirtualKeyboard } from './components/VirtualKeyboard';
 import { WebMic } from './components/WebMic';
 import { AmbientBackground } from './components/AmbientBackground';
@@ -65,6 +66,7 @@ export default function App() {
       case 'sonhos': return { title: 'Diário de Sonhos', sub: 'Exploração psicanalítica do seu subconsciente.', eyebrow: 'Astrofísica do Sono' };
       case 'calendario': return { title: 'Calendário', sub: 'Compromissos, eventos e lembretes da agenda.', eyebrow: 'Agenda' };
       case 'clima': return { title: 'Clima', sub: 'Condições atuais e previsão do tempo para sua região.', eyebrow: 'Meteorologia' };
+      case 'biblioteca': return { title: 'Biblioteca', sub: 'Livros e leitura interativa', eyebrow: 'ALFREDO READS' };
       case 'configuracoes': return { title: 'Configurações', sub: 'Ajuste parâmetros globais, endereços e chaves.', eyebrow: 'Sistema' };
     }
   };
@@ -82,6 +84,7 @@ export default function App() {
       case 'sonhos': return <DreamsTab />;
       case 'calendario': return <CalendarTab />;
       case 'clima': return <WeatherTab />;
+      case 'biblioteca': return <LibraryTab />;
       case 'configuracoes': return <SettingsTab />;
     }
   };

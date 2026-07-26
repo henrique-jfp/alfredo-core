@@ -48,3 +48,9 @@ python-dotenv>=1.0.0
 pydantic>=2.5.0
 samsungtvws
 wakeonlan
+
+# Alfredo Reads (Leitura Interativa de Ebooks)
+pydub>=0.25.1
+pypdf>=4.0.0
+ebooklib>=0.18
+beautifulsoup4>=4.12.0

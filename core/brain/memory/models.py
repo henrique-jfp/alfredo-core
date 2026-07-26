@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, Integer, DateTime, Boolean, ForeignKey
+from sqlalchemy import Column, String, Integer, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import json
 from .database import Base
@@ -200,3 +201,34 @@ class SmartDevice(Base):
     room_id = Column(String, ForeignKey("rooms.room_id"), nullable=False, index=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Book(Base):
+    """Livro na biblioteca permanente do Alfredo."""
+    __tablename__ = "books"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False, index=True)
+    author = Column(String, nullable=True)
+    added_at = Column(DateTime(timezone=True), server_default=func.now())
+    source_filename = Column(String, nullable=False)
+    format = Column(String, nullable=False)       # 'pdf' ou 'epub'
+    total_chapters = Column(Integer, default=0)
+    cover_path = Column(String, nullable=True)
+
+    chapters = relationship("BookChapter", back_populates="book",
+                            cascade="all, delete-orphan",
+                            order_by="BookChapter.index")
+
+class BookChapter(Base):
+    """Capítulo extraído de um livro, com cache de anotação e áudio."""
+    __tablename__ = "book_chapters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    book_id = Column(Integer, ForeignKey("books.id"), nullable=False, index=True)
+    index = Column(Integer, nullable=False)
+    title = Column(String, nullable=True)
+    raw_text_path = Column(String, nullable=True)
+    annotation_json = Column(Text, nullable=True)
+    audio_path = Column(String, nullable=True)
+
+    book = relationship("Book", back_populates="chapters")

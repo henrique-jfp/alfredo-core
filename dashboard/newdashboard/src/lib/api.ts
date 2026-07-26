@@ -12,6 +12,8 @@ import {
   IntegrationsData,
   ForecastData,
   TVConfig,
+  Book,
+  BookDetail,
 } from '../types';
 
 /**
@@ -146,4 +148,32 @@ export const api = {
   connectSpotify: () => { window.location.href = '/api/spotify/login'; },
   connectGoogleCalendar: () => { window.location.href = '/api/auth/google/authorize'; },
   syncGoogleCalendar: () => fetchFromAPI<{ success: boolean }>('/api/auth/google/sync', { method: 'POST' }),
+
+  // Library / Book Reading
+  getBooks: (q?: string) => fetchFromAPI<Book[]>(`/api/library/books${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  getBook: (id: number) => fetchFromAPI<BookDetail>(`/api/library/books/${id}`),
+  uploadBook: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return fetchFromAPI<Book>('/api/library/books', { method: 'POST', body: form });
+  },
+  deleteBook: (id: number) => fetchFromAPI<void>(`/api/library/books/${id}`, { method: 'DELETE' }),
+  playBook: (id: number, room_id: string, chapter_index?: number) =>
+    fetchFromAPI<{ status: string }>(`/api/library/books/${id}/play`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_id, chapter_index }),
+    }),
+  pauseBook: (id: number, room_id: string) =>
+    fetchFromAPI<{ status: string }>(`/api/library/books/${id}/pause`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_id }),
+    }),
+  resumeBook: (id: number, room_id: string) =>
+    fetchFromAPI<{ status: string }>(`/api/library/books/${id}/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_id }),
+    }),
 };

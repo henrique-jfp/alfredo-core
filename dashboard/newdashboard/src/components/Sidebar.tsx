@@ -14,7 +14,8 @@ import { type LucideIcon,
   Layers3,
   RefreshCw,
   CalendarDays,
-  CloudSun
+  CloudSun,
+  BookOpen
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { StatusPulse } from './ui/DashboardPrimitives';
@@ -33,7 +34,8 @@ export type TabId =
   | 'sonhos'
   | 'configuracoes'
   | 'calendario'
-  | 'clima';
+  | 'clima'
+  | 'biblioteca';
 
 interface SidebarProps {
   activeTab: TabId;
@@ -68,6 +70,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         { id: 'satelites', label: 'Satélites', icon: Cpu },
         { id: 'inteligencia', label: 'Inteligência', icon: Brain },
         { id: 'sonhos', label: 'Sonhos', icon: Cloud },
+        { id: 'biblioteca', label: 'Biblioteca', icon: BookOpen },
       ],
     },
     {
