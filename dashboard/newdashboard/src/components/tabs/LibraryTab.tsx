@@ -93,13 +93,19 @@ export function LibraryTab() {
     }
   };
 
-  const handlePlay = async (chapterIndex?: number) => {
+  const handlePlay = (chapterIndex?: number) => {
     if (!selectedBook) return;
     try {
-      const res = await api.playBook(selectedBook.id, selectedRoomId, chapterIndex);
-      if (res.audio_url && audioRef.current) {
-        audioRef.current.src = res.audio_url;
-        audioRef.current.play();
+      const idx = chapterIndex ?? 0;
+      
+      // Notify backend (fire-and-forget for 'local' since GET /audio handles the actual generation wait)
+      api.playBook(selectedBook.id, selectedRoomId, idx).catch(e => console.error('Play API error', e));
+
+      if (selectedRoomId === 'local' && audioRef.current) {
+        // Set src instantly and play to preserve the user's click gesture.
+        // The backend GET /audio endpoint will block until the MP3 is ready!
+        audioRef.current.src = `/api/library/books/${selectedBook.id}/chapters/${idx}/audio`;
+        audioRef.current.play().catch(e => console.error('Audio play blocked:', e));
       }
     } catch (e) {
       console.error('Failed to play book', e);

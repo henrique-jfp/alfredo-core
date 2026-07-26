@@ -226,11 +226,12 @@ async def play_book(book_id: int, req: PlayRequest, db: Session = Depends(get_db
     if not chapter:
         raise HTTPException(404, f"Capítulo {req.chapter_index} não encontrado")
 
-    # Garante anotação e síntese
-    audio_path = await _ensure_chapter_ready(chapter, db)
-
-    # Salva estado da sessão (apenas se não for local, ou podemos salvar local também)
+    # Garante anotação e síntese apenas se for tocar em um satélite.
+    # Para tocar localmente (no navegador), o endpoint GET /audio fará a espera,
+    # evitando timeout e perda do "user gesture" no frontend.
     if req.room_id != "local":
+        audio_path = await _ensure_chapter_ready(chapter, db)
+        # Salva estado da sessão
         _update_session(db, req.room_id, book_id, req.chapter_index, "playing")
         # Envia áudio para o satélite
         asyncio.create_task(_stream_audio_to_satellite(req.room_id, audio_path, db))
@@ -250,8 +251,9 @@ async def play_book(book_id: int, req: PlayRequest, db: Session = Depends(get_db
 
 
 @router.get("/books/{book_id}/chapters/{chapter_index}/audio")
-def get_chapter_audio(book_id: int, chapter_index: int, db: Session = Depends(get_db)):
-    """Retorna o arquivo de áudio do capítulo para reprodução local no navegador."""
+async def get_chapter_audio(book_id: int, chapter_index: int, db: Session = Depends(get_db)):
+    """Retorna o arquivo de áudio do capítulo para reprodução local no navegador.
+    Se o áudio ainda não existir, bloqueia a requisição até ser gerado."""
     chapter = (
         db.query(models.BookChapter)
         .filter(
@@ -260,15 +262,17 @@ def get_chapter_audio(book_id: int, chapter_index: int, db: Session = Depends(ge
         )
         .first()
     )
-    if not chapter or not chapter.audio_path:
-        raise HTTPException(404, "Áudio não encontrado ou não sintetizado")
+    if not chapter:
+        raise HTTPException(404, "Capítulo não encontrado")
     
-    # audio_path armazena o caminho relativo (ou absoluto dependendo do synthesizer)
-    # No synthesizer.py atual, ele salva o caminho absoluto
-    if not os.path.exists(chapter.audio_path):
+    # Gera o áudio se não existir. Como isso é um GET bloqueante, 
+    # o navegador vai achar que o MP3 está apenas "carregando"
+    audio_path = await _ensure_chapter_ready(chapter, db)
+
+    if not os.path.exists(audio_path):
         raise HTTPException(404, "Arquivo de áudio não encontrado no disco")
         
-    return FileResponse(chapter.audio_path, media_type="audio/mpeg")
+    return FileResponse(audio_path, media_type="audio/mpeg")
 
 
 @router.post("/books/{book_id}/pause")
