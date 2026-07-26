@@ -1,25 +1,19 @@
 import os
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy.pool import QueuePool
+from sqlalchemy.pool import NullPool
 
 # Configuração simples e robusta para SQLite local (arquivo armazenado na raiz)
 DB_PATH = os.path.join(os.getcwd(), "alfredo_memory.db")
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 # ── Otimizações de latência para SQLite ─────────────────────────────────────
-# QueuePool: cria conexões sob demanda em vez de reutilizar uma única.
-# StaticPool causava crashes de concorrência (thread pool do asyncio +
-# asyncio.to_thread acessando a mesma conexão simultaneamente).
-# check_same_thread=False: necessário para FastAPI multi-thread + SQLite.
-# pool_pre_ping: verifica se a conexão ainda está viva antes de usar.
+# NullPool: Para SQLite em WAL mode, cria conexões instantaneamente sem limite
+# artificial de pool, prevenindo starvation durante tarefas longas (TTS).
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     connect_args={"check_same_thread": False},
-    poolclass=QueuePool,
-    pool_size=2,
-    max_overflow=2,
-    pool_pre_ping=True,
+    poolclass=NullPool,
 )
 
 # WAL mode: Write-Ahead Logging permite leituras concorrentes sem bloquear
