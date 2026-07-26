@@ -147,13 +147,35 @@ def get_online_satellites(db: Session = Depends(get_db)):
         return []
         
     devices = db.query(models.Device).filter(models.Device.device_id.in_(active_ids)).all()
+    device_map = {d.device_id: getattr(d, "name", d.device_id) for d in devices}
+    
+    import yaml
+    import os
+    try:
+        if os.path.exists("house/house_context.yaml"):
+            with open("house/house_context.yaml", "r", encoding="utf-8") as f:
+                house = yaml.safe_load(f)
+                sats = house.get("satellites", {})
+                if isinstance(sats, dict):
+                    for sat_id, sat_data in sats.items():
+                        if sat_id not in device_map:
+                            device_map[sat_id] = sat_data.get("name", f"Satélite {sat_id}")
+    except Exception:
+        pass
+    
+    # Adicionar nomes amigáveis para IDs conhecidos
+    if "server-satellite-sala" not in device_map or device_map["server-satellite-sala"] == "server-satellite-sala":
+        device_map["server-satellite-sala"] = "Satélite da Sala (Central)"
+        
+    if "SAT_BEDROOM" not in device_map or device_map["SAT_BEDROOM"] == "SAT_BEDROOM":
+        device_map["SAT_BEDROOM"] = "Satélite do Quarto"
     
     return [
         {
-            "device_id": d.device_id,
-            "room_id": d.room_id,
-            "name": getattr(d, "name", d.device_id),
-        } for d in devices
+            "device_id": did,
+            "room_id": "UNKNOWN",
+            "name": device_map.get(did, did),
+        } for did in active_ids
     ]
 
 @router.get("/lists")
