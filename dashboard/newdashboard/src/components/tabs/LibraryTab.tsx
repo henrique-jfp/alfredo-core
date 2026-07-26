@@ -20,6 +20,7 @@ export function LibraryTab() {
   const [selectedRoomId, setSelectedRoomId] = useState<string>(ROOM_IDS.LIVING);
   const [isDeleting, setIsDeleting] = useState<number | null>(null);
   const [voices, setVoices] = useState<{id: string, name: string}[]>([]);
+  const [currentChapterIndex, setCurrentChapterIndex] = useState<number>(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -98,7 +99,8 @@ export function LibraryTab() {
   const handlePlay = (chapterIndex?: number) => {
     if (!selectedBook) return;
     try {
-      const idx = chapterIndex ?? 0;
+      const idx = chapterIndex ?? currentChapterIndex;
+      setCurrentChapterIndex(idx);
       
       // Notify backend (fire-and-forget for 'local' since GET /audio handles the actual generation wait)
       api.playBook(selectedBook.id, selectedRoomId, idx).catch(e => console.error('Play API error', e));
@@ -111,6 +113,16 @@ export function LibraryTab() {
       }
     } catch (e) {
       console.error('Failed to play book', e);
+    }
+  };
+
+  const handleAudioEnded = () => {
+    if (!selectedBook) return;
+    if (selectedRoomId === 'local') {
+      const nextIndex = currentChapterIndex + 1;
+      if (nextIndex < selectedBook.chapters.length) {
+        handlePlay(nextIndex);
+      }
     }
   };
 
@@ -154,7 +166,7 @@ export function LibraryTab() {
 
   return (
     <div className="flex h-full flex-col gap-6 overflow-y-auto pb-10 pr-2">
-      <audio ref={audioRef} className="hidden" controls={false} />
+      <audio ref={audioRef} className="hidden" controls={false} onEnded={handleAudioEnded} />
       {/* Header Zone */}
       <div className="alfredo-card relative overflow-hidden p-5 md:p-6">
         <div className="absolute right-0 top-0 h-64 w-64 translate-x-1/3 -translate-y-1/3 rounded-full bg-brass-500/10 blur-[80px]" />
@@ -371,7 +383,10 @@ export function LibraryTab() {
                   {selectedBook.chapters.map((chapter) => (
                     <div
                       key={chapter.id}
-                      className="group flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.02] p-3 hover:bg-white/[0.04]"
+                      className={cn(
+                        "group flex items-center justify-between rounded-xl border p-3 hover:bg-white/[0.04]",
+                        currentChapterIndex === chapter.index ? "border-brass-500/50 bg-brass-500/5" : "border-white/5 bg-white/[0.02]"
+                      )}
                     >
                       <div className="flex items-center gap-3 overflow-hidden">
                         <span className="shrink-0 font-mono text-[11px] text-[color:var(--text-tertiary)]">
