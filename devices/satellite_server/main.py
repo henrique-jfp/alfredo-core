@@ -1944,9 +1944,9 @@ def main() -> None:
     # VAD-only mode: se o OpenWakeWord não estiver disponível (ex: ARM/Termux
     # sem onnxruntime), ativa o modo VAD-only como fallback. A detecção de
     # fala será feita por energia (VAD + RMS threshold).
-    if STATE.oww_model is None:
+    if STATE.oww_model is None and STATE.vosk_model is None:
         STATE.vad_only_mode = True
-        log.info("🎤 OpenWakeWord não disponível — modo VAD-only ativado como fallback.")
+        log.info("🎤 OpenWakeWord e Vosk não disponíveis — modo VAD-only ativado como fallback.")
         log.info("   A detecção de fala será feita por energia (VAD + noise threshold).")
     else:
         STATE.vad_only_mode = False
