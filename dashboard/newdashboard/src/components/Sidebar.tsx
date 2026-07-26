@@ -20,6 +20,8 @@ import { cn } from '../lib/utils';
 import { StatusPulse } from './ui/DashboardPrimitives';
 import { AlfredoOrb } from './AlfredoOrb';
 import { useAlfredoState } from '../hooks/useAlfredoState';
+import { Menu, X } from 'lucide-react';
+import { useState } from 'react';
 
 export type TabId = 
   | 'visao-geral'
@@ -40,6 +42,8 @@ interface SidebarProps {
 
 export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   const { state: alfredoState } = useAlfredoState();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  
   const navSections: {
     label: string;
     icon: LucideIcon;
@@ -147,41 +151,79 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         </div>
       </aside>
 
-      {/* Mobile Bottom Navigation */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-[rgba(11,12,14,0.96)] backdrop-blur-3xl pb-safe">
-        <div
-          className="flex h-16 items-center gap-1 overflow-x-auto px-2 hide-scrollbar"
-          style={{ scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}
-        >
-          {navSections.map((section, sectionIndex) => (
-            <React.Fragment key={section.label}>
-              {sectionIndex > 0 && (
-                <div className="mx-1 h-6 w-px flex-shrink-0 bg-white/10" aria-hidden="true" />
-              )}
-              {section.items.map((item) => {
-                const isActive = activeTab === item.id;
-                const Icon = item.icon;
+      {/* Mobile Floating Menu Button */}
+      <button 
+        onClick={() => setMobileMenuOpen(true)}
+        className="md:hidden fixed bottom-6 left-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brass-600 text-white shadow-[0_8px_32px_rgba(212,162,78,0.4)] transition-transform active:scale-95"
+      >
+        <Menu className="h-6 w-6" />
+      </button>
+
+      {/* Mobile Sidebar Overlay */}
+      {mobileMenuOpen && (
+        <div className="md:hidden fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          
+          {/* Drawer */}
+          <aside className="relative flex w-[280px] flex-col bg-[linear-gradient(180deg,rgba(19,20,23,0.95)_0%,rgba(11,12,14,0.98)_100%)] px-5 py-5 shadow-2xl animate-in slide-in-from-left-full duration-300">
+            {/* Logo */}
+            <div className="mb-8 flex items-center justify-between">
+              <div className="flex items-center gap-4 rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-4">
+                <AlfredoOrb state={alfredoState} size="sm" pulse={false} className="shrink-0" />
+                <div className="flex flex-col">
+                  <h2 className="text-[16px] font-semibold text-[color:var(--text-primary)]">Alfredo OS</h2>
+                </div>
+              </div>
+              <button onClick={() => setMobileMenuOpen(false)} className="rounded-full p-2 text-zinc-400 hover:bg-white/5">
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Navigation */}
+            <nav className="flex min-h-0 flex-grow flex-col gap-6 overflow-y-auto pr-1">
+              {navSections.map((section) => {
+                const SectionIcon = section.icon;
                 return (
-                  <button
-                    key={item.id}
-                    onClick={() => onTabChange(item.id)}
-                    style={{ scrollSnapAlign: 'start' }}
-                    className={cn(
-                      "flex flex-shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl px-2.5 py-1.5 transition-all min-w-[52px]",
-                      isActive ? "bg-brass-500/15 text-brass-400" : "text-zinc-500 hover:text-zinc-300"
-                    )}
-                    aria-pressed={isActive}
-                    aria-label={item.label}
-                  >
-                    <Icon className={cn("w-5 h-5 transition-transform", isActive && "scale-110")} strokeWidth={isActive ? 2.5 : 2} />
-                    <span className="text-[9px] font-medium tracking-tight truncate max-w-[52px] leading-tight">{item.label}</span>
-                  </button>
+                  <div key={section.label} className="flex flex-col gap-3">
+                    <div className="flex items-center gap-2 px-2">
+                      <SectionIcon className="h-4 w-4 text-brass-400/80" />
+                      <span className="alfredo-section-label">{section.label}</span>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      {section.items.map((item) => {
+                        const isActive = activeTab === item.id;
+                        const Icon = item.icon;
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() => {
+                              onTabChange(item.id);
+                              setMobileMenuOpen(false);
+                            }}
+                            className={cn(
+                              'relative flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-[14px]',
+                              isActive
+                                ? 'bg-brass-500/15 text-brass-300'
+                                : 'text-[color:var(--text-secondary)]'
+                            )}
+                          >
+                            <Icon className={cn('h-5 w-5 shrink-0', isActive ? 'text-brass-300' : 'text-[color:var(--text-tertiary)]')} />
+                            <span className="font-medium">{item.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })}
-            </React.Fragment>
-          ))}
+            </nav>
+          </aside>
         </div>
-      </div>
+      )}
     </>
   );
 }

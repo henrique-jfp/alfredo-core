@@ -134,6 +134,19 @@ def get_history(limit: int = 15, db: Session = Depends(get_db)):
         } for item in history
     ]
 
+@router.get("/satellites/online")
+def get_online_satellites(db: Session = Depends(get_db)):
+    """Retorna a lista de satélites online (vistos nos últimos 5 minutos)."""
+    five_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
+    devices = db.query(models.Device).filter(models.Device.last_seen >= five_mins_ago).all()
+    return [
+        {
+            "device_id": d.device_id,
+            "room_id": d.room_id,
+            "name": getattr(d, "name", d.device_id),
+        } for d in devices
+    ]
+
 @router.get("/lists")
 def get_lists(db: Session = Depends(get_db)):
     """Retorna as listas de compras e tarefas atuais."""

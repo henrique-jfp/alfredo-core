@@ -373,7 +373,7 @@ export function OverviewTab() {
         variants={sectionVariants}
         initial="hidden"
         animate="visible"
-        className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4"
+        className="flex overflow-x-auto snap-x hide-scrollbar gap-3 md:grid md:grid-cols-4 md:gap-4 -mx-4 px-4 md:mx-0 md:px-0 pb-1 md:pb-0"
       >
         {kpis.map((kpi) => (
           <MetricCard
@@ -384,6 +384,7 @@ export function OverviewTab() {
             detail={kpi.detail}
             tone={kpi.tone}
             sparkline={kpi.label === 'IA' ? [0.35, 0.42, 0.38, 0.55, 0.62, 0.8] : [0.24, 0.28, 0.4, 0.52, 0.48, 0.66]}
+            className="min-w-[160px] snap-start shrink-0 md:min-w-0"
           />
         ))}
       </motion.div>

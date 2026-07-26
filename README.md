@@ -197,11 +197,10 @@ Quando nenhuma ferramenta é necessária, Alfredo usa seu conhecimento geral par
 
 A topologia física do Alfredo é organizada em dois papéis distintos: o **Nó Central** (fixo na sala) e os **Satélites Burros** (espalhados pelos cômodos).
 
-### 🧠 Nó Central — Servidor + Satélite + Dashboard (sala)
-Um único equipamento na parede da sala acumula três papéis:
+### 🧠 Nó Central — Servidor + Satélite
+Um único equipamento na parede da sala acumula dois papéis:
 - **Cérebro/Servidor:** API FastAPI, roteador agêntico, banco SQLite;
 - **Satélite local:** microfone e alto-falante próprios (a sala não fica "surda");
-- **Dashboard físico:** tela expondo o painel web como "quadro inteligente".
 
 | Item | Especificação |
 |---|---|
@@ -223,12 +222,6 @@ O servidor é **agnóstico a hardware** — reage exclusivamente às *capabiliti
 | Hardware | Samsung M21s (reaproveitado) |
 | Áudio | Caixa externa via P2 |
 | Software | Python (Termux) + OpenWakeWord + WebRTC VAD |
-
-#### 🖥️ Escritório (Satélite Desktop)
-| Item | Especificação |
-|---|---|
-| Software | Python com Vosk wake word + VAD |
-| Conexão | WebSocket + HTTP |
 
 > Basta implementar o protocolo HTTP/WS padrão em qualquer dispositivo com microfone e alto-falante — zero alterações no servidor.
 
@@ -453,7 +446,7 @@ Há duas gerações: `frontend/` (build estável atual, servida em produção) e
 - [x] Endpoint offline de smart home (bypass do LLM)
 
 ### 🔜 Em andamento / Planejado
-- [ ] OCR / câmera para ler display de micro-ondas e ar-condicionado
+- [ ] OCR / câmera para disparar fotos a cada 10 minutos para detectar se tem humano no ambiente
 - [ ] Suporte a múltiplos usuários com perfis de voz
 - [ ] Modo hóspede (privacidade limitada)
 - [ ] Skill de lembretes geolocalizados (ex: "me lembre de comprar leite quando chegar no mercado")

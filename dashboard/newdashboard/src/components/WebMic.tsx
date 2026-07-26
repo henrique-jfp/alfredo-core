@@ -1,7 +1,8 @@
-import React, { useState, useRef } from 'react';
-import { Mic, Square, Loader2, Volume2, MonitorSpeaker, Smartphone } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Mic, Square, Loader2, Volume2, MonitorSpeaker, Smartphone, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { StatusPulse } from './ui/DashboardPrimitives';
+import { api } from '../lib/api';
 
 /** Dispatch a custom event so useAlfredoState (and the AlfredoOrb) stays in sync */
 function emitAlfredoEvent(type: string) {
@@ -14,9 +15,29 @@ export function WebMic() {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [playOnServer, setPlayOnServer] = useState(false);
+  const [targetDevice, setTargetDevice] = useState<string | null>(null);
+  const [availableSatellites, setAvailableSatellites] = useState<{device_id: string, name: string}[]>([]);
+  const [showDropdown, setShowDropdown] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    // Fetch online satellites initially and every 30s
+    const fetchSatellites = async () => {
+      try {
+        const res = await fetch('/api/dashboard/satellites/online');
+        if (res.ok) {
+          const data = await res.json();
+          setAvailableSatellites(data);
+        }
+      } catch (e) {
+        console.error("Failed to fetch satellites", e);
+      }
+    };
+    fetchSatellites();
+    const interval = setInterval(fetchSatellites, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const isInitializingRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -47,10 +68,11 @@ export function WebMic() {
       processorRef.current = processor;
       
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host; // This handles dev servers and production
-      // In dev mode (vite), proxy will forward to backend. Wait, Vite proxy handles ws?
-      // Actually, standard proxy does. We will use the standard host.
-      const wsUrl = `${protocol}//${host}/api/ws/satellite/dashboard-virtual-mic`;
+      const host = window.location.host; 
+      let wsUrl = `${protocol}//${host}/api/ws/satellite/dashboard-virtual-mic`;
+      if (targetDevice) {
+        wsUrl += `?target_device_id=${encodeURIComponent(targetDevice)}`;
+      }
       const ws = new WebSocket(wsUrl);
       ws.binaryType = "blob";
       wsRef.current = ws;
@@ -242,23 +264,52 @@ export function WebMic() {
         </div>
       )}
 
-      {/* Toggle Output Target */}
-      <button 
-        onClick={() => setPlayOnServer(!playOnServer)}
-        className="alfredo-card flex items-center gap-2 rounded-full px-4 py-2 text-[13px] text-[color:var(--text-secondary)] transition-colors hover:border-brass-500/20 hover:bg-white/[0.04]"
-        title="Onde o Alfredo vai falar?"
-      >
-        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--text-tertiary)]">Responder no</span>
-        {playOnServer ? (
-          <div className="flex items-center gap-1 text-sm font-semibold text-brass-300">
-            <MonitorSpeaker className="w-4 h-4" /> Satélite
-          </div>
-        ) : (
-          <div className="flex items-center gap-1 text-sm font-semibold text-blue-400">
-            <Smartphone className="w-4 h-4" /> Celular
-          </div>
+      {/* Output Target Selector */}
+      <div className="relative">
+        <button 
+          onClick={() => setShowDropdown(!showDropdown)}
+          className="alfredo-card flex items-center gap-2 rounded-full px-4 py-2 text-[13px] text-[color:var(--text-secondary)] transition-colors hover:border-brass-500/20 hover:bg-white/[0.04]"
+          title="Onde o Alfredo vai falar?"
+        >
+          <span className="font-medium tracking-wide opacity-50 uppercase text-[10px]">Responder no</span>
+          {targetDevice ? (
+            <><MonitorSpeaker className="h-4 w-4 text-brass-400" /> {availableSatellites.find(s => s.device_id === targetDevice)?.name || targetDevice}</>
+          ) : (
+            <><Smartphone className="h-4 w-4 text-emerald-400" /> Celular</>
+          )}
+          <ChevronDown className="h-3 w-3 opacity-50" />
+        </button>
+
+        {showDropdown && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
+            <div className="absolute bottom-full right-0 mb-2 z-50 w-48 rounded-2xl border border-white/10 bg-[rgba(15,16,20,0.95)] backdrop-blur-xl p-2 shadow-2xl animate-in fade-in slide-in-from-bottom-2">
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={() => { setTargetDevice(null); setShowDropdown(false); }}
+                  className={cn("flex items-center gap-3 rounded-xl px-3 py-2 text-left text-[13px] transition-colors", targetDevice === null ? "bg-white/10 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-white")}
+                >
+                  <Smartphone className="h-4 w-4" />
+                  <span>Este Celular</span>
+                </button>
+                
+                {availableSatellites.length > 0 && <div className="my-1 h-px w-full bg-white/5" />}
+                
+                {availableSatellites.map(sat => (
+                  <button
+                    key={sat.device_id}
+                    onClick={() => { setTargetDevice(sat.device_id); setShowDropdown(false); }}
+                    className={cn("flex items-center gap-3 rounded-xl px-3 py-2 text-left text-[13px] transition-colors", targetDevice === sat.device_id ? "bg-brass-500/15 text-brass-300" : "text-zinc-400 hover:bg-white/5 hover:text-white")}
+                  >
+                    <MonitorSpeaker className="h-4 w-4" />
+                    <span className="truncate">{sat.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
         )}
-      </button>
+      </div>
 
       {/* Visual Indicator */}
       {(isRecording || isProcessing || isPlaying) && (

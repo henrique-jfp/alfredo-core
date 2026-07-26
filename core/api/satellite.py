@@ -96,7 +96,7 @@ from core.voice.pipeline import process_audio_pipeline
 satellite_logger = logging.getLogger("alfredo.satellite")
 
 @router.websocket("/satellite/{device_id}")
-async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
+async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str, target_device_id: str = None):
     await manager.connect_satellite(websocket, device_id)
     
     vad = webrtcvad.Vad(3) # Modo agressivo para ignorar ruído
@@ -121,9 +121,25 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str):
             
             if device_id == "dashboard-virtual-mic":
                 # Para o dashboard, não faz streaming de chunks, mas sim gera 1 único arquivo WAV com todo o texto
+                # Se houver um target_device_id, enviamos o áudio para o satélite alvo (como se ele tivesse pedido)
+                target_ws = manager.active_satellites.get(target_device_id) if target_device_id else None
+                
                 async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False, stream_tts=False, vosk_text=vosk_text):
                     if tts_chunk:
-                        await websocket.send_bytes(tts_chunk)
+                        if target_ws:
+                            try:
+                                await target_ws.send_bytes(tts_chunk)
+                            except:
+                                pass
+                        else:
+                            await websocket.send_bytes(tts_chunk)
+                
+                if target_ws:
+                    import json
+                    try:
+                        await target_ws.send_text(json.dumps({"type": "tts_end"}))
+                    except:
+                        pass
             else:
                 total_bytes = 0
                 import time
