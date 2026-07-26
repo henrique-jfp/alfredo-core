@@ -202,6 +202,11 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str, tar
                     payload = json.loads(message["text"])
                     if "vosk_text" in payload:
                         vosk_text_cache = payload["vosk_text"]
+                    elif payload.get("type") == "stop_recording" and device_id == "dashboard-virtual-mic":
+                        if len(audio_buffer) > 0:
+                            asyncio.create_task(handle_phrase(bytes(audio_buffer), vosk_text_cache))
+                            audio_buffer.clear()
+                            vosk_text_cache = ""
                 except: pass
                 continue
 
@@ -211,12 +216,14 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str, tar
                 # Repassa tudo para os dashboards (modo monitoramento)
                 await manager.broadcast_to_dashboards(data)
                 
-                # O satélite já faz o VAD localmente. Quando termina de gravar a frase,
-                # ele envia o áudio completo de uma vez (arquivos grandes).
-                # Quando está apenas fazendo stream (Live Mic), envia chunks de 320 bytes.
-                if len(data) > 8000:
-                    asyncio.create_task(handle_phrase(data, vosk_text_cache))
-                    vosk_text_cache = ""  # Limpa o cache para o próximo comando
+                if device_id == "dashboard-virtual-mic":
+                    audio_buffer.extend(data)
+                else:
+                    # O satélite já faz o VAD localmente. Quando termina de gravar a frase,
+                    # ele envia o áudio completo de uma vez (arquivos grandes).
+                    if len(data) > 8000:
+                        asyncio.create_task(handle_phrase(data, vosk_text_cache))
+                        vosk_text_cache = ""  # Limpa o cache para o próximo comando
                 
     except WebSocketDisconnect:
         manager.disconnect_satellite(device_id)

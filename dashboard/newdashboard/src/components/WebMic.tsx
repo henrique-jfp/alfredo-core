@@ -231,6 +231,10 @@ export function WebMic() {
         isRecordingRef.current = false;
         setIsProcessing(true); // Wait for TTS to come back via WS
         emitAlfredoEvent('alfredo:mic:stop');
+        
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: "stop_recording" }));
+        }
 
       if (processorRef.current) {
         processorRef.current.disconnect();
