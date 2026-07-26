@@ -102,19 +102,19 @@ _CHAPTER_PATTERNS = [
 
 
 def _extract_pdf(file_path: str) -> BookMetadata:
-    """Extrai texto de PDF usando pypdf."""
-    from pypdf import PdfReader
+    """Extrai texto de PDF usando PyMuPDF (fitz)."""
+    import fitz
 
-    reader = PdfReader(file_path)
-    metadata = reader.metadata or {}
+    doc = fitz.open(file_path)
+    metadata = doc.metadata or {}
 
-    title = metadata.get("/Title", "") or Path(file_path).stem
-    author = metadata.get("/Author", None)
+    title = metadata.get("title", "") or Path(file_path).stem
+    author = metadata.get("author", None)
 
     # Extrai texto de todas as páginas
     full_text = ""
-    for page in reader.pages:
-        page_text = page.extract_text() or ""
+    for page in doc:
+        page_text = page.get_text() or ""
         full_text += page_text + "\n"
 
     full_text = full_text.strip()
