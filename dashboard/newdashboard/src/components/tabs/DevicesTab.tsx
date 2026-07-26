@@ -2,7 +2,7 @@ import React from 'react';
 import { Lightbulb, Tv, PlugZap, Lock, Settings, Sparkles, Fan, MonitorSpeaker, Cpu, RadioTower, Power } from 'lucide-react';
 import { TVIntegrationCard } from '../TVIntegrationCard';
 import { EmptyState, SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
-import { cn } from '../lib/utils';
+import { cn } from '../../lib/utils';
 
 const ROOMS = [
   {
