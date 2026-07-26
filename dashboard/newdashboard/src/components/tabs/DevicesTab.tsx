@@ -6,45 +6,42 @@ import { cn } from '../../lib/utils';
 const ROOMS = [
   {
     id: 'sala',
-    name: 'Sala de Estar',
-    description: 'Central principal da casa',
+    name: 'Sala',
+    description: 'Ambiente central da casa',
     devices: [
-      { name: 'Cérebro (Servidor)', icon: Cpu, active: true },
-      { name: 'Satélite Sala', icon: MonitorSpeaker, active: true },
-      { name: 'Luz Principal', icon: Lightbulb, active: false },
-      { name: 'Ventilador Teto', icon: Fan, active: false },
+      { name: 'Cérebro (Servidor)', icon: Cpu, active: true, stateKnown: true },
+      { name: 'Satélite Sala', icon: MonitorSpeaker, active: true, stateKnown: true },
+      { name: 'TV UHD Samsung 50"', icon: Tv, active: true, stateKnown: true },
+      { name: 'Ventilador da Sala (Luz/Motor)', icon: Fan, active: false, stateKnown: false },
     ]
   },
   {
     id: 'quarto_casal',
     name: 'Quarto Casal',
-    description: 'Controle mestre via IR e RF',
+    description: 'Quarto principal',
     devices: [
-      { name: 'Satélite Quarto', icon: MonitorSpeaker, active: true },
-      { name: 'Hub Universal (IR+RF)', icon: RadioTower, active: true },
-      { name: 'Luzes (RF)', icon: Lightbulb, active: false },
-      { name: 'Ventilador (RF)', icon: Fan, active: false },
-      { name: 'TV Samsung', icon: Tv, active: false },
-      { name: 'Box da Claro/Net', icon: PlugZap, active: false },
+      { name: 'Satélite Quarto', icon: MonitorSpeaker, active: true, stateKnown: true },
+      { name: 'Hub Universal (IR+RF)', icon: RadioTower, active: true, stateKnown: true },
+      { name: 'Ventilador do Quarto (Luz/Motor)', icon: Fan, active: false, stateKnown: false },
     ]
   },
   {
     id: 'quarto_laura',
-    name: 'Quarto da Laura',
-    description: 'Automação conforto',
+    name: 'Quarto da Filha',
+    description: 'Quarto da Laura',
     devices: [
-      { name: 'Satélite Laura', icon: MonitorSpeaker, active: true },
-      { name: 'Luzes', icon: Lightbulb, active: false },
-      { name: 'Ventilador Teto', icon: Fan, active: false },
+      { name: 'Satélite Laura', icon: MonitorSpeaker, active: true, stateKnown: true },
+      { name: 'Ventilador da Laura (Luz/Motor)', icon: Fan, active: false, stateKnown: false },
     ]
   },
   {
-    id: 'servicos',
-    name: 'Áreas Frias',
-    description: 'Escritório, Cozinha e Banheiro',
+    id: 'cozinha',
+    name: 'Cozinha',
+    description: 'Área de serviço',
     devices: [
-      { name: 'Lâmpadas Smart', icon: Lightbulb, active: false },
-      { name: 'Sensores de Presença', icon: Settings, active: false },
+      { name: 'Satélite Cozinha', icon: MonitorSpeaker, active: true, stateKnown: true },
+      { name: 'Geladeira', icon: PlugZap, active: false, stateKnown: false },
+      { name: 'Lava e Seca Brastemp', icon: PlugZap, active: false, stateKnown: false },
     ]
   }
 ];
@@ -83,6 +80,21 @@ export function DevicesTab() {
                         {device.name}
                       </span>
                     </div>
+                    {device.stateKnown ? (
+                      <button 
+                        className={cn(
+                          "flex h-7 w-7 items-center justify-center rounded-full transition-colors shrink-0",
+                          device.active ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25" : "bg-white/5 text-zinc-600 hover:bg-white/10 hover:text-white"
+                        )}
+                        title={device.active ? "Ligado" : "Desligado"}
+                      >
+                        <Power className="h-3.5 w-3.5" />
+                      </button>
+                    ) : (
+                      <span className="text-[10px] uppercase font-semibold tracking-wider text-[color:var(--text-tertiary)] opacity-60">
+                        Via RF/IR (S/ Feedback)
+                      </span>
+                    )}
                   </div>
                 );
               })}
