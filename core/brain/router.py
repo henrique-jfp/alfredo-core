@@ -103,7 +103,7 @@ class AgentRouter:
                         "parameters": {
                             "type": "object",
                             "properties": {
-                                "action": {"type": "string", "description": "Ação a realizar: 'add', 'read', 'remove', 'clear' ou 'email'"},
+                                "action": {"type": "string", "description": "Ação a realizar: 'add' (adicionar itens), 'read' (ler lista), 'remove' (remover/apagar UM item específico), 'clear' (esvaziar/apagar TODA a lista) ou 'email'"},
                                 "list_type": {
                                     "type": "string",
                                     "description": "O tipo de lista. Se for tarefa, use 'tarefas'. Se for compras gerais/despensa, use 'compras'. Se for uma lista de compras específica (ex: churrasco, mercado, shopping), use 'compras_nome' (ex: 'compras_churrasco', 'compras_shopping'). Não invente outras categorias (como 'lembretes')."
