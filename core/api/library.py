@@ -18,6 +18,7 @@ import shutil
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -228,11 +229,11 @@ async def play_book(book_id: int, req: PlayRequest, db: Session = Depends(get_db
     # Garante anotação e síntese
     audio_path = await _ensure_chapter_ready(chapter, db)
 
-    # Salva estado da sessão
-    _update_session(db, req.room_id, book_id, req.chapter_index, "playing")
-
-    # Envia áudio para o satélite
-    asyncio.create_task(_stream_audio_to_satellite(req.room_id, audio_path, db))
+    # Salva estado da sessão (apenas se não for local, ou podemos salvar local também)
+    if req.room_id != "local":
+        _update_session(db, req.room_id, book_id, req.chapter_index, "playing")
+        # Envia áudio para o satélite
+        asyncio.create_task(_stream_audio_to_satellite(req.room_id, audio_path, db))
 
     # Pré-processa o próximo capítulo em background
     next_index = req.chapter_index + 1
@@ -244,7 +245,30 @@ async def play_book(book_id: int, req: PlayRequest, db: Session = Depends(get_db
         "book_id": book_id,
         "chapter_index": req.chapter_index,
         "chapter_title": chapter.title,
+        "audio_url": f"/api/library/books/{book_id}/chapters/{req.chapter_index}/audio" if req.room_id == "local" else None
     }
+
+
+@router.get("/books/{book_id}/chapters/{chapter_index}/audio")
+def get_chapter_audio(book_id: int, chapter_index: int, db: Session = Depends(get_db)):
+    """Retorna o arquivo de áudio do capítulo para reprodução local no navegador."""
+    chapter = (
+        db.query(models.BookChapter)
+        .filter(
+            models.BookChapter.book_id == book_id,
+            models.BookChapter.index == chapter_index,
+        )
+        .first()
+    )
+    if not chapter or not chapter.audio_path:
+        raise HTTPException(404, "Áudio não encontrado ou não sintetizado")
+    
+    # audio_path armazena o caminho relativo (ou absoluto dependendo do synthesizer)
+    # No synthesizer.py atual, ele salva o caminho absoluto
+    if not os.path.exists(chapter.audio_path):
+        raise HTTPException(404, "Arquivo de áudio não encontrado no disco")
+        
+    return FileResponse(chapter.audio_path, media_type="audio/mpeg")
 
 
 @router.post("/books/{book_id}/pause")

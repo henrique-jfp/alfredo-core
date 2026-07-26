@@ -159,7 +159,7 @@ export const api = {
   },
   deleteBook: (id: number) => fetchFromAPI<void>(`/api/library/books/${id}`, { method: 'DELETE' }),
   playBook: (id: number, room_id: string, chapter_index?: number) =>
-    fetchFromAPI<{ status: string }>(`/api/library/books/${id}/play`, {
+    fetchFromAPI<{ status: string, audio_url?: string }>(`/api/library/books/${id}/play`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ room_id, chapter_index }),

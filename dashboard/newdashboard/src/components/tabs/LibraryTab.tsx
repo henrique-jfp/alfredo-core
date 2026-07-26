@@ -21,6 +21,7 @@ export function LibraryTab() {
   const [isDeleting, setIsDeleting] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
     fetchBooks();
@@ -95,7 +96,11 @@ export function LibraryTab() {
   const handlePlay = async (chapterIndex?: number) => {
     if (!selectedBook) return;
     try {
-      await api.playBook(selectedBook.id, selectedRoomId, chapterIndex);
+      const res = await api.playBook(selectedBook.id, selectedRoomId, chapterIndex);
+      if (res.audio_url && audioRef.current) {
+        audioRef.current.src = res.audio_url;
+        audioRef.current.play();
+      }
     } catch (e) {
       console.error('Failed to play book', e);
     }
@@ -103,6 +108,10 @@ export function LibraryTab() {
 
   const handlePause = async () => {
     if (!selectedBook) return;
+    if (selectedRoomId === 'local' && audioRef.current) {
+      audioRef.current.pause();
+      return;
+    }
     try {
       await api.pauseBook(selectedBook.id, selectedRoomId);
     } catch (e) {
@@ -112,6 +121,10 @@ export function LibraryTab() {
 
   const handleResume = async () => {
     if (!selectedBook) return;
+    if (selectedRoomId === 'local' && audioRef.current) {
+      audioRef.current.play();
+      return;
+    }
     try {
       await api.resumeBook(selectedBook.id, selectedRoomId);
     } catch (e) {
@@ -121,6 +134,7 @@ export function LibraryTab() {
 
   return (
     <div className="flex h-full flex-col gap-6 overflow-y-auto pb-10 pr-2">
+      <audio ref={audioRef} className="hidden" controls={false} />
       {/* Header Zone */}
       <div className="alfredo-card relative overflow-hidden p-5 md:p-6">
         <div className="absolute right-0 top-0 h-64 w-64 translate-x-1/3 -translate-y-1/3 rounded-full bg-brass-500/10 blur-[80px]" />
@@ -268,9 +282,10 @@ export function LibraryTab() {
                 <label className="text-[12px] font-medium text-[color:var(--text-secondary)]">Tocar em...</label>
                 <select
                   value={selectedRoomId}
-                  onChange={(e) => setSelectedRoomId(e.target.value as RoomId)}
+                  onChange={(e) => setSelectedRoomId(e.target.value)}
                   className="alfredo-input w-full cursor-pointer py-2 text-[13px]"
                 >
+                  <option value="local">Neste Dispositivo (Navegador)</option>
                   {Object.entries(ROOM_LABELS).map(([id, label]) => (
                     <option key={id} value={id}>
                       {label}
