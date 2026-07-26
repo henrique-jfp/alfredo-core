@@ -77,36 +77,68 @@ async def synthesize_chapter(
         book_id, chapter_index, len(segments),
     )
 
-    # Sintetiza cada segmento e acumula
+    # ── Agrupa segmentos para MINIMIZAR chamadas edge-tts ────────────────
+    # Segmentos consecutivos com o mesmo voice_style e SEM efeito são mesclados
+    # em um único texto. Isso reduz de centenas para ~5-10 chamadas de API.
+    batches: list[tuple[str, str, str | None]] = []  # (text, voice_style, effect)
+    current_text = ""
+    current_style: str | None = None
+
+    for seg in segments:
+        if seg.effect:
+            # Segmento com efeito: flush acumulado, depois vai individual
+            if current_text:
+                batches.append((current_text.strip(), current_style, None))
+                current_text = ""
+                current_style = None
+            batches.append((seg.text, seg.voice_style, seg.effect))
+        elif seg.voice_style == current_style:
+            # Mesmo estilo: acumula no texto atual
+            sep = " " if current_text else ""
+            current_text += sep + seg.text
+        else:
+            # Estilo diferente: flush anterior, começa novo acúmulo
+            if current_text:
+                batches.append((current_text.strip(), current_style, None))
+            current_text = seg.text
+            current_style = seg.voice_style
+
+    if current_text:
+        batches.append((current_text.strip(), current_style, None))
+
+    logger.info(
+        "Síntese: %d segmentos agrupados em %d lotes edge-tts",
+        len(segments), len(batches),
+    )
+
+    # ── Processa cada lote ──────────────────────────────────────────────
     final_audio = AudioSegment.silent(duration=0)
     sfx_cache: dict[str, AudioSegment] = {}
 
-    for i, segment in enumerate(segments):
+    for i, (text, style, effect) in enumerate(batches):
         try:
             # 1. Gera áudio de voz via edge-tts
-            voice_audio = await _synthesize_segment_voice(segment.text, segment.voice_style, voice)
+            voice_audio = await _synthesize_segment_voice(text, style, voice)
             if voice_audio is None:
-                logger.warning("Segmento %d sem áudio gerado — pulando", i)
+                logger.warning("Lote %d sem áudio gerado — pulando", i)
                 continue
 
             voice_seg = AudioSegment.from_mp3(io.BytesIO(voice_audio))
 
             # 2. Se tem efeito, sobrepõe
-            if segment.effect:
-                sfx_seg = _load_sfx(segment.effect, sfx_cache)
+            if effect:
+                sfx_seg = _load_sfx(effect, sfx_cache)
                 if sfx_seg is not None:
-                    # Reduz volume do efeito e sobrepõe na voz
                     sfx_adjusted = sfx_seg + SFX_VOLUME_REDUCTION_DB
-                    # Trunca ou padroniza o efeito para caber na duração da voz
                     if len(sfx_adjusted) > len(voice_seg):
                         sfx_adjusted = sfx_adjusted[:len(voice_seg)]
                     voice_seg = voice_seg.overlay(sfx_adjusted)
 
-            # 3. Concatena ao áudio final com pequena pausa entre segmentos
+            # 3. Concatena ao áudio final com pequena pausa entre lotes
             final_audio += voice_seg + AudioSegment.silent(duration=200)
 
         except Exception as e:
-            logger.error("Erro no segmento %d: %s — continuando", i, e)
+            logger.error("Erro no lote %d: %s — continuando", i, e)
             continue
 
     if len(final_audio) == 0:

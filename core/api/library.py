@@ -33,6 +33,10 @@ router = APIRouter(prefix="/api/library", tags=["Library"])
 LIBRARY_DIR = os.path.join(os.getcwd(), "data", "library")
 UPLOAD_DIR = os.path.join(LIBRARY_DIR, "uploads")
 
+# Conjunto de capítulos atualmente sendo processados (para evitar duplicatas)
+_processing_chapters: set[tuple[int, int]] = set()
+_processing_lock = asyncio.Lock()
+
 
 # ── Schemas Pydantic ─────────────────────────────────────────────────────────
 
@@ -363,47 +367,77 @@ async def _ensure_chapter_ready(chapter: models.BookChapter, db: Session) -> str
 
     A anotação via Gemini é síncrona e bloqueante — executamos em thread separada
     para não travar o event loop. Cada etapa tem timeout individual.
+
+    Usa um lock em memória para evitar que duas tasks preparem o MESMO capítulo
+    simultaneamente (quando o usuário clica play várias vezes).
     """
     from core.brain.reading.annotator import annotate_chapter, segments_to_json, segments_from_json
     from core.brain.reading.synthesizer import synthesize_chapter
 
-    # 1. Anotação (se necessário)
-    if chapter.annotation_json is None:
-        text_path = os.path.join(LIBRARY_DIR, chapter.raw_text_path) if chapter.raw_text_path else None
-        if text_path and os.path.exists(text_path):
-            with open(text_path, "r", encoding="utf-8") as f:
-                chapter_text = f.read()
+    ch_key = (chapter.book_id, chapter.index)
+
+    # Se o áudio já existe, retorna imediatamente (cache)
+    if chapter.audio_path and os.path.exists(chapter.audio_path):
+        return chapter.audio_path
+
+    # Lock para evitar processamento duplicado do mesmo capítulo
+    async with _processing_lock:
+        if ch_key in _processing_chapters:
+            # Outra task já está processando este capítulo — aguarda
+            logger.info("Capítulo %d do livro %d já está sendo processado por outra task — aguardando", ch_key[1], ch_key[0])
+            # Aguarda até 5 minutos pelo outro processo terminar
+            deadline = time.time() + 300
+            while time.time() < deadline:
+                await asyncio.sleep(2)
+                if chapter.audio_path and os.path.exists(chapter.audio_path):
+                    return chapter.audio_path
+                # Recarrega do banco para verificar se outro processo salvou
+                db.refresh(chapter)
+                if chapter.audio_path and os.path.exists(chapter.audio_path):
+                    return chapter.audio_path
+            logger.warning("Timeout aguardando processamento concorrente do capítulo %d", ch_key[1])
+        _processing_chapters.add(ch_key)
+
+    try:
+        # 1. Anotação (se necessário)
+        if chapter.annotation_json is None:
+            text_path = os.path.join(LIBRARY_DIR, chapter.raw_text_path) if chapter.raw_text_path else None
+            if text_path and os.path.exists(text_path):
+                with open(text_path, "r", encoding="utf-8") as f:
+                    chapter_text = f.read()
+            else:
+                logger.warning("Texto do capítulo %d não encontrado", chapter.index)
+                chapter_text = "(Texto não disponível)"
+
+            logger.info("Anotando capítulo %d do livro %d...", chapter.index, chapter.book_id)
+
+            # annotate_chapter() faz chamada síncrona ao Gemini — roda em thread
+            # para não bloquear o event loop. Timeout de 120s.
+            segments = await asyncio.wait_for(
+                asyncio.to_thread(annotate_chapter, chapter_text),
+                timeout=120.0,
+            )
+            chapter.annotation_json = segments_to_json(segments)
+            db.commit()
         else:
-            logger.warning("Texto do capítulo %d não encontrado", chapter.index)
-            chapter_text = "(Texto não disponível)"
+            segments = segments_from_json(chapter.annotation_json)
 
-        logger.info("Anotando capítulo %d do livro %d...", chapter.index, chapter.book_id)
+        # 2. Síntese (se necessário)
+        if not chapter.audio_path or not os.path.exists(chapter.audio_path):
+            logger.info("Sintetizando capítulo %d do livro %d...", chapter.index, chapter.book_id)
+            voice_name = chapter.book.voice_name if chapter.book else "pt-BR-FranciscaNeural"
+            audio_path = await asyncio.wait_for(
+                synthesize_chapter(chapter.book_id, chapter.index, segments, voice_name),
+                timeout=600.0,  # 10 minutos para síntese completa
+            )
+            chapter.audio_path = audio_path
+            db.commit()
+        else:
+            audio_path = chapter.audio_path
 
-        # annotate_chapter() faz chamada síncrona ao Gemini — roda em thread
-        # para não bloquear o event loop. Timeout de 120s.
-        segments = await asyncio.wait_for(
-            asyncio.to_thread(annotate_chapter, chapter_text),
-            timeout=120.0,
-        )
-        chapter.annotation_json = segments_to_json(segments)
-        db.commit()
-    else:
-        segments = segments_from_json(chapter.annotation_json)
-
-    # 2. Síntese (se necessário)
-    if not chapter.audio_path or not os.path.exists(chapter.audio_path):
-        logger.info("Sintetizando capítulo %d do livro %d...", chapter.index, chapter.book_id)
-        voice_name = chapter.book.voice_name if chapter.book else "pt-BR-FranciscaNeural"
-        audio_path = await asyncio.wait_for(
-            synthesize_chapter(chapter.book_id, chapter.index, segments, voice_name),
-            timeout=600.0,  # 10 minutos para síntese completa
-        )
-        chapter.audio_path = audio_path
-        db.commit()
-    else:
-        audio_path = chapter.audio_path
-
-    return audio_path
+        return audio_path
+    finally:
+        _processing_chapters.discard(ch_key)
 
 
 async def _preprocess_next_chapter(book_id: int, chapter_index: int):
