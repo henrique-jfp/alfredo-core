@@ -83,7 +83,7 @@ def annotate_chapter(chapter_text: str) -> list[Segment]:
 
         configure_genai(key)
         try:
-            model = genai.GenerativeModel("gemini-2.0-flash")
+            model = genai.GenerativeModel("gemini-3.1-flash-lite")
             response = model.generate_content(
                 prompt,
                 generation_config=genai.GenerationConfig(

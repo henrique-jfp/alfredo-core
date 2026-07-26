@@ -43,7 +43,3 @@ O Alfredo já entende de qual satélite a voz está vindo (ex: `sala-001`). O pr
 
 > [!IMPORTANT]
 > A API de status offline/online de satélites que implementamos agora há pouco já é o primeiro passo arquitetural para a funcionalidade Multi-room (item 4)!
-
-## 5. Leitura interativa
-
-
