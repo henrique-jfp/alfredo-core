@@ -148,7 +148,7 @@ O hardware local atua apenas como orquestrador, delegando todo o processamento p
 
 ## 🛠️ Ferramentas Nativas (Tools/Skills)
 
-O agente decide sozinho quando e como acionar cada skill. Atualmente são **18 skills** registradas:
+O agente decide sozinho quando e como acionar cada skill. Atualmente são **19 skills** registradas:
 
 ### 🏠 Automação e Casa Inteligente
 | Skill | Descrição |
@@ -164,6 +164,7 @@ O agente decide sozinho quando e como acionar cada skill. Atualmente são **18 s
 | ▶️ **YouTubeTool** | Reprodução de áudio do YouTube — lives (CazéTV, GloboNews), podcasts, conteúdo fora do Spotify. |
 | 📰 **NewsTool** | Manchetes do Brasil e do mundo por categoria via NewsAPI. |
 | 🎬 **MediaTool** | Recomendações de filmes e séries via TMDB (gênero, ano/década). |
+| 📖 **BookReadingTool** | Alfredo Reads: Leitura interativa de ebooks (PDF/EPUB) com efeitos sonoros e mudanças de voz (Gemini + Edge-TTS) sincronizados com o texto. |
 
 ### 🧠 Memória e Produtividade
 | Skill | Descrição |
@@ -248,7 +249,7 @@ alfredo-core/
 │   │   │   ├── tv.py, timer.py, music.py, lists.py
 │   │   │   ├── weather_time.py, calendar.py, youtube.py
 │   │   │   └── smart_home.py
-│   │   ├── skills/                   # 18 Skills (Weather, Timer, TV, Music...)
+│   │   ├── skills/                   # 19 Skills (Weather, Timer, TV, Music, Books...)
 │   │   │   ├── base.py               # Interface base Skill
 │   │   │   └── *.py                  # Implementações
 │   │   └── memory/                   # Banco de dados
@@ -432,7 +433,7 @@ Há duas gerações: `frontend/` (build estável atual, servida em produção) e
 ### ✅ Implementado
 - [x] Roteamento em 3 camadas (Semantic Router + Groq Fast Path + Gemini Tool Calling)
 - [x] Pipeline de streaming real (LLM → frases → áudio em paralelo)
-- [x] 18 skills nativas (TV, Smart Home, Música, YouTube, Clima, Listas, Timer, Agenda...)
+- [x] 19 skills nativas (Ebooks, TV, Smart Home, Música, YouTube, Clima, Listas, Timer, Agenda...)
 - [x] Google Calendar Sync — bidirecional via OAuth 2.0 (push/pull a cada 5 min)
 - [x] Memória de longo prazo com RAG (embedding + cosine similarity)
 - [x] SmartThings para controle absoluto de TV (mute, volume, power on/off)
