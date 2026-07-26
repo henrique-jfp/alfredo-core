@@ -4,6 +4,7 @@ import { api } from '../../lib/api';
 import { SectionHeading, StatusPulse, SkeletonBlock, EmptyState } from '../ui/DashboardPrimitives';
 import { Modal } from '../ui/Modal';
 import { useToast } from '../Toast';
+import { TVIntegrationCard } from '../TVIntegrationCard';
 import type { IntegrationsData } from '../../types';
 
 export function IntegrationsTab() {
@@ -290,6 +291,8 @@ export function IntegrationsTab() {
               </div>
             </div>
           </div>
+          
+          <TVIntegrationCard />
         </div>
 
         <div className="flex min-w-0 flex-col gap-5">

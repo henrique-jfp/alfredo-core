@@ -1,6 +1,5 @@
 import React from 'react';
 import { Lightbulb, Tv, PlugZap, Lock, Settings, Sparkles, Fan, MonitorSpeaker, Cpu, RadioTower, Power } from 'lucide-react';
-import { TVIntegrationCard } from '../TVIntegrationCard';
 import { EmptyState, SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
 import { cn } from '../../lib/utils';
 
@@ -84,16 +83,6 @@ export function DevicesTab() {
                         {device.name}
                       </span>
                     </div>
-                    
-                    <button 
-                      disabled={!device.active && device.name.includes('Satélite') === false} 
-                      className={cn(
-                        "flex h-7 w-7 items-center justify-center rounded-full transition-colors shrink-0",
-                        device.active ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25" : "bg-white/5 text-zinc-600 cursor-not-allowed"
-                      )}
-                    >
-                      <Power className="h-3.5 w-3.5" />
-                    </button>
                   </div>
                 );
               })}
@@ -102,16 +91,6 @@ export function DevicesTab() {
         ))}
       </div>
 
-      <div className="mt-4">
-        <SectionHeading
-          eyebrow="Integração Direta"
-          title="Televisão Mestre"
-          subtitle="Controle focado na TV do Quarto Casal via protocolo local."
-        />
-        <div className="mt-4 grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-          <TVIntegrationCard />
-        </div>
-      </div>
     </div>
   );
 }

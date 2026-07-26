@@ -57,7 +57,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         { id: 'calendario', label: 'Calendário', icon: CalendarDays },
         { id: 'clima', label: 'Clima', icon: CloudSun },
         { id: 'integracoes', label: 'Integrações', icon: Link2 },
-        { id: 'dispositivos', label: 'Dispositivos', icon: SlidersHorizontal },
+        { id: 'dispositivos', label: 'Ambientes', icon: SlidersHorizontal },
         { id: 'rotinas', label: 'Rotinas', icon: Clock },
       ],
     },
