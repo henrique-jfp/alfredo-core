@@ -211,8 +211,11 @@ def delete_book(book_id: int, db: Session = Depends(get_db)):
 async def play_book(book_id: int, req: PlayRequest, db: Session = Depends(get_db)):
     """Inicia a leitura de um capítulo em um cômodo.
 
-    Garante que o capítulo esteja anotado e sintetizado antes de tocar.
-    Inicia anotação/síntese do próximo capítulo em background.
+    Para reprodução LOCAL (navegador): retorna audio_url — o GET /audio
+    bloqueia até o capítulo estar pronto (o navegador mostra "carregando").
+
+    Para reprodução em SATÉLITE: prepara o capítulo e transmite em background.
+    Retorna imediatamente para evitar timeout do frontend (15s).
     """
     book = db.query(models.Book).filter(models.Book.id == book_id).first()
     if not book:
@@ -229,15 +232,11 @@ async def play_book(book_id: int, req: PlayRequest, db: Session = Depends(get_db
     if not chapter:
         raise HTTPException(404, f"Capítulo {req.chapter_index} não encontrado")
 
-    # Garante anotação e síntese apenas se for tocar em um satélite.
-    # Para tocar localmente (no navegador), o endpoint GET /audio fará a espera,
-    # evitando timeout e perda do "user gesture" no frontend.
     if req.room_id != "local":
-        audio_path = await _ensure_chapter_ready(chapter, db)
-        # Salva estado da sessão
+        # Satellite: prepara e transmite em background — retorna já
         _update_session(db, req.room_id, book_id, req.chapter_index, "playing")
-        # Envia áudio para o satélite
-        asyncio.create_task(_stream_audio_to_satellite(req.room_id, audio_path, db))
+        asyncio.create_task(_prepare_and_stream(req.room_id, chapter, db))
+    # Para local: o GET /audio cuida da preparação quando o navegador solicitar
 
     # Pré-processa o próximo capítulo em background
     next_index = req.chapter_index + 1
@@ -424,6 +423,38 @@ async def _preprocess_next_chapter(book_id: int, chapter_index: int):
             await _ensure_chapter_ready(chapter, db)
     except Exception as e:
         logger.error("Erro no pré-processamento do capítulo %d: %s", chapter_index, e)
+    finally:
+        db.close()
+
+
+async def _prepare_and_stream(room_id: str, chapter, db_orig: Session):
+    """Prepara capítulo (anotação + síntese) e envia para o satélite, tudo em background.
+
+    Usa sessão própria do banco para evitar uso da sessão da requisição original
+    após o retorno da resposta HTTP.
+    """
+    from core.brain.memory.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        # Recarrega o capítulo na nova sessão
+        chapter = db.query(models.BookChapter).filter(models.BookChapter.id == chapter.id).first()
+        if not chapter:
+            logger.error("Capítulo %d não encontrado ao preparar streaming", getattr(chapter, "index", "?"))
+            return
+
+        audio_path = await asyncio.wait_for(
+            _ensure_chapter_ready(chapter, db),
+            timeout=600.0,
+        )
+        await asyncio.wait_for(
+            _stream_audio_to_satellite(room_id, audio_path, db),
+            timeout=600.0,
+        )
+    except asyncio.TimeoutError:
+        logger.error("Timeout ao preparar/transmitir capítulo para room_id=%s", room_id)
+    except Exception as e:
+        logger.error("Erro no _prepare_and_stream: %s", e)
     finally:
         db.close()
 
