@@ -96,11 +96,10 @@ function SunSVG({ w }: { w: number }) {
 
 // ─── Cloud (overcast) ──────────────────────────────────────────────────────
 
-function CloudSVG({ w, color = '#9ca3af', dark = false }: { w: number; color?: string; dark?: boolean }) {
-  const id = useId();
+function CloudGroup({ id, color = '#9ca3af', dark = false }: { id: string; color?: string; dark?: boolean }) {
   const c = dark ? '#2d2d3a' : color;
   return (
-    <svg viewBox="0 0 100 60" width={w} height={w * 0.6} className="overflow-visible">
+    <>
       <defs>
         <filter id={`${id}-shadow`}>
           <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="rgba(0,0,0,0.25)" />
@@ -119,6 +118,15 @@ function CloudSVG({ w, color = '#9ca3af', dark = false }: { w: number; color?: s
         {/* Rim light */}
         <ellipse cx="40" cy="22" rx="10" ry="6" fill="rgba(255,255,255,0.12)" />
       </g>
+    </>
+  );
+}
+
+function CloudSVG({ w, color = '#9ca3af', dark = false }: { w: number; color?: string; dark?: boolean }) {
+  const id = useId();
+  return (
+    <svg viewBox="0 0 100 60" width={w} height={w * 0.6} className="overflow-visible">
+      <CloudGroup id={id} color={color} dark={dark} />
     </svg>
   );
 }
@@ -145,9 +153,9 @@ function CloudSunSVG({ w }: { w: number }) {
         ))}
       </g>
       {/* Front clouds (drifting) */}
-      <g transform="translate(6, 30)">
-        <animateTransform attributeName="transform" type="translate" values="6,30;14,30;6,30" dur="14s" repeatCount="indefinite" />
-        <CloudSVG w={80} color="#9ca3af" />
+      <g transform="translate(16, 30) scale(0.8)">
+        <animateTransform attributeName="transform" type="translate" values="16,30;24,30;16,30" dur="14s" repeatCount="indefinite" />
+        <CloudGroup id={`${useId()}-sun`} color="#9ca3af" />
       </g>
       <g>
         <ellipse cx="60" cy="52" rx="28" ry="14" fill="#b0b8c4" opacity="0.7">
@@ -173,8 +181,8 @@ function RainSVG({ w, isNight = false }: { w: number; isNight?: boolean }) {
   return (
     <svg viewBox="0 0 100 100" width={w} height={w} className="overflow-visible">
       {/* Cloud */}
-      <g transform="translate(5, 5)">
-        <CloudSVG w={90} color={isNight ? '#232838' : '#2d3748'} dark />
+      <g transform="translate(5, 5) scale(0.9)">
+        <CloudGroup id={`${useId()}-rain`} color={isNight ? '#232838' : '#2d3748'} dark />
       </g>
       {/* Rain streaks with stagger */}
       {RAIN_DROPS.map(({ x, delay }) => (
@@ -222,8 +230,8 @@ function StormSVG({ w, isNight = false }: { w: number; isNight?: boolean }) {
         </filter>
       </defs>
       {/* Very dark cloud */}
-      <g transform="translate(2.5, 5)">
-        <CloudSVG w={95} color={isNight ? '#131320' : '#1a1a28'} dark />
+      <g transform="translate(2.5, 5) scale(0.95)">
+        <CloudGroup id={`${useId()}-storm`} color={isNight ? '#131320' : '#1a1a28'} dark />
       </g>
       {/* Flash background */}
       <rect x="0" y="0" width="100" height="100" fill="rgba(255,250,210,0.08)" rx="50%">
@@ -274,8 +282,8 @@ const SNOW_FLAKES = [
 function SnowSVG({ w, isNight = false }: { w: number; isNight?: boolean }) {
   return (
     <svg viewBox="0 0 100 100" width={w} height={w} className="overflow-visible">
-      <g transform="translate(7.5, 5)">
-        <CloudSVG w={85} color={isNight ? '#566172' : '#6b7b8d'} />
+      <g transform="translate(7.5, 5) scale(0.85)">
+        <CloudGroup id={`${useId()}-snow`} color={isNight ? '#566172' : '#6b7b8d'} />
       </g>
       {SNOW_FLAKES.map(({ cx, delay, sway, dur }) => (
         <circle key={`snow-${cx}-${delay}`} cx={cx} cy="50" r="1.8" fill="white" opacity="0.8">
@@ -336,9 +344,9 @@ function CloudMoonSVG({ w }: { w: number }) {
       </circle>
       <circle cx="28" cy="22" r="14" fill="#d4d4e0" />
       <circle cx="28" cy="22" r="20" fill="rgba(212,212,224,0.1)" />
-      <g transform="translate(0, 0)">
-        <animateTransform attributeName="transform" type="translate" values="0,0;6,0;0,0" dur="14s" repeatCount="indefinite" />
-        <CloudSVG w={w * 0.8} color="#3a3a48" dark />
+      <g transform="translate(10, 0) scale(0.8)">
+        <animateTransform attributeName="transform" type="translate" values="10,0;16,0;10,0" dur="14s" repeatCount="indefinite" />
+        <CloudGroup id={`${useId()}-moon`} color="#3a3a48" dark />
       </g>
     </svg>
   );
