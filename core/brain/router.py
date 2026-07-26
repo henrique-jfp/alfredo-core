@@ -486,21 +486,23 @@ class AgentRouter:
                         "name": "manage_book_reading",
                         "description": (
                             "GERENCIAR LEITURA DE LIVROS/EBOOKS: use esta ferramenta para ler, pausar, "
-                            "retomar, parar ou listar livros da biblioteca do Alfredo. "
+                            "retomar, parar, avançar/voltar capítulo ou listar livros da biblioteca do Alfredo. "
                             "EXEMPLOS:\n"
                             "- 'Leia o Senhor dos Anéis'\n"
                             "- 'Continua a leitura'\n"
                             "- 'Para de ler'\n"
                             "- 'Quais livros temos?'\n"
-                            "- 'Leia o capítulo 3 do Harry Potter'"
+                            "- 'Leia o capítulo 3 do Harry Potter'\n"
+                            "- 'Próximo capítulo'\n"
+                            "- 'Capítulo anterior'"
                         ),
                         "parameters": {
                             "type": "object",
                             "properties": {
                                 "action": {
                                     "type": "string",
-                                    "description": "Ação: 'play' (iniciar leitura), 'pause' (pausar), 'resume' (retomar), 'stop' (parar), 'list' (listar livros)",
-                                    "enum": ["play", "pause", "resume", "stop", "list"]
+                                    "description": "Ação: 'play' (iniciar leitura), 'pause' (pausar), 'resume' (retomar), 'stop' (parar), 'list' (listar livros), 'next' (próximo capítulo), 'previous' (capítulo anterior)",
+                                    "enum": ["play", "pause", "resume", "stop", "list", "next", "previous"]
                                 },
                                 "title": {
                                     "type": "string",

@@ -7,6 +7,7 @@ leitura", "para de ler" e interage com a biblioteca de ebooks.
 Segue o padrão de Skill existente: name, can_handle, execute, execute_tool.
 Registrada no AgentRouter como "manage_book_reading".
 """
+import asyncio
 import difflib
 import json
 import logging
@@ -48,6 +49,10 @@ class BookReadingSkill(Skill):
             return self._stop_reading(room_id, db)
         elif action == "resume":
             return self._resume_reading(room_id, db, context)
+        elif action == "next":
+            return self._next_chapter(room_id, db, context)
+        elif action == "previous":
+            return self._previous_chapter(room_id, db, context)
         else:
             return {"direct_response": f"Ação '{action}' não reconhecida.", "status": "fail"}
 
@@ -154,6 +159,7 @@ class BookReadingSkill(Skill):
 
     def _stop_reading(self, room_id: str, db) -> Dict[str, Any]:
         """Para a leitura ativa no cômodo."""
+        self._send_stop_to_room(room_id)
         return {
             "direct_response": "Leitura pausada. Para continuar, diga 'continue a leitura'.",
             "status": "success",
@@ -187,12 +193,17 @@ class BookReadingSkill(Skill):
                 "session": {"end": True},
             }
 
+        # Pára áudio atual antes de retomar
+        self._send_stop_to_room(room_id)
+
         # Dispara a leitura
         import asyncio
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 asyncio.ensure_future(self._trigger_play(book_id, chapter_index, room_id))
+            else:
+                loop.run_until_complete(self._trigger_play(book_id, chapter_index, room_id))
         except Exception as e:
             logger.error("Erro ao retomar leitura: %s", e)
 
@@ -213,11 +224,177 @@ class BookReadingSkill(Skill):
             "session": new_session,
         }
 
+    def _next_chapter(self, room_id: str, db, context) -> Dict[str, Any]:
+        """Avança para o próximo capítulo do livro ativo."""
+        from core.brain.memory import models
+
+        session = (
+            db.query(models.SessionState)
+            .filter(models.SessionState.room_id == room_id)
+            .first()
+        )
+        if not session or session.skill_name != "manage_book_reading":
+            return {
+                "direct_response": "Não há nenhuma leitura em andamento para avançar.",
+                "status": "fail",
+            }
+
+        state = json.loads(session.state_data) if session.state_data else {}
+        book_id = state.get("book_id")
+        current_index = state.get("chapter_index", 0)
+
+        book = db.query(models.Book).filter(models.Book.id == book_id).first()
+        if not book:
+            return {
+                "direct_response": "O livro que estava sendo lido foi removido da biblioteca.",
+                "status": "fail",
+                "session": {"end": True},
+            }
+
+        next_index = current_index + 1
+        if next_index >= book.total_chapters:
+            return {
+                "direct_response": (
+                    f"Você já está no último capítulo de '{book.title}'."
+                ),
+                "status": "fail",
+            }
+
+        # Pára o áudio atual antes de iniciar o próximo
+        self._send_stop_to_room(room_id)
+
+        # Dispara o próximo capítulo
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(self._trigger_play(book_id, next_index, room_id))
+            else:
+                loop.run_until_complete(self._trigger_play(book_id, next_index, room_id))
+        except Exception as e:
+            logger.error("Erro ao disparar próximo capítulo: %s", e)
+
+        return {
+            "direct_response": (
+                f"Avançando para o capítulo {next_index + 1} de {book.total_chapters} de '{book.title}'."
+            ),
+            "status": "success",
+            "session": {
+                "params": {
+                    "book_id": book_id,
+                    "chapter_index": next_index,
+                    "status": "playing",
+                }
+            },
+        }
+
+    def _previous_chapter(self, room_id: str, db, context) -> Dict[str, Any]:
+        """Volta para o capítulo anterior do livro ativo."""
+        from core.brain.memory import models
+
+        session = (
+            db.query(models.SessionState)
+            .filter(models.SessionState.room_id == room_id)
+            .first()
+        )
+        if not session or session.skill_name != "manage_book_reading":
+            return {
+                "direct_response": "Não há nenhuma leitura em andamento para voltar.",
+                "status": "fail",
+            }
+
+        state = json.loads(session.state_data) if session.state_data else {}
+        book_id = state.get("book_id")
+        current_index = state.get("chapter_index", 0)
+
+        book = db.query(models.Book).filter(models.Book.id == book_id).first()
+        if not book:
+            return {
+                "direct_response": "O livro que estava sendo lido foi removido da biblioteca.",
+                "status": "fail",
+                "session": {"end": True},
+            }
+
+        prev_index = current_index - 1
+        if prev_index < 0:
+            return {
+                "direct_response": (
+                    f"Você já está no primeiro capítulo de '{book.title}'."
+                ),
+                "status": "fail",
+            }
+
+        # Pára o áudio atual antes de iniciar o anterior
+        self._send_stop_to_room(room_id)
+
+        # Dispara o capítulo anterior
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(self._trigger_play(book_id, prev_index, room_id))
+            else:
+                loop.run_until_complete(self._trigger_play(book_id, prev_index, room_id))
+        except Exception as e:
+            logger.error("Erro ao disparar capítulo anterior: %s", e)
+
+        return {
+            "direct_response": (
+                f"Voltando para o capítulo {prev_index + 1} de {book.total_chapters} de '{book.title}'."
+            ),
+            "status": "success",
+            "session": {
+                "params": {
+                    "book_id": book_id,
+                    "chapter_index": prev_index,
+                    "status": "playing",
+                }
+            },
+        }
+
+    @staticmethod
+    def _send_stop_to_room(room_id: str):
+        """Envia comando de parar áudio para o satélite do cômodo."""
+        try:
+            from core.api.satellite import manager
+            from core.brain.memory.database import SessionLocal
+            from core.brain.memory import models
+
+            db = SessionLocal()
+            try:
+                device = (
+                    db.query(models.Device)
+                    .filter(models.Device.room_id == room_id)
+                    .first()
+                )
+                if device:
+                    ws = manager.active_satellites.get(device.device_id)
+                    if ws:
+                        import asyncio
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                asyncio.ensure_future(
+                                    manager.send_command_to_satellite(device.device_id, "tts_end")
+                                )
+                        except Exception as e:
+                            logger.warning("Erro ao enviar stop: %s", e)
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning("Não foi possível parar áudio no cômodo %s: %s", room_id, e)
+
     async def _trigger_play(self, book_id: int, chapter_index: int, room_id: str):
-        """Dispara a preparação e streaming do áudio em background."""
+        """Dispara a preparação e streaming do áudio em background.
+
+        Para o áudio atual do cômodo, prepara o capítulo (anotação + síntese)
+        com timeout e envia o áudio para o satélite.
+
+        Erros são logados e não propagados (fire-and-forget).
+        """
         from core.brain.memory.database import SessionLocal
         from core.brain.memory import models
-        from core.api.library import _ensure_chapter_ready, _stream_audio_to_satellite
+        from core.api.library import _ensure_chapter_ready, _stream_audio_to_satellite, _update_session
 
         db = SessionLocal()
         try:
@@ -229,9 +406,30 @@ class BookReadingSkill(Skill):
                 )
                 .first()
             )
-            if chapter:
-                audio_path = await _ensure_chapter_ready(chapter, db)
-                await _stream_audio_to_satellite(room_id, audio_path, db)
+            if not chapter:
+                logger.error("Capítulo %d do livro %d não encontrado", chapter_index, book_id)
+                return
+
+            # Timeout total para preparação (anotação + síntese)
+            # Capítulos muito longos podem travar o pipeline
+            audio_path = await asyncio.wait_for(
+                _ensure_chapter_ready(chapter, db),
+                timeout=300.0,  # 5 minutos
+            )
+
+            # Atualiza sessão antes de tocar
+            _update_session(db, room_id, book_id, chapter_index, "playing")
+
+            # Envia áudio para o satélite com timeout
+            await asyncio.wait_for(
+                _stream_audio_to_satellite(room_id, audio_path, db),
+                timeout=600.0,  # 10 minutos para streaming
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "Timeout ao preparar/transmitir capítulo %d do livro %d",
+                chapter_index, book_id,
+            )
         except Exception as e:
             logger.error("Erro no _trigger_play: %s", e)
         finally:

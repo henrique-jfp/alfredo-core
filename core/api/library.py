@@ -360,7 +360,11 @@ async def resume_book(book_id: int, req: RoomRequest, db: Session = Depends(get_
 # ── Helpers internos ─────────────────────────────────────────────────────────
 
 async def _ensure_chapter_ready(chapter: models.BookChapter, db: Session) -> str:
-    """Garante que o capítulo está anotado e sintetizado. Retorna o audio_path."""
+    """Garante que o capítulo está anotado e sintetizado. Retorna o audio_path.
+
+    A anotação via Gemini é síncrona e bloqueante — executamos em thread separada
+    para não travar o event loop. Cada etapa tem timeout individual.
+    """
     from core.brain.reading.annotator import annotate_chapter, segments_to_json, segments_from_json
     from core.brain.reading.synthesizer import synthesize_chapter
 
@@ -375,7 +379,13 @@ async def _ensure_chapter_ready(chapter: models.BookChapter, db: Session) -> str
             chapter_text = "(Texto não disponível)"
 
         logger.info("Anotando capítulo %d do livro %d...", chapter.index, chapter.book_id)
-        segments = annotate_chapter(chapter_text)
+
+        # annotate_chapter() faz chamada síncrona ao Gemini — roda em thread
+        # para não bloquear o event loop. Timeout de 120s.
+        segments = await asyncio.wait_for(
+            asyncio.to_thread(annotate_chapter, chapter_text),
+            timeout=120.0,
+        )
         chapter.annotation_json = segments_to_json(segments)
         db.commit()
     else:
@@ -385,7 +395,10 @@ async def _ensure_chapter_ready(chapter: models.BookChapter, db: Session) -> str
     if not chapter.audio_path or not os.path.exists(chapter.audio_path):
         logger.info("Sintetizando capítulo %d do livro %d...", chapter.index, chapter.book_id)
         voice_name = chapter.book.voice_name if chapter.book else "pt-BR-FranciscaNeural"
-        audio_path = await synthesize_chapter(chapter.book_id, chapter.index, segments, voice_name)
+        audio_path = await asyncio.wait_for(
+            synthesize_chapter(chapter.book_id, chapter.index, segments, voice_name),
+            timeout=600.0,  # 10 minutos para síntese completa
+        )
         chapter.audio_path = audio_path
         db.commit()
     else:
@@ -416,7 +429,10 @@ async def _preprocess_next_chapter(book_id: int, chapter_index: int):
 
 
 async def _stream_audio_to_satellite(room_id: str, audio_path: str, db: Session):
-    """Envia o arquivo de áudio para o satélite do cômodo via WebSocket."""
+    """Envia o arquivo de áudio para o satélite do cômodo via WebSocket.
+
+    Inclui timeout por chunk para evitar travar se o WebSocket cair.
+    """
     from core.api.satellite import manager
 
     # Encontra o device_id ativo neste room
@@ -448,7 +464,8 @@ async def _stream_audio_to_satellite(room_id: str, audio_path: str, db: Session)
                 chunk = f.read(8192)
                 if not chunk:
                     break
-                await ws.send_bytes(chunk)
+                # Timeout por chunk: se o WebSocket caiu, não trava para sempre
+                await asyncio.wait_for(ws.send_bytes(chunk), timeout=30.0)
                 total_sent += len(chunk)
 
         # Calcula delay (48kbps = 6000 bytes/s)
@@ -467,6 +484,8 @@ async def _stream_audio_to_satellite(room_id: str, audio_path: str, db: Session)
         await ws.send_text(json.dumps({"type": "tts_end"}))
         logger.info("Áudio do livro enviado com sucesso para %s", device.device_id)
 
+    except asyncio.TimeoutError:
+        logger.error("Timeout ao enviar chunk para %s — satélite pode estar offline", device.device_id)
     except Exception as e:
         logger.error("Erro ao enviar áudio para %s: %s", device.device_id, e)
 
