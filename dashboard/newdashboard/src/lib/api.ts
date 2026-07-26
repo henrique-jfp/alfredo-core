@@ -158,6 +158,14 @@ export const api = {
     return fetchFromAPI<Book>('/api/library/books', { method: 'POST', body: form });
   },
   deleteBook: (id: number) => fetchFromAPI<void>(`/api/library/books/${id}`, { method: 'DELETE' }),
+  getVoices: () =>
+    fetchFromAPI<{ voices: Array<{ id: string, name: string }> }>('/api/library/voices'),
+  updateBookVoice: (id: number, voice_name: string) =>
+    fetchFromAPI<{ status: string, voice_name: string }>(`/api/library/books/${id}/voice`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voice_name }),
+    }),
   playBook: (id: number, room_id: string, chapter_index?: number) =>
     fetchFromAPI<{ status: string, audio_url?: string }>(`/api/library/books/${id}/play`, {
       method: 'POST',

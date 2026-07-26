@@ -229,6 +229,7 @@ export interface Book {
   format: 'pdf' | 'epub';
   total_chapters: number;
   cover_path: string | null;
+  voice_name: string;
 }
 
 export interface BookChapter {

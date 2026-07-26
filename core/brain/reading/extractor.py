@@ -156,12 +156,18 @@ def _split_by_chapter_patterns(text: str) -> list[ChapterData]:
     for idx, (start_line, chapter_title) in enumerate(split_points):
         end_line = split_points[idx + 1][0] if idx + 1 < len(split_points) else len(lines)
         chapter_text = "\n".join(lines[start_line:end_line]).strip()
+        
         if chapter_text:
-            chapters.append(ChapterData(
-                index=len(chapters),
-                title=chapter_title,
-                text=chapter_text,
-            ))
+            # Se o texto for muito curto (ex: linha de sumário) e já existir um capítulo,
+            # mescla este texto no capítulo anterior em vez de criar um novo.
+            if len(chapter_text) < 500 and chapters:
+                chapters[-1].text += "\n\n" + chapter_text
+            else:
+                chapters.append(ChapterData(
+                    index=len(chapters),
+                    title=chapter_title,
+                    text=chapter_text,
+                ))
 
     return chapters if chapters else [ChapterData(index=0, title=None, text=text)]
 

@@ -19,12 +19,14 @@ export function LibraryTab() {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [selectedRoomId, setSelectedRoomId] = useState<string>(ROOM_IDS.LIVING);
   const [isDeleting, setIsDeleting] = useState<number | null>(null);
+  const [voices, setVoices] = useState<{id: string, name: string}[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
     fetchBooks();
+    api.getVoices().then(res => setVoices(res.voices)).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -128,13 +130,25 @@ export function LibraryTab() {
   const handleResume = async () => {
     if (!selectedBook) return;
     if (selectedRoomId === 'local' && audioRef.current) {
-      audioRef.current.play();
+      audioRef.current.play().catch(e => console.error('Audio play blocked:', e));
       return;
     }
     try {
       await api.resumeBook(selectedBook.id, selectedRoomId);
     } catch (e) {
       console.error('Failed to resume book', e);
+    }
+  };
+
+  const handleVoiceChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    if (!selectedBook) return;
+    const newVoice = e.target.value;
+    // Optimistic update
+    setSelectedBook({ ...selectedBook, voice_name: newVoice });
+    try {
+      await api.updateBookVoice(selectedBook.id, newVoice);
+    } catch (err) {
+      console.error('Failed to update voice', err);
     }
   };
 
@@ -298,22 +312,36 @@ export function LibraryTab() {
                     </option>
                   ))}
                 </select>
-                
-                <div className="mt-2 grid grid-cols-3 gap-2">
-                  <button onClick={() => handlePlay()} className="alfredo-pill flex-col justify-center border-brass-500/25 bg-brass-500/10 py-3 text-brass-300 hover:bg-brass-500/20">
-                    <Play className="h-4 w-4" />
-                    <span className="mt-1 text-[10px]">Tocar</span>
-                  </button>
-                  <button onClick={handlePause} className="alfredo-pill flex-col justify-center border-white/10 bg-white/[0.03] py-3 text-[color:var(--text-secondary)] hover:bg-white/[0.06] hover:text-white">
-                    <Pause className="h-4 w-4" />
-                    <span className="mt-1 text-[10px]">Pausar</span>
-                  </button>
-                  <button onClick={handleResume} className="alfredo-pill flex-col justify-center border-emerald-500/20 bg-emerald-500/10 py-3 text-emerald-400 hover:bg-emerald-500/20">
-                    <PlayCircle className="h-4 w-4" />
-                    <span className="mt-1 text-[10px]">Retomar</span>
-                  </button>
-                </div>
               </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-[12px] font-medium text-[color:var(--text-secondary)]">Voz do Narrador</label>
+                <select
+                  value={selectedBook.voice_name || 'pt-BR-FranciscaNeural'}
+                  onChange={handleVoiceChange}
+                  className="alfredo-input w-full cursor-pointer py-2 text-[13px]"
+                >
+                  {voices.map(v => (
+                    <option key={v.id} value={v.id}>{v.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="mt-2 grid grid-cols-3 gap-2 border-b border-[color:var(--border-color)] pb-6">
+                <button onClick={() => handlePlay()} className="alfredo-pill flex-col justify-center border-brass-500/25 bg-brass-500/10 py-3 text-brass-300 hover:bg-brass-500/20">
+                  <Play className="h-4 w-4" />
+                  <span className="mt-1 text-[10px] font-bold uppercase tracking-wider">Tocar</span>
+                </button>
+                <button onClick={() => handlePause()} className="alfredo-pill flex-col justify-center py-3 hover:bg-[color:var(--surface-hover)]">
+                  <Pause className="h-4 w-4" />
+                  <span className="mt-1 text-[10px] font-bold uppercase tracking-wider">Pausar</span>
+                </button>
+                <button onClick={() => handleResume()} className="alfredo-pill flex-col justify-center border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10">
+                  <PlayCircle className="h-4 w-4" />
+                  <span className="mt-1 text-[10px] font-bold uppercase tracking-wider">Retomar</span>
+                </button>
+              </div>
+            </div>
               
               <div className="h-px w-full bg-white/5" />
 

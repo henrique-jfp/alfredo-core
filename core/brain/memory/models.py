@@ -214,6 +214,7 @@ class Book(Base):
     format = Column(String, nullable=False)       # 'pdf' ou 'epub'
     total_chapters = Column(Integer, default=0)
     cover_path = Column(String, nullable=True)
+    voice_name = Column(String, default="pt-BR-FranciscaNeural")
 
     chapters = relationship("BookChapter", back_populates="book",
                             cascade="all, delete-orphan",

@@ -36,6 +36,9 @@ UPLOAD_DIR = os.path.join(LIBRARY_DIR, "uploads")
 
 # ── Schemas Pydantic ─────────────────────────────────────────────────────────
 
+class VoiceSelectionRequest(BaseModel):
+    voice_name: str
+
 class PlayRequest(BaseModel):
     room_id: str
     chapter_index: int = 0
@@ -250,6 +253,30 @@ async def play_book(book_id: int, req: PlayRequest, db: Session = Depends(get_db
     }
 
 
+@router.get("/voices")
+def get_voices():
+    """Retorna a lista de vozes disponíveis no Edge TTS (Português)."""
+    return {
+        "voices": [
+            {"id": "pt-BR-FranciscaNeural", "name": "Francisca (Feminino, Padrão)"},
+            {"id": "pt-BR-AntonioNeural", "name": "Antonio (Masculino)"},
+            {"id": "pt-BR-ThalitaNeural", "name": "Thalita (Feminino)"},
+            {"id": "pt-PT-DuarteNeural", "name": "Duarte (Portugal, Masculino)"},
+            {"id": "pt-PT-RaquelNeural", "name": "Raquel (Portugal, Feminino)"}
+        ]
+    }
+
+@router.patch("/books/{book_id}/voice")
+def update_book_voice(book_id: int, req: VoiceSelectionRequest, db: Session = Depends(get_db)):
+    """Atualiza a voz selecionada para ler o livro."""
+    book = db.query(models.Book).filter(models.Book.id == book_id).first()
+    if not book:
+        raise HTTPException(404, "Livro não encontrado")
+    
+    book.voice_name = req.voice_name
+    db.commit()
+    return {"status": "ok", "voice_name": book.voice_name}
+
 @router.get("/books/{book_id}/chapters/{chapter_index}/audio")
 async def get_chapter_audio(book_id: int, chapter_index: int, db: Session = Depends(get_db)):
     """Retorna o arquivo de áudio do capítulo para reprodução local no navegador.
@@ -355,11 +382,10 @@ async def _ensure_chapter_ready(chapter: models.BookChapter, db: Session) -> str
         segments = segments_from_json(chapter.annotation_json)
 
     # 2. Síntese (se necessário)
-    if chapter.audio_path is None or not os.path.exists(
-        os.path.join(LIBRARY_DIR, "..", chapter.audio_path) if chapter.audio_path else ""
-    ):
+    if not chapter.audio_path or not os.path.exists(chapter.audio_path):
         logger.info("Sintetizando capítulo %d do livro %d...", chapter.index, chapter.book_id)
-        audio_path = await synthesize_chapter(chapter.book_id, chapter.index, segments)
+        voice_name = chapter.book.voice_name if chapter.book else "pt-BR-FranciscaNeural"
+        audio_path = await synthesize_chapter(chapter.book_id, chapter.index, segments, voice_name)
         chapter.audio_path = audio_path
         db.commit()
     else:
