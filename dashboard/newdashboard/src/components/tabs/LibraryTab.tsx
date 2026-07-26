@@ -341,7 +341,7 @@ export function LibraryTab() {
                   <span className="mt-1 text-[10px] font-bold uppercase tracking-wider">Retomar</span>
                 </button>
               </div>
-            </div>
+
               
               <div className="h-px w-full bg-white/5" />
 
