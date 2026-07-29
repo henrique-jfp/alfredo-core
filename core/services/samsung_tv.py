@@ -10,6 +10,15 @@ from samsungtvws.exceptions import ConnectionFailure
 
 logger = logging.getLogger("alfredo.samsung_tv")
 
+# Cache do diagnóstico do SmartThings em nível de módulo.
+# Como SamsungTVManager é recriado a cada request, o cache de instância
+# (_smartthings_checked) era inútil — sempre começava em False e disparava
+# um novo HTTP request ao SmartThings a cada chamada.
+# Aqui guardamos o resultado por (PAT, device_id) com TTL de 5 minutos.
+import time as _time
+_ST_CACHE: dict = {}  # chave: (pat, device_id) → {"ok": bool, "reason": str, "ts": float}
+_ST_CACHE_TTL = 300   # 5 minutos
+
 # Mapeamento de apps para teclas de atalho do controle Samsung.
 # Estas são as teclas dedicadas presentes nos controles remotos
 # originais — muito mais confiáveis que launchApp via API para
@@ -42,10 +51,7 @@ class SamsungTVManager:
         os.makedirs(os.path.dirname(self.token_file), exist_ok=True)
         # Timeout de 15s para dar tempo de o usuário apertar "Permitir" na TV no primeiro acesso
         self.tv = SamsungTVWS(host=ip, port=8002, token_file=self.token_file, timeout=15)
-        self._smartthings_checked = False
-        self._smartthings_ok = False
-        self._smartthings_reason = None
-        
+
     async def power_on(self):
         """Tenta ligar a TV via SmartThings (Nível 1) ou Wake-on-LAN (Nível 2).
         
@@ -181,24 +187,27 @@ class SamsungTVManager:
         }
 
     async def _ensure_smartthings(self) -> bool:
-        """Faz uma checagem única e evita repetir requests que já falharam."""
-        if self._smartthings_checked:
-            return self._smartthings_ok
+        """Verifica SmartThings com cache de módulo (TTL=5min) para evitar
+        um HTTP request a cada chamada de mute/volume/power."""
+        cache_key = (self.smartthings_pat, self.smartthings_device_id)
+        cached = _ST_CACHE.get(cache_key)
+        if cached and (_time.monotonic() - cached["ts"]) < _ST_CACHE_TTL:
+            return cached["ok"]
 
         diag = await self.diagnose_smartthings()
-        self._smartthings_checked = True
-        self._smartthings_ok = bool(diag.get("ok"))
-        self._smartthings_reason = diag.get("reason")
+        ok = bool(diag.get("ok"))
+        reason = diag.get("reason")
+        _ST_CACHE[cache_key] = {"ok": ok, "reason": reason, "ts": _time.monotonic()}
 
-        if not self._smartthings_ok:
+        if not ok:
             logger.warning(
                 "SmartThings indisponível para a TV %s (%s): %s",
                 self.ip,
-                self._smartthings_reason,
+                reason,
                 diag.get("message"),
             )
 
-        return self._smartthings_ok
+        return ok
 
     async def power_off(self):
         """Desliga a TV via SmartThings (Nível 1) ou controle remoto (Nível 2)."""
