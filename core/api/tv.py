@@ -88,17 +88,24 @@ async def tv_volume_step(room_id: str, direction: str, steps: int = 10, delay: f
 async def tv_power(room_id: str, state: str = "toggle", db: Session = Depends(get_db)):
     """
     Controla o estado de energia da TV.
-    
-    - state='on':  KEY_POWER (toggle) + power_on (WOL/SmartThings). Funciona para ligar.
+
+    - state='on':  Tenta ligar via SmartThings (comando absoluto) ou WOL (magic packet).
+                   SÓ usa KEY_POWER (toggle) como último recurso se nenhum método absoluto
+                   estiver disponível — KEY_POWER é um toggle que pode DESLIGAR uma TV em
+                   standby, por isso é perigoso usá-lo antes do WOL.
     - state='off': power_off() via SmartThings (comando absoluto) ou KEY_POWER (toggle).
-                   NÃO chama power_on depois — evita o bug "desliga e liga".
+                   NÃO chama power_on depois — evita o bug 'desliga e liga'.
     - state='toggle' (padrão): apenas KEY_POWER (toggle puro).
     """
     tv = _get_tv_manager(room_id, db)
 
     if state == "on":
-        await tv.send_key("KEY_POWER")
-        await tv.power_on()
+        # power_on() retorna True se disparou um comando ABSOLUTO (SmartThings ou WOL).
+        # Só cai no KEY_POWER toggle se não houver MAC nem SmartThings configurados.
+        powered = await tv.power_on()
+        if not powered:
+            # Último recurso: toggle via WebSocket (arriscado se TV em standby)
+            await tv.send_key("KEY_POWER")
     elif state == "off":
         await tv.power_off()
     else:

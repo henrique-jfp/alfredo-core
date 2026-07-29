@@ -21,6 +21,7 @@ export function LibraryTab() {
   const [isDeleting, setIsDeleting] = useState<number | null>(null);
   const [voices, setVoices] = useState<{id: string, name: string}[]>([]);
   const [currentChapterIndex, setCurrentChapterIndex] = useState<number>(0);
+  const [isProcessingAudio, setIsProcessingAudio] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -101,22 +102,48 @@ export function LibraryTab() {
     try {
       const idx = chapterIndex ?? currentChapterIndex;
       setCurrentChapterIndex(idx);
-      
-      // Notify backend (fire-and-forget for 'local' since GET /audio handles the actual generation wait)
-      api.playBook(selectedBook.id, selectedRoomId, idx).catch(e => console.error('Play API error', e));
+      setIsProcessingAudio(true);
 
       if (selectedRoomId === 'local' && audioRef.current) {
-        // Set src instantly and play to preserve the user's click gesture.
-        // The backend GET /audio endpoint will block until the MP3 is ready!
+        // Local: set src instantly; GET /audio bloqueia até o MP3 ficar pronto
+        api.playBook(selectedBook.id, selectedRoomId, idx).catch(e => {
+          console.error('Play API error', e);
+          setIsProcessingAudio(false);
+        });
         audioRef.current.src = `/api/library/books/${selectedBook.id}/chapters/${idx}/audio`;
-        audioRef.current.play().catch(e => console.error('Audio play blocked:', e));
+        audioRef.current.play().catch(e => {
+          console.error('Audio play blocked:', e);
+          setIsProcessingAudio(false);
+        });
+      } else {
+        // Satélite: avisa o backend e aguarda o áudio ficar pronto
+        api.playBook(selectedBook.id, selectedRoomId, idx)
+          .then(() => {
+            // Não limpa o processing imediatamente — o áudio pode demorar
+            // para começar a tocar no satélite. Limpa após um tempo.
+            setTimeout(() => setIsProcessingAudio(false), 5000);
+          })
+          .catch(e => {
+            console.error('Play API error', e);
+            setIsProcessingAudio(false);
+          });
       }
     } catch (e) {
       console.error('Failed to play book', e);
+      setIsProcessingAudio(false);
     }
   };
 
+  const handleAudioCanPlay = () => {
+    setIsProcessingAudio(false);
+  };
+
+  const handleAudioError = () => {
+    setIsProcessingAudio(false);
+  };
+
   const handleAudioEnded = () => {
+    setIsProcessingAudio(false);
     if (!selectedBook) return;
     if (selectedRoomId === 'local') {
       const nextIndex = currentChapterIndex + 1;
@@ -166,7 +193,7 @@ export function LibraryTab() {
 
   return (
     <div className="flex h-full flex-col gap-6 overflow-y-auto pb-10 pr-2">
-      <audio ref={audioRef} className="hidden" controls={false} onEnded={handleAudioEnded} />
+      <audio ref={audioRef} className="hidden" controls={false} onCanPlay={handleAudioCanPlay} onError={handleAudioError} onEnded={handleAudioEnded} />
       {/* Header Zone */}
       <div className="alfredo-card relative overflow-hidden p-5 md:p-6">
         <div className="absolute right-0 top-0 h-64 w-64 translate-x-1/3 -translate-y-1/3 rounded-full bg-brass-500/10 blur-[80px]" />
@@ -340,9 +367,9 @@ export function LibraryTab() {
               </div>
 
               <div className="mt-2 grid grid-cols-3 gap-2 border-b border-[color:var(--border-color)] pb-6">
-                <button onClick={() => handlePlay()} className="alfredo-pill flex-col justify-center border-brass-500/25 bg-brass-500/10 py-3 text-brass-300 hover:bg-brass-500/20">
-                  <Play className="h-4 w-4" />
-                  <span className="mt-1 text-[10px] font-bold uppercase tracking-wider">Tocar</span>
+                <button onClick={() => handlePlay()} disabled={isProcessingAudio} className={cn("alfredo-pill flex-col justify-center py-3", isProcessingAudio ? "border-amber-500/30 bg-amber-500/10 text-amber-400" : "border-brass-500/25 bg-brass-500/10 text-brass-300 hover:bg-brass-500/20")}>
+                  {isProcessingAudio ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                  <span className="mt-1 text-[10px] font-bold uppercase tracking-wider">{isProcessingAudio ? 'Preparando...' : 'Tocar'}</span>
                 </button>
                 <button onClick={() => handlePause()} className="alfredo-pill flex-col justify-center py-3 hover:bg-[color:var(--surface-hover)]">
                   <Pause className="h-4 w-4" />
@@ -417,14 +444,21 @@ export function LibraryTab() {
                         
                         <button
                           onClick={() => handlePlay(chapter.index)}
-                          className="rounded-full bg-brass-500/10 p-1.5 text-brass-300 opacity-0 transition-opacity hover:bg-brass-500/20 group-hover:opacity-100"
-                          title="Tocar este capítulo"
+                          disabled={isProcessingAudio}
+                          className={cn("rounded-full p-1.5 transition-opacity", isProcessingAudio ? "bg-amber-500/10 text-amber-400 opacity-100" : "bg-brass-500/10 text-brass-300 opacity-0 hover:bg-brass-500/20 group-hover:opacity-100")}
+                          title={isProcessingAudio ? "Preparando áudio..." : "Tocar este capítulo"}
                         >
-                          <Play className="h-3.5 w-3.5" />
+                          {isProcessingAudio && currentChapterIndex === chapter.index ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
                         </button>
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+              {isProcessingAudio && (
+                <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[12px] text-amber-400">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                  Preparando áudio{selectedBook && ` do capítulo ${(currentChapterIndex + 1).toString().padStart(2, '0')}`}... Isso pode levar até 1 minuto dependendo do tamanho.
                 </div>
               )}
             </div>

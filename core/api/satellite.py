@@ -144,10 +144,27 @@ async def websocket_satellite_endpoint(websocket: WebSocket, device_id: str, tar
                 total_bytes = 0
                 import time
                 t_start_tts = time.time()
+                # Buffer para coletar chunks TTS e mixar com ambiente
+                tts_buffer = []
                 async for tts_chunk in process_audio_pipeline(phrase_bytes, device_id, room_id, db, is_webm=False, vosk_text=vosk_text):
                     if tts_chunk:
                         total_bytes += len(tts_chunk)
-                        await websocket.send_bytes(tts_chunk)
+                        tts_buffer.append(tts_chunk)
+                
+                # Mixa com som ambiente (se ativo) antes de enviar
+                try:
+                    from core.voice.ambience import get_ambience_manager
+                    ambience = get_ambience_manager()
+                    if ambience.is_active:
+                        mixed = await ambience.mix_mp3_batch(tts_buffer)
+                        if mixed:
+                            tts_buffer = mixed
+                except Exception as e:
+                    satellite_logger.warning("Erro ao mixar ambiente: %s", e)
+                
+                # Envia os chunks (originais ou mixados)
+                for chunk in tts_buffer:
+                    await websocket.send_bytes(chunk)
                 
                 # O satélite pode abortar o áudio prematuramente se receber tts_end antes de terminar de tocar.
                 # Como o pipeline é muito rápido (especialmente para respostas diretas), o áudio é baixado

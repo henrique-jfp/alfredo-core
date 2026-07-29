@@ -18,6 +18,81 @@ from core.brain.skills.base import Skill
 
 logger = logging.getLogger("alfredo.skills.book_reading")
 
+# ── Mapeamento gênero → ambiente ────────────────────────────────────────
+# Palavras-chave que indicam o gênero do livro. O sistema ativa o ambiente
+# automaticamente quando a leitura começa.
+_GENRE_KEYWORDS: dict[str, list[str]] = {
+    "forest": [
+        "floresta", "fada", "drago", "magia", "feiticeir", "elf", "orcs",
+        "senhor dos anéis", "senhor dos aneis", "harry potter", "castel",
+        "reino", "espada", "trono", "guerra dos tronos", "game of thrones",
+        "fantasia", "mago", "aventura", "heroi", "heroi", "cavaleir",
+        "bruxo", "bruxa", "encantado", "profecia", "reino", "dragao",
+        "torre", "jornada", "reino", "reino", "reino",
+    ],
+    "rain": [
+        "terror", "suspense", "horror", "assombrad", "fantasma", "crime",
+        "misterio", "sombr", "escuro", "trevas", "morte", "grito",
+        "vinganc", "serial killer", "investigac", "thriller", "nevoa",
+        "neblina", "macabro", "assassino", "morto", "sangue", "medo",
+        "psicologico", "psicopata", "obscuro", "noite", "lua",
+        "stephen king", "king", "it a coisa", "coisa", "iluminado",
+        "cemiterio", "carrie", "misery", "sobrenatural", "oculto",
+        "assombracao", "assombração", "zumbi", "vampiro", "lobo",
+        "lobisomem", "demonio", "exorcista", "possessao",
+        "agatha christie", "sherlock holmes", "conan doyle",
+        "negra", "nevoento", "sombrio", "pesadelo", "insano",
+    ],
+    "cafe": [
+        "romance", "amor", "coraca", "paixa", "casamento", "encontro",
+        "namoro", "cafe", "cha", "conversa", "amizade", "sentimental",
+        "comedia romantica", "comédia romântica", "romantico", "romantico",
+        "coração", "paixão", "beijo", "abraco", "sentimento", "almoca",
+        "jantar", "restaurante", "presente", "surpresa", "carinho",
+    ],
+    "fire": [
+        "inverno", "frio", "neve", "lareira", "aconchego", "casa",
+        "lar", "fogao", "fogueira", "acampamento", "cabana", "refugio",
+        "drama", "familia", "emocionante", "emocao", "lagrima",
+        "perda", "superacao", "conforto", "quent", "abrigo",
+    ],
+}
+
+# Ambientes padrão para gêneros não detectados (fallback consistente)
+_FALLBACK_AMBIENT = "forest"
+
+
+def _normalize(text: str) -> str:
+    """Normaliza texto para comparação fuzzy: remove acentos, lowercase."""
+    nfkd = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in nfkd if not unicodedata.combining(c)).lower().strip()
+
+
+def _detect_genre(title: str, author: str = "") -> str:
+    """Detecta o genero do livro baseado no titulo + autor.
+
+    Retorna o nome do ambiente mais compativel: 'forest', 'rain', 'cafe', 'fire'.
+    Usa 'forest' como fallback se nenhum genero for claramente identificado.
+    """
+    text = _normalize(f"{title} {author}")
+    scores = {genre: 0 for genre in _GENRE_KEYWORDS}
+
+    for genre, keywords in _GENRE_KEYWORDS.items():
+        for kw in keywords:
+            if kw in text:
+                scores[genre] += 1
+
+    best = max(scores, key=lambda g: (
+        scores[g],
+        max((len(kw) for kw in _GENRE_KEYWORDS[g] if kw in text), default=0)
+    ))
+
+    if scores[best] == 0:
+        return _FALLBACK_AMBIENT
+
+    logger.info("Genero detectado: '%s' (scores: %s) para '%s'", best, scores, title)
+    return best
+
 
 class BookReadingSkill(Skill):
 
@@ -147,6 +222,17 @@ class BookReadingSkill(Skill):
                 chapter_info = f", capítulo '{chapter.title}'"
 
         author_str = f", de {book.author}" if book.author else ""
+
+        # ── Ativa som ambiente automaticamente baseado no gênero do livro ──
+        try:
+            from core.voice.ambience import get_ambience_manager
+            genre_ambient = _detect_genre(book.title, book.author or "")
+            ambience = get_ambience_manager()
+            if ambience.set_ambient(genre_ambient):
+                logger.info("Ambiente '%s' ativado para leitura de '%s'", genre_ambient, book.title)
+        except Exception as e:
+            logger.warning("Erro ao ativar ambiente para leitura: %s", e)
+
         return {
             "direct_response": (
                 f"Iniciando a leitura de '{book.title}'{author_str}{chapter_info}. "
@@ -160,6 +246,15 @@ class BookReadingSkill(Skill):
     def _stop_reading(self, room_id: str, db) -> Dict[str, Any]:
         """Para a leitura ativa no cômodo."""
         self._send_stop_to_room(room_id)
+        # Desativa som ambiente ao pausar leitura
+        try:
+            from core.voice.ambience import get_ambience_manager
+            ambience = get_ambience_manager()
+            if ambience.is_active:
+                ambience.stop_ambient()
+                logger.info("Ambiente desativado ao pausar leitura")
+        except Exception as e:
+            logger.warning("Erro ao desativar ambiente: %s", e)
         return {
             "direct_response": "Leitura pausada. Para continuar, diga 'continue a leitura'.",
             "status": "success",
@@ -206,6 +301,16 @@ class BookReadingSkill(Skill):
                 loop.run_until_complete(self._trigger_play(book_id, chapter_index, room_id))
         except Exception as e:
             logger.error("Erro ao retomar leitura: %s", e)
+
+        # Reativa ambiente ao retomar leitura
+        try:
+            from core.voice.ambience import get_ambience_manager
+            genre_ambient = _detect_genre(book.title, book.author or "")
+            ambience = get_ambience_manager()
+            if ambience.set_ambient(genre_ambient):
+                logger.info("Ambiente '%s' reativado ao retomar '%s'", genre_ambient, book.title)
+        except Exception as e:
+            logger.warning("Erro ao reativar ambiente: %s", e)
 
         new_session = {
             "params": {
@@ -459,9 +564,3 @@ class BookReadingSkill(Skill):
                     return book
 
         return None
-
-
-def _normalize(text: str) -> str:
-    """Normaliza texto para comparação fuzzy: remove acentos, lowercase."""
-    nfkd = unicodedata.normalize("NFKD", text)
-    return "".join(c for c in nfkd if not unicodedata.combining(c)).lower().strip()

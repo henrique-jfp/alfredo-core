@@ -67,8 +67,8 @@ class SamsungTVManager:
                 logger.error(f"Erro no Power On via SmartThings: {e}")
 
         if self.mac:
-            send_magic_packet(self.mac)
-            logger.info("Magic packet (WOL) enviado para ligar a TV.")
+            send_magic_packet(self.mac, ip_address="192.168.0.255")
+            logger.info("Magic packet (WOL) enviado para ligar a TV (broadcast 192.168.0.255).")
             return True
 
         return False

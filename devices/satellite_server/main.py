@@ -109,9 +109,10 @@ class AudioConfig:
 
     # Cooldown de playback: evita que o microfone capture o finalzinho da
     # própria fala da caixa de som (modo mãos-livres de sessões).
-    # 3.0s porque o buffer ALSA/PulseAudio de computadores antigos (Celeron)
-    # pode atrasar a reprodução do ffplay em até 2 segundos.
-    playback_tail_cooldown: float = 3.0
+    # Aumentado de 3.0 para 8.0 porque o TTS longo + reverberação da sala
+    # fazia a wake word "alexa" ser detectada no áudio residual da própria
+    # resposta, gerando loop de feedback infinito.
+    playback_tail_cooldown: float = 8.0
 
     vad_base_cooldown: float = 3.0     # cooldown inicial do VAD-only (segundos)
     vad_max_cooldown: float = 120.0    # cooldown máximo (2 min) se continuar disparando falso
@@ -785,6 +786,7 @@ class SatelliteState:
         self._playback_lock = threading.Lock()
         self.is_playing = False
         self.playback_cooldown_until = 0.0
+        self.session_auto_record_until = 0.0  # Evita loop: após TTS, não inicia gravação automática imediatamente
 
         self._session_lock = threading.Lock()
         self.session_mode = False
@@ -1131,7 +1133,11 @@ def _audio_processing_worker() -> None:
 
         # ── OpenWakeWord (gatilho principal) ────────────────────────────────
         if s.oww_model:
-            if s.is_playing or time.time() < s.playback_cooldown_until:
+            # Durante playback OU cooldown pós-playback, reseta o OWW para
+            # não detectar a própria wake word do áudio que acabou de tocar
+            # (eco/reverberação da sala). O session_auto_record_until garante
+            # um cooldown extra de 8s mesmo após o playback_cooldown_until expirar.
+            if s.is_playing or time.time() < s.playback_cooldown_until or time.time() < s.session_auto_record_until:
                 s.oww_model.reset()
             else:
                 prediction = s.oww_model.predict(cleaned)
@@ -1153,6 +1159,7 @@ def _audio_processing_worker() -> None:
                             else:
                                 log.info("🔊 OWW score %.2f — iniciando gravação", score)
                                 _stop_current_music()
+                                _stop_playback(force=True)  # Interrompe TTS se estiver tocando
                                 s.tv_was_muted = True
                                 s.tv_volume_lowered_at = time.time()
                                 s.vad_consecutive_triggers = 0
@@ -1282,15 +1289,21 @@ def _process_recording_chunk(bytes_data: bytes) -> None:
     # Nível 2 (0.5-2s):  pausa natural de 600ms — frases médias.
     # Nível 3 (2-5s):    pausa de 800ms — perguntas mais longas.
     # Nível 4 (> 5s):    pausa de 1.0s — relatos longos (quiz, receitas).
-    # Ganho vs antes (1.5-2.0s fixo): economiza 600ms a 1.4s por interação.
+    # 
+    # ⚠️ AJUSTADO: aumentado de 0.5s para 1.0s porque o usuário faz pausa
+    # natural entre "alexa" e o comando (ex: "alexa... onde assistir...").
+    # O corte de 500ms encerrava a gravação antes do comando completo.
     if not s.has_spoken:
         # Nunca falou ainda — timeout longo para quem demorou a começar
         max_silence = int(4.0 * cfg.rate / 160)  # 4s sem fala = cancela
     else:
-        # Fixo agressivo de 500ms para reduzir latência
-        max_silence = int(0.5 * cfg.rate / 160)
+        # Aumentado de 0.5s para 1.0s para não cortar pausa entre wake word e comando
+        max_silence = int(1.0 * cfg.rate / 160)
     timeout_frames = int(20 * cfg.rate / 160) if s.session_mode else int(5 * cfg.rate / 160)
-    max_total = int(8 * cfg.rate / 160)  # 8s máximo de fala nova
+    # Aumentado de 8s para 16s porque live_frames INCLUI o dashcam buffer (~6s).
+    # Com 8s, o usuário tinha apenas ~2s para falar o comando depois do wake word,
+    # o que cortava frases como "onde assistir o jogo do Fluminense".
+    max_total = int(16 * cfg.rate / 160)  # 16s máximo (com dashcam incluso)
 
     if s.has_spoken and s.silence_frames > max_silence:
         log.info("⏹️ Silêncio detectado. Fim da gravação.")
@@ -1360,6 +1373,7 @@ def _finish_recording(cancel: bool = False) -> None:
         log.debug("VAD: modo 1 (sensível) restaurado pós-gravação")
 
     s.playback_cooldown_until = time.time() + 3.0
+    s.session_auto_record_until = time.time() + 8.0
     if s.oww_model:
         try:
             s.oww_model.reset()
@@ -1385,6 +1399,20 @@ def _finish_recording(cancel: bool = False) -> None:
 def _check_session_mode() -> None:
     s = STATE
     try:
+        # ── Anti-feedback: se acabamos de tocar áudio, não inicia gravação
+        # automática mesmo com sessão ativa. O microfone ainda pode estar
+        # captando o final do áudio reproduzido (reverberação da sala).
+        # Isso previne o loop infinito: TTS → microfone ouve → Vosk transcreve
+        # → servidor responde → TTS → ...
+        now = time.time()
+        if now < s.session_auto_record_until:
+            log.debug(
+                "[SESSION] Cooldown pós-playback ativo (%.1fs restantes) — "
+                "adiando início de gravação automática",
+                s.session_auto_record_until - now,
+            )
+            return
+
         status_resp = _server_request(
             "GET", "/api/session-status",
             params={"room_id": CFG.room_id}, timeout=2,
@@ -1571,27 +1599,47 @@ def _start_playback() -> None:
         s.player_process = _SoundDevicePlayer()
 
 
-def _stop_playback() -> None:
+def _stop_playback(force: bool = False) -> None:
+    """
+    Finaliza a reprodução de áudio TTS.
+
+    Args:
+        force: Se True (chamado por nova gravação), usa timeout curto de 3s
+               e faz kill se necessário. Se False (chamado por tts_end normal),
+               usa timeout longo (60s) para não cortar o áudio no meio.
+    """
     s = STATE
-    if s.player_process:
+    if not s.player_process:
+        s.set_playing(False)
+        return
+
+    # Fecha stdin para não receber mais dados de áudio
+    try:
+        s.player_process.stdin.close()
+    except Exception:
+        pass
+
+    timeout = 3.0 if force else 60.0
+    try:
+        s.player_process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if force:
+            log.warning("Player não finalizou em %.0fs — forçando kill", timeout)
+        else:
+            log.warning("Player não finalizou em %.0fs (TTS longo) — forçando kill", timeout)
         try:
-            s.player_process.stdin.close()
+            s.player_process.kill()
         except Exception:
             pass
-        try:
-            s.player_process.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            log.warning("Player não finalizou em 3s — forçando kill")
-            try:
-                s.player_process.kill()
-            except Exception:
-                pass
-            s.player_process.wait(timeout=1)
-        except Exception:
-            pass
-        s.player_process = None
+        s.player_process.wait(timeout=1)
+    except Exception:
+        pass
+    s.player_process = None
     s.set_playing(False)
     s.playback_cooldown_until = time.time() + CFG.playback_tail_cooldown
+    # Evita que o modo mãos-livres inicie gravação automática logo após o TTS,
+    # criando loop de feedback (microfone capta o próprio áudio).
+    s.session_auto_record_until = time.time() + 8.0
     threading.Thread(target=_post_playback_cleanup, daemon=True).start()
 
 
@@ -1663,7 +1711,7 @@ def _ws_handler(msg_type: str):
 
 @_ws_handler("tts_end")
 def _on_tts_end(data: dict) -> None:
-    _stop_playback()
+    _stop_playback(force=False)  # Não corta o áudio — espera até 60s para o buffer acabar
 
 
 @_ws_handler("timer_expired")

@@ -261,6 +261,20 @@ async def process_audio_pipeline(
                 logger.warning(f"Ignorando possível alucinação do Whisper: '{transcribed_text}'")
                 return
 
+            # Filtro: se o texto for APENAS a wake word (ex: "alexa" sozinho),
+            # ignora — o usuário disse "alexa" mas não completou o comando,
+            # ou foi um falso positivo da TV. Sem esse filtro, o sistema
+            # respondia "Olá! Como posso ajudar?" para qualquer "alexa" solto.
+            text_after_wake = transcribed_text.strip().lower()
+            for w in _WAKE_WORDS:
+                # Remove a wake word do início
+                if text_after_wake.startswith(w + " ") or text_after_wake == w:
+                    text_after_wake = text_after_wake.replace(w, "", 1).strip()
+                    break
+            if not text_after_wake:
+                logger.info(f"Ignorando '{transcribed_text}': apenas wake word, sem comando.")
+                return
+
             interaction.input_text = transcribed_text
             db.commit()
             logger.info(f"STT concluído em {_time.time() - t_stt_start:.3f}s — Usuário disse: '{transcribed_text}'")

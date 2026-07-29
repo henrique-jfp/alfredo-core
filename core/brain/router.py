@@ -26,6 +26,8 @@ from core.brain.skills.youtube_skill import YouTubeSkill
 from core.brain.skills.routine_skill import RoutineSkill
 from core.brain.skills.smart_home_skill import SmartHomeSkill
 from core.brain.skills.book_reading_skill import BookReadingSkill
+from core.brain.skills.web_search_skill import WebSearchSkill
+from core.brain.skills.ambience_skill import AmbienceSkill
 from core.services.key_manager import (
     next_gemini_key, next_groq_key,
     mark_gemini_cooldown, mark_groq_cooldown,
@@ -62,7 +64,10 @@ class AgentRouter:
             "play_youtube": YouTubeSkill(),
             "manage_routine": RoutineSkill(),
             "manage_smart_device": SmartHomeSkill(),
-            "manage_book_reading": BookReadingSkill()
+            "manage_book_reading": BookReadingSkill(),
+            "web_search": WebSearchSkill(),
+            "set_ambient": AmbienceSkill(),
+            "stop_ambient": AmbienceSkill()
         }
         # Groq client será criado sob demanda com a chave selecionada
         self._groq_client_cache = {}
@@ -515,6 +520,83 @@ class AgentRouter:
                             },
                             "required": ["action"]
                         }
+                    },
+                    {
+                        "name": "set_ambient",
+                        "description": (
+                            "ATIVAR SOM AMBIENTE DE FUNDO para leitura de livros ou relaxamento. "
+                            "Use quando o usuário pedir sons como 'som de chuva', 'barulho de "
+                            "floresta', 'som de café', 'som de fogo' ou 'som de lareira'.\n\n"
+                            "Opções disponíveis: rain (chuva), forest (floresta), cafe (café), "
+                            "fire (fogo/lareira).\n\n"
+                            "EXEMPLOS:\n"
+                            "- 'Alexa, liga o som de chuva' → set_ambient(ambient_type='rain')\n"
+                            "- 'Alexa, som de floresta' → set_ambient(ambient_type='forest')\n"
+                            "- 'Alexa, barulho de café' → set_ambient(ambient_type='cafe')\n\n"
+                            "O som ambiente é mixado automaticamente com a voz do TTS. "
+                            "Para desligar, use stop_ambient."
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "ambient_type": {
+                                    "type": "string",
+                                    "description": "Tipo de ambiente: 'rain' (chuva), 'forest' (floresta), 'cafe' (café), 'fire' (fogo/lareira)"
+                                }
+                            },
+                            "required": ["ambient_type"]
+                        }
+                    },
+                    {
+                        "name": "stop_ambient",
+                        "description": (
+                            "DESLIGAR O SOM AMBIENTE DE FUNDO. Use quando o usuário pedir "
+                            "'para o som', 'desliga o som de fundo', 'silencia o ambiente'.\n\n"
+                            "EXEMPLOS:\n"
+                            "- 'Alexa, para o som de fundo'\n"
+                            "- 'Alexa, desliga o som ambiente'\n"
+                            "- 'Alexa, silencia'"
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "name": "web_search",
+                        "description": (
+                            "PESQUISAR NA WEB: use esta ferramenta OBRIGATORIAMENTE para perguntas "
+                            "factuais atuais: jogos de futebol (horário, onde assistir, placar), "
+                            "resultados, programação, valores, preços, definições, ou QUALQUER "
+                            "pergunta que exija conhecimento atualizado.\n\n"
+                            "⚠️ IMPORTANTE: a query DEVE conter os termos EXATOS do usuário, "
+                            "sem substituir nomes de times, pessoas ou marcas. "
+                            "Se o usuário perguntou 'Fluminense', escreva 'Fluminense'.\n\n"
+                            "⚠️ APÓS receber o resultado: responda APENAS com base no que "
+                            "a busca retornou. NUNCA invente informações que não estão nos "
+                            "resultados (horários, canais, placares, etc.).\n\n"
+                            "EXEMPLOS:\n"
+                            "- 'Onde assistir o jogo do Fluminense hoje?'\n"
+                            "- 'Qual o horário do jogo do Flamengo?'\n"
+                            "- 'Fluminense vs quem hoje?'\n"
+                            "- 'Qual o valor do dólar hoje?'\n"
+                            "- 'Quem ganhou o jogo do Brasil?'\n"
+                            "- 'O que é fotossíntese?'\n"
+                            "- 'Quanto custa o PS5?'\n"
+                            "- 'Onde fica o museu do Ipiranga?'\n\n"
+                            "NÃO use para: clima (get_weather), trânsito (get_traffic), "
+                            "notícias em formato de manchetes (get_news)."
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "A pergunta ou termo de busca exato do usuário. Seja fiel ao que o usuário perguntou. Ex: 'jogo do Fluminense hoje onde assistir', 'valor do dólar hoje', 'fotossíntese o que é'"
+                                }
+                            },
+                            "required": ["query"]
+                        }
                     }
                 ]
             }
@@ -595,7 +677,24 @@ class AgentRouter:
             "toda segunda", "toda terça", "toda quarta", "toda quinta", "toda sexta",
             "todo sábado", "todo sabado", "todo domingo",
             "acende a luz", "acenda a luz", "apaga a luz", "apague a luz",
-            "ligar a luz", "desligar a luz"
+            "ligar a luz", "desligar a luz",
+            # Web Search: faz com que perguntas que exigem busca na web
+            # sejam roteadas para o Gemini (que tem tool calling),
+            # em vez de irem para o Groq fast path (sem busca).
+            "pesquise", "pesquisa", "pesquisar", "pesquise sobre",
+            "pesquisa sobre", "procure", "procurar", "busca por", "busque",
+            "onde assistir", "onde fica", "onde encontrar",
+            "qual valor", "quanto custa", "quanto é", "quanto tá",
+            "qual o valor", "qual o preço", "qual é o",
+            "como está", "como tá", "como anda",
+            "o que aconteceu", "o que houve", "o que está",
+            "últimas notícias", "notícias sobre", "última hora",
+            "resultado", "resultados", "placar", "jogo do",
+            "qual foi", "quem foi", "quem é", "quem ganhou",
+            # Som ambiente
+            "som de", "barulho de", "ambiente",
+            "som ambiente", "som de fundo", "música de fundo",
+            "liga o som", "desliga o som", "para o som",
         ]
         
         text_lower = text.lower().strip()
@@ -973,7 +1072,11 @@ class AgentRouter:
             "- Wake word do sistema é 'alexa' — não corrija o usuário.\n"
             "- Traduções: use <lang=\"LOCALE\">texto</lang>.\n"
             "Quiz ativo: valide, corrija e faça nova pergunta.\n"
-            "Receita ativa: UM passo por vez."
+            "Receita ativa: UM passo por vez.\n"
+                        "- WEB SEARCH: SEMPRE use web_search para perguntas factuais atuais "
+                            "(jogos, horários, onde assistir, valores, resultados, eventos). "
+                            "Responda APENAS com base nos resultados da busca. "
+                            "NUNCA invente horários, canais ou informações que não estão nos resultados.\n"
         )
         tools = self._get_tools_schema()
         model = genai.GenerativeModel(
@@ -1014,7 +1117,13 @@ class AgentRouter:
                     skill = self.skills.get(function_name)
                     if not skill:
                         return "Desculpe, a ferramenta solicitada não existe."
-                        
+
+                    # Injeta o nome da tool nos argumentos para skills que
+                    # atendem múltiplas tools (ex: AmbienceSkill lida com
+                    # set_ambient e stop_ambient).
+                    if "_tool_name" not in arguments:
+                        arguments["_tool_name"] = function_name
+
                     if hasattr(skill, "execute_tool"):
                         tool_result_obj = skill.execute_tool(arguments, context)
                     else:
@@ -1191,6 +1300,8 @@ class AgentRouter:
                 if part.function_call:
                     function_name = part.function_call.name
                     arguments = type(part.function_call).to_dict(part.function_call).get("args", {})
+                    if "_tool_name" not in arguments:
+                        arguments["_tool_name"] = function_name
                     skill = self.skills.get(function_name)
                     if skill:
                         if hasattr(skill, "execute_tool"):
@@ -1470,6 +1581,8 @@ class AgentRouter:
             for t_call in tool_calls_to_execute:
                 t_name = t_call["name"]
                 t_args = t_call["args"]
+                if "_tool_name" not in t_args:
+                    t_args["_tool_name"] = t_name
                 logger.info(f"Tool Call detectado no stream: {t_name} ({time.time() - t_start:.2f}s). Executando...")
                 
                 skill = self.skills.get(t_name)
