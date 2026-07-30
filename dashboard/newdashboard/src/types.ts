@@ -205,11 +205,22 @@ export interface SpotifyState {
 export type WeatherKind = 'sun' | 'cloud' | 'rain' | 'snow' | 'storm';
 
 export function getWeatherKind(code: number): WeatherKind {
-  if (code <= 1) return 'sun';
-  if (code <= 3) return 'cloud';
-  if (code <= 69 || (code >= 80 && code <= 82)) return 'rain';
-  if (code >= 71 && code <= 77) return 'snow';
-  if (code >= 95) return 'storm';
+  // Códigos OpenWeatherMap (3 dígitos):
+  // 2xx = Tempestade com trovão
+  // 3xx = Garoa/chuvisco
+  // 5xx = Chuva
+  // 6xx = Neve
+  // 7xx = Atmosfera (névoa, neblina)
+  // 800 = Céu limpo
+  // 80x = Nublado (801-804)
+  if (code < 0)  return 'cloud';   // sem dado
+  if (code >= 200 && code < 300) return 'storm';
+  if (code >= 300 && code < 400) return 'rain';
+  if (code >= 500 && code < 600) return 'rain';
+  if (code >= 600 && code < 700) return 'snow';
+  if (code >= 700 && code < 800) return 'cloud';  // névoa/neblina
+  if (code === 800)               return 'sun';
+  if (code >= 801 && code <= 804) return 'cloud';
   return 'cloud';
 }
 
