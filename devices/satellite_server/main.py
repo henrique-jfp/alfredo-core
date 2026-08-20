@@ -1084,135 +1084,142 @@ def _audio_processing_worker() -> None:
         except queue.Empty:
             continue
 
-        # ── scipy high-pass filter ──────────────────────────────────────────
-        # O scipy filter é a operação mais pesada; está aqui no worker, não no
-        # callback, para não causar buffer overflow.
-        float32_data = np.frombuffer(bytes_data, dtype=np.int16).astype(np.float32)
-        cleaned = clean_audio(float32_data, s)
-        bytes_data = cleaned.astype(np.int16).tobytes()
+        try:
+            # ── scipy high-pass filter ──────────────────────────────────────────
+            # O scipy filter é a operação mais pesada; está aqui no worker, não no
+            # callback, para não causar buffer overflow.
+            float32_data = np.frombuffer(bytes_data, dtype=np.int16).astype(np.float32)
+            cleaned = clean_audio(float32_data, s)
+            bytes_data = cleaned.astype(np.int16).tobytes()
 
-        # ── Encaminha para o stream ao vivo (Dashboard) ────────────────────
-        if s.is_streaming:
-            try:
-                s.stream_queue.put_nowait(bytes_data)
-            except queue.Full:
-                try:
-                    s.stream_queue.get_nowait()
-                except queue.Empty:
-                    pass
+            # ── Encaminha para o stream ao vivo (Dashboard) ────────────────────
+            if s.is_streaming:
                 try:
                     s.stream_queue.put_nowait(bytes_data)
                 except queue.Full:
-                    pass
+                    try:
+                        s.stream_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        s.stream_queue.put_nowait(bytes_data)
+                    except queue.Full:
+                        pass
 
-        # ── Calibração inicial (~2s para ler o ruído do ambiente) ──────────
-        if not s.is_calibrated:
-            rms = get_rms(bytes_data)
-            s.calibration_sum += rms
-            s.calibration_frames += 1
-            required_frames = int((cfg.rate / cfg.blocksize) * 2.0)
+            # ── Calibração inicial (~2s para ler o ruído do ambiente) ──────────
+            if not s.is_calibrated:
+                rms = get_rms(bytes_data)
+                s.calibration_sum += rms
+                s.calibration_frames += 1
+                required_frames = int((cfg.rate / cfg.blocksize) * 2.0)
 
-            if s.calibration_frames >= required_frames:
-                avg_noise = s.calibration_sum / s.calibration_frames
-                # Multiplicador 3.5x: margem ampla para ignorar TV/rádio de fundo.
-                # Se a TV estiver ligada durante a calibração, o noise floor já
-                # inclui o áudio ambiente; com 3.5x evitamos falso-positivos.
-                s.noise_threshold = avg_noise * 3.5 + 100
-                log.info("🎙️ [CALIBRAÇÃO] Ruído de fundo médio: %.1f", avg_noise)
-                log.info("🎙️ [CALIBRAÇÃO] Noise Threshold dinâmico definido para: %.1f", s.noise_threshold)
-                s.is_calibrated = True
-            continue
+                if s.calibration_frames >= required_frames:
+                    avg_noise = s.calibration_sum / s.calibration_frames
+                    # Multiplicador 3.5x: margem ampla para ignorar TV/rádio de fundo.
+                    # Se a TV estiver ligada durante a calibração, o noise floor já
+                    # inclui o áudio ambiente; com 3.5x evitamos falso-positivos.
+                    s.noise_threshold = avg_noise * 3.5 + 100
+                    log.info("🎙️ [CALIBRAÇÃO] Ruído de fundo médio: %.1f", avg_noise)
+                    log.info("🎙️ [CALIBRAÇÃO] Noise Threshold dinâmico definido para: %.1f", s.noise_threshold)
+                    s.is_calibrated = True
+                continue
 
-        # ── Safety net: is_playing travado ────────────────────────────────
-        if s.is_playing and s._playing_since + 30 < time.time() and not s.player_process:
-            log.warning(
-                "⚠️ [SAFETY] is_playing travado há >30s sem player_process "
-                "— forçando reset"
-            )
-            s.set_playing(False)
+            # ── Safety net: is_playing travado ────────────────────────────────
+            if s.is_playing and s._playing_since + 30 < time.time() and not s.player_process:
+                log.warning(
+                    "⚠️ [SAFETY] is_playing travado há >30s sem player_process "
+                    "— forçando reset"
+                )
+                s.set_playing(False)
 
-        # ── OpenWakeWord (gatilho principal) ────────────────────────────────
-        if s.oww_model:
-            # Durante playback OU cooldown pós-playback, reseta o OWW para
-            # não detectar a própria wake word do áudio que acabou de tocar
-            # (eco/reverberação da sala). O session_auto_record_until garante
-            # um cooldown extra de 8s mesmo após o playback_cooldown_until expirar.
-            if s.is_playing or time.time() < s.playback_cooldown_until or time.time() < s.session_auto_record_until:
-                s.oww_model.reset()
-            else:
-                prediction = s.oww_model.predict(cleaned)
-                for mdl_name, score in prediction.items():
-                    if score >= cfg.oww_threshold:
-                        current_time = time.time()
-                        last_wake_time = getattr(s, 'last_wake_time', 0)
-                        if (current_time - last_wake_time) > MIN_MUTE_COOLDOWN:
-                            s.last_wake_time = current_time
-                            if s.is_recording:
-                                if not s.tv_was_muted:
+            # ── OpenWakeWord (gatilho principal) ────────────────────────────────
+            if s.oww_model:
+                # Durante playback OU cooldown pós-playback, reseta o OWW para
+                # não detectar a própria wake word do áudio que acabou de tocar
+                # (eco/reverberação da sala). O session_auto_record_until garante
+                # um cooldown extra de 8s mesmo após o playback_cooldown_until expirar.
+                if s.is_playing or time.time() < s.playback_cooldown_until or time.time() < s.session_auto_record_until:
+                    s.oww_model.reset()
+                else:
+                    prediction = s.oww_model.predict(cleaned)
+                    for mdl_name, score in prediction.items():
+                        if score >= cfg.oww_threshold:
+                            current_time = time.time()
+                            last_wake_time = getattr(s, 'last_wake_time', 0)
+                            if (current_time - last_wake_time) > MIN_MUTE_COOLDOWN:
+                                s.last_wake_time = current_time
+                                if s.is_recording:
+                                    if not s.tv_was_muted:
+                                        s.tv_was_muted = True
+                                        s.tv_volume_lowered_at = time.time()
+                                        log.info("🔊 OWW score %.2f — re-trigger, abaixando volume TV", score)
+                                        threading.Thread(
+                                            target=_tv_volume_down,
+                                            daemon=True,
+                                        ).start()
+                                else:
+                                    log.info("🔊 OWW score %.2f — iniciando gravação", score)
+                                    _stop_current_music()
+                                    _stop_playback(force=True)  # Interrompe TTS se estiver tocando
                                     s.tv_was_muted = True
                                     s.tv_volume_lowered_at = time.time()
-                                    log.info("🔊 OWW score %.2f — re-trigger, abaixando volume TV", score)
+                                    s.vad_consecutive_triggers = 0
                                     threading.Thread(
                                         target=_tv_volume_down,
                                         daemon=True,
                                     ).start()
-                            else:
-                                log.info("🔊 OWW score %.2f — iniciando gravação", score)
-                                _stop_current_music()
-                                _stop_playback(force=True)  # Interrompe TTS se estiver tocando
-                                s.tv_was_muted = True
-                                s.tv_volume_lowered_at = time.time()
-                                s.vad_consecutive_triggers = 0
-                                threading.Thread(
-                                    target=_tv_volume_down,
-                                    daemon=True,
-                                ).start()
-                                _start_recording()
-                        break
+                                    _start_recording()
+                            break
 
-        # ── VAD-only: fala sustentada dispara gravação ─────────────────────
-        if s.vad_only_mode and not s.is_recording:
-            if s.is_playing or time.time() < s.playback_cooldown_until:
-                s.vad_speech_frames = 0
-            else:
-                offset = 0
-                while offset + 320 <= len(bytes_data):
-                    chunk = bytes_data[offset:offset + 320]
-                    offset += 320
-                    rms = get_rms(chunk)
-                    vad_result = s.vad.is_speech(chunk, cfg.rate)
-                    if is_confirmed_speech(vad_result, rms, s.noise_threshold):
-                        s.vad_speech_frames += 1
-                    else:
-                        s.vad_speech_frames = 0
+            # ── VAD-only: fala sustentada dispara gravação ─────────────────────
+            if s.vad_only_mode and not s.is_recording:
+                if s.is_playing or time.time() < s.playback_cooldown_until:
+                    s.vad_speech_frames = 0
+                else:
+                    offset = 0
+                    while offset + 320 <= len(bytes_data):
+                        chunk = bytes_data[offset:offset + 320]
+                        offset += 320
+                        rms = get_rms(chunk)
+                        vad_result = s.vad.is_speech(chunk, cfg.rate)
+                        if is_confirmed_speech(vad_result, rms, s.noise_threshold):
+                            s.vad_speech_frames += 1
+                        else:
+                            s.vad_speech_frames = 0
 
-                if s.vad_speech_frames >= 8:
-                    now = time.time()
-                    elapsed_since_last = now - s.vad_last_trigger_time
-                    required_cooldown = min(
-                        cfg.vad_base_cooldown * (2 ** s.vad_consecutive_triggers), cfg.vad_max_cooldown
-                    )
-                    if elapsed_since_last < required_cooldown:
-                        s.vad_speech_frames = 0
-                    else:
-                        s.vad_consecutive_triggers += 1
-                        s.vad_last_trigger_time = now
-                        s.tv_was_muted = False
-                        log.info("🔊 [VAD] Fala detectada! Gravando...")
-                        _stop_current_music()
-                        _start_recording()
-                        s.vad_speech_frames = 0
+                    if s.vad_speech_frames >= 8:
+                        now = time.time()
+                        elapsed_since_last = now - s.vad_last_trigger_time
+                        required_cooldown = min(
+                            cfg.vad_base_cooldown * (2 ** s.vad_consecutive_triggers), cfg.vad_max_cooldown
+                        )
+                        if elapsed_since_last < required_cooldown:
+                            s.vad_speech_frames = 0
+                        else:
+                            s.vad_consecutive_triggers += 1
+                            s.vad_last_trigger_time = now
+                            s.tv_was_muted = False
+                            log.info("🔊 [VAD] Fala detectada! Gravando...")
+                            _stop_current_music()
+                            _start_recording()
+                            s.vad_speech_frames = 0
 
-        # ── Dashcam (buffer de áudio pré-wake word) ────────────────────────
-        if not s.is_recording:
-            if not s.is_playing and time.time() >= s.playback_cooldown_until:
-                s.dashcam_buffer.extend(bytes_data)
-                if len(s.dashcam_buffer) > cfg.dashcam_max_bytes:
-                    del s.dashcam_buffer[:-cfg.dashcam_max_bytes]
+            # ── Dashcam (buffer de áudio pré-wake word) ────────────────────────
+            if not s.is_recording:
+                if not s.is_playing and time.time() >= s.playback_cooldown_until:
+                    s.dashcam_buffer.extend(bytes_data)
+                    if len(s.dashcam_buffer) > cfg.dashcam_max_bytes:
+                        del s.dashcam_buffer[:-cfg.dashcam_max_bytes]
 
-        # ── Gravação (Vosk + VAD + detecção de silêncio) ──────────────────
-        if s.is_recording:
-            _process_recording_chunk(bytes_data)
+            # ── Gravação (Vosk + VAD + detecção de silêncio) ──────────────────
+            if s.is_recording:
+                _process_recording_chunk(bytes_data)
+
+        except Exception:
+            # Proteção contra crash da thread de áudio (ex: vosk_rec=None
+            # durante reconexão do WebSocket). Loga e continua processando.
+            log.exception("⚠️ [WORKER] Erro no processamento de áudio (ignorando chunk)")
+
 
 
 def _process_recording_chunk(bytes_data: bytes) -> None:
