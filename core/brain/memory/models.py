@@ -233,3 +233,27 @@ class BookChapter(Base):
     audio_path = Column(String, nullable=True)
 
     book = relationship("Book", back_populates="chapters")
+
+class TuyaHub(Base):
+    __tablename__ = "tuya_hubs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(String, unique=True, index=True, nullable=False)
+    ip_address = Column(String, nullable=False)
+    local_key = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    room_id = Column(String, nullable=False)
+    version = Column(String, default="3.3")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class TuyaCommand(Base):
+    __tablename__ = "tuya_commands"
+
+    id = Column(Integer, primary_key=True, index=True)
+    hub_id = Column(Integer, ForeignKey("tuya_hubs.id"), nullable=False, index=True)
+    command_name = Column(String, nullable=False) # Ex: "turn_on", "speed_1", "power"
+    device_type = Column(String, nullable=False) # Ex: "fan", "tv"
+    protocol = Column(String, nullable=False) # "rf" ou "ir"
+    payload_base64 = Column(String, nullable=False)
+    room_id = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
