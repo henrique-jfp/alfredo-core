@@ -286,13 +286,8 @@ async def process_audio_pipeline(
         return
 
     # 3a. Guard: rejeita se não houver wake word (a menos que em sessão ativa ou push-to-talk do painel)
-    if not skip_stt and not _has_wake_word(transcribed_text) and device_id != "dashboard-virtual-mic":
-        session_active = db.query(models.SessionState).filter(
-            models.SessionState.room_id == room_id,
-        ).first()
-        if not session_active:
-            logger.info(f"Ignorando '{transcribed_text}': sem wake word e sem sessão ativa.")
-            return
+    # Como o satélite usa OpenWakeWord, ele já filtra e envia apenas o comando.
+    # Removendo a checagem de _has_wake_word do servidor.
 
     # 3b. Roteamento de Intenção (Streaming Real)
     t_llm_start = _time.time()

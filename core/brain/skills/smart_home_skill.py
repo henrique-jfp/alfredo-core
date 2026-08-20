@@ -26,22 +26,31 @@ def _resolve_room_id(db, target_room: str | None, fallback_room_id: str | None) 
     # Etapa 1 — nome do cômodo informado pelo usuário
     if target_room:
         t = target_room.lower().strip()
+        t_clean = t.replace(" do ", " ").replace(" da ", " ").replace(" de ", " ").replace(" no ", " ").replace(" na ", " ")
+        t_clean = " ".join(t_clean.split())
 
         # Tenta match exato por nome
         room_row = (
             db.query(models.Room)
-            .filter(models.Room.name.ilike(t))
+            .filter(models.Room.name.ilike(t_clean))
             .first()
         )
         if not room_row:
             # Tenta por room_id (ex: "ROOM_LIVING", "ROOM_OFFICE")
             room_row = (
                 db.query(models.Room)
-                .filter(models.Room.room_id.ilike(f"%{t}%"))
+                .filter(models.Room.room_id.ilike(f"%{t_clean}%"))
                 .first()
             )
         if not room_row:
-            # Tenta substring no nome (ex: "sala" → "Sala", "escritório" → "Escritório")
+            # Tenta substring no nome limpo
+            room_row = (
+                db.query(models.Room)
+                .filter(models.Room.name.ilike(f"%{t_clean}%"))
+                .first()
+            )
+        if not room_row:
+            # Tenta substring no nome original
             room_row = (
                 db.query(models.Room)
                 .filter(models.Room.name.ilike(f"%{t}%"))
