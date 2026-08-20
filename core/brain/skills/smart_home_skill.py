@@ -125,9 +125,39 @@ class SmartHomeSkill:
                 msg = "Não encontrei nenhum dispositivo cadastrado nesse cômodo"
             return {"direct_response": f"{msg}. Primeiro cadastre os dispositivos no painel de controle."}
 
-        # ── Executa a ação no Home Assistant ──────────────────────────
+        # ── Executa a ação no Home Assistant (ou Tuya Hub Local) ──────────────
         from core.services.home_assistant import HomeAssistantManager
+        from core.services.tuya_hub import tuya_hub_manager
+        
+        # 1. Primeiro tenta ver se tem um controle direto via Tuya Hub Local para RF/IR
+        # Ex: action="turn_on", device_type="fan" -> command_name="turn_on"
+        # Só tentamos Tuya direto se houver um command_name correspondente na tabela
+        tuya_cmd = None
+        if device_type in ["fan", "tv", "air_conditioner"]:
+            # Mapeamento simples action -> command_name do Tuya (turn_on, turn_off, etc)
+            cmd_name = action
+            if action == "set_speed":
+                speed = arguments.get("speed", arguments.get("value", "1"))
+                cmd_name = f"speed_{speed}"
+                
+            from core.brain.memory import models
+            tuya_cmd = db.query(models.TuyaCommand).filter(
+                models.TuyaCommand.room_id == resolved_room_id,
+                models.TuyaCommand.device_type == device_type,
+                models.TuyaCommand.command_name == cmd_name
+            ).first()
 
+        if tuya_cmd:
+            logger.info(f"Encontrou comando Tuya Local ({tuya_cmd.protocol}) para {device_type} em {resolved_room_id}")
+            hub = db.query(models.TuyaHub).filter(models.TuyaHub.id == tuya_cmd.hub_id).first()
+            if hub:
+                if tuya_cmd.protocol.lower() == "rf":
+                    tuya_hub_manager.send_rf(hub.device_id, hub.ip_address, hub.local_key, tuya_cmd.payload_base64, version=hub.version)
+                else:
+                    tuya_hub_manager.send_ir(hub.device_id, hub.ip_address, hub.local_key, tuya_cmd.payload_base64, version=hub.version)
+                return {"direct_response": "Ok."}
+
+        # 2. Fallback: Executa via Home Assistant se não for um comando direto do Hub
         ha = HomeAssistantManager()
         action_pt = _translate_action(action)
         results = []
