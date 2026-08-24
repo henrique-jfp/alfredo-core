@@ -401,9 +401,11 @@ async def process_voice_text(
         response_text = await asyncio.to_thread(router.process, payload.text, context)
         
         for task in context["ws_tasks"]:
-            target_ws = active_connections.get(task["device_id"])
+            target_ws = manager.active_satellites.get(task["device_id"])
             if target_ws:
                 await target_ws.send_json(task["payload"])
+            else:
+                logger.warning("Tarefa WS não enviada: satélite %s offline", task["device_id"])
                 
     except Exception as e:
         logger.error(f"Erro no Router (Text): {e}")

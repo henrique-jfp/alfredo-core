@@ -13,6 +13,92 @@ house:
   timezone: America/Sao_Paulo
 
 #########################################################
+# AMBIENTES — mapeamento cômodo → cenas do Home Assistant
+# Usado pelo parser de smart_home.py para resolver cômodos
+# e construir entity_ids de cenas automaticamente.
+#
+# Cada entrada:
+#   id:           Constante usada no banco (ROOM_*)
+#   names:        Frases que o usuário pode falar (sem acento, lowercase)
+#   scene_prefix: Sufixo usado nas cenas do HA (scene.<ação>_<prefix>)
+#   has_light_entity: true se o cômodo tem uma entidade light.* real
+#                     (ex: escritório tem lâmpada inteligente direto)
+#########################################################
+
+ambientes:
+  - id: ROOM_LIVING
+    names:
+      - sala
+      - sala de estar
+      - sala principal
+    scene_prefix: sala
+
+  - id: ROOM_BEDROOM_MASTER
+    names:
+      - quarto do casal
+      - quarto casal
+      - meu quarto
+      - quarto principal
+    scene_prefix: casal
+
+  - id: ROOM_BEDROOM_LAURA
+    names:
+      - quarto da laura
+      - quarto laura
+      - quarto da filha
+      - laura
+    scene_prefix: quarto_laura
+
+  - id: ROOM_OFFICE
+    names:
+      - escritorio
+      - escritório
+    scene_prefix: escritorio
+    has_light_entity: true          # usa light.escritorio_luz_escritorio
+
+  - id: ROOM_DINING
+    names:
+      - sala de jantar
+      - sala jantar
+    scene_prefix: sala_jantar
+
+  - id: ROOM_KITCHEN
+    names:
+      - cozinha
+    scene_prefix: cozinha
+
+  - id: ROOM_BALCONY
+    names:
+      - varanda
+      - sacada
+    scene_prefix: varanda
+
+  - id: ROOM_BATHROOM
+    names:
+      - banheiro
+      - wc
+    scene_prefix: banheiro
+
+  - id: ROOM_LAUNDRY
+    names:
+      - lavanderia
+      - area de servico
+      - area de serviço
+    scene_prefix: lavanderia
+
+  - id: ROOM_GARDEN
+    names:
+      - jardim
+      - quintal
+      - area externa
+    scene_prefix: jardim
+
+  - id: ROOM_GARAGE
+    names:
+      - garagem
+    scene_prefix: garagem
+
+#########################################################
 # COMO A CASA É
 #########################################################
 

@@ -782,7 +782,7 @@ class AgentRouter:
             import time
             t_start = time.time()
             completion = groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="llama-3.1-70b-versatile",
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": text}
@@ -848,7 +848,7 @@ class AgentRouter:
             # Groq client is synchronous, so we run the streaming request in a thread
             def do_stream():
                 return groq_client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
+                    model="llama-3.1-70b-versatile",
                     messages=[
                         {"role": "system", "content": system},
                         {"role": "user", "content": text}

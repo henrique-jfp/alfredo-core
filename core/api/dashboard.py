@@ -21,19 +21,53 @@ router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 class CommandPayload(BaseModel):
     command: str
 
+async def _dispatch_ws_tasks(context: dict) -> dict:
+    from core.api.satellite import manager
+
+    sent = 0
+    failed = []
+    for task in context.get("ws_tasks", []):
+        device_id = task.get("device_id")
+        payload = task.get("payload")
+        if not device_id or not payload:
+            failed.append({"device_id": device_id, "reason": "invalid_task"})
+            continue
+        target_ws = manager.active_satellites.get(device_id)
+        if not target_ws:
+            failed.append({"device_id": device_id, "reason": "offline"})
+            continue
+        try:
+            await target_ws.send_json(payload)
+            sent += 1
+        except Exception as exc:
+            failed.append({"device_id": device_id, "reason": str(exc)})
+    return {"sent": sent, "failed": failed}
+
+
+def _default_dashboard_device_id() -> str:
+    from core.api.satellite import manager
+
+    active_ids = [sid for sid in manager.active_satellites if sid != "dashboard-virtual-mic"]
+    if "server-satellite-sala" in active_ids:
+        return "server-satellite-sala"
+    return active_ids[0] if active_ids else "dashboard"
+
+
 @router.post("/command")
-def send_command(payload: CommandPayload, db: Session = Depends(get_db)):
-    from core.brain.router import AgentRouter
-    agent = AgentRouter()
+async def send_command(payload: CommandPayload, db: Session = Depends(get_db)):
+    from core.brain.router import get_router
+    agent = get_router()
     
     start_time = time.time()
-    context = {"db": db, "room_id": "dashboard", "device_id": "dashboard", "ws_tasks": []}
+    device_id = _default_dashboard_device_id()
+    context = {"db": db, "room_id": "ROOM_LIVING", "device_id": device_id, "ws_tasks": []}
     response = agent.process(payload.command, context)
+    ws_result = await _dispatch_ws_tasks(context)
     latency = int((time.time() - start_time) * 1000)
     
     interaction = models.Interaction(
-        device_id="dashboard",
-        room_id="dashboard",
+        device_id=device_id,
+        room_id="ROOM_LIVING",
         input_text=payload.command,
         output_text=response,
         latency_ms=latency
@@ -41,7 +75,7 @@ def send_command(payload: CommandPayload, db: Session = Depends(get_db)):
     db.add(interaction)
     db.commit()
     
-    return {"status": "success", "response": response}
+    return {"status": "success", "success": True, "response": response, "ws": ws_result}
 
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db)):
@@ -133,6 +167,111 @@ def get_history(limit: int = 15, db: Session = Depends(get_db)):
             "timestamp": item.timestamp.replace(tzinfo=timezone.utc).isoformat() if item.timestamp else None
         } for item in history
     ]
+
+@router.get("/ambientes")
+def get_ambientes(db: Session = Depends(get_db)):
+    """Retorna a lista de cômodos interativos baseados no house_context.yaml."""
+    import yaml
+    from core.services.home_assistant import HomeAssistantManager
+    
+    ha = HomeAssistantManager()
+    state_dict = {}
+    try:
+        states = ha.list_states()
+        state_dict = { s['entity_id']: s for s in states }
+    except Exception:
+        pass
+        
+    ambientes = []
+    try:
+        with open("house/house_context.yaml", "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+            
+        for r in data.get("ambientes", []):
+            room_id = r.get("id")
+            room_name = r.get("names", [""])[0].title()
+            prefix = r.get("scene_prefix")
+            has_light_entity = r.get("has_light_entity", False)
+            
+            devices = []
+            
+            if has_light_entity:
+                eid = f"light.{prefix}_luz_{prefix}"
+                st = state_dict.get(eid, {})
+                devices.append({
+                    "type": "light",
+                    "name": "Luz",
+                    "entity_id": eid,
+                    "state": st.get("state", "unknown"),
+                    "stateKnown": True
+                })
+            else:
+                eid = f"scene.luz_{prefix}"
+                if eid in state_dict:
+                    devices.append({
+                        "type": "light",
+                        "name": "Luz",
+                        "entity_id": eid,
+                        "state": "unknown",
+                        "stateKnown": False
+                    })
+                    
+            # Ventilador (com velocidades)
+            fan_eid = f"scene.ventilador_{prefix}"
+            # Também verifica no YAML se existe algum fan para o room
+            has_fan = False
+            if fan_eid in state_dict:
+                has_fan = True
+            else:
+                # Checa na lista de devices
+                for r_key, r_devices in data.get("devices", {}).items():
+                    for dev in r_devices:
+                        if dev.get("type") == "fan" and dev.get("room", "") == room_id.replace("ROOM_", "").lower():
+                            has_fan = True
+                            break
+            
+            room_name_lower = r.get("names", [""])[0].lower()
+            
+            if has_fan or prefix in ["sala", "casal", "quarto_laura"]:
+                devices.append({
+                    "type": "fan_speed",
+                    "name": "Ventilador",
+                    "entity_id": f"text_command:ventilador {room_name_lower}",
+                    "state": "unknown",
+                    "stateKnown": False
+                })
+                
+            # TV (usando text_command para passar pelo roteador)
+            if prefix in ["sala", "casal", "quarto_laura"]:
+                devices.append({
+                    "type": "tv",
+                    "name": "Televisão",
+                    "entity_id": f"text_command:ligar tv {room_name_lower}",
+                    "state": "unknown",
+                    "stateKnown": False
+                })
+                
+            off_scene = f"scene.desligar_{prefix}"
+            if off_scene in state_dict or prefix in ["sala", "casal", "quarto_laura", "escritorio"]:
+                devices.append({
+                    "type": "power_off",
+                    "name": "Desligar Tudo",
+                    "entity_id": f"text_command:desligar tudo {room_name_lower}",
+                    "state": "unknown",
+                    "stateKnown": False
+                })
+                
+            if devices:
+                ambientes.append({
+                    "id": room_id,
+                    "name": room_name,
+                    "devices": devices
+                })
+    except Exception as e:
+        import logging
+        logging.getLogger("alfredo.dashboard").error(f"Erro lendo ambientes: {e}")
+        
+    return ambientes
 
 @router.get("/satellites/online")
 def get_online_satellites(db: Session = Depends(get_db)):
@@ -354,19 +493,30 @@ def delete_routine(routine_id: int, db: Session = Depends(get_db)):
         db.commit()
     return {"status": "success"}
 
-@router.post("/routines/{routine_id}/test")
-def test_routine(routine_id: int, db: Session = Depends(get_db)):
-    """Dispara a rotina instantaneamente para testes (simulando a condição de tempo)."""
+@router.patch("/routines/{routine_id}/toggle")
+def toggle_routine(routine_id: int, db: Session = Depends(get_db)):
+    """Pausa ou ativa uma rotina."""
     routine = db.query(models.Routine).filter(models.Routine.id == routine_id).first()
     if not routine:
         return {"error": "Routine not found"}
         
-    # Zera a data de last_run para que o scheduler rode no próximo segundo
-    # Para testes imediatos, simplesmente mudamos o last_run e o trigger_value pro HH:MM atual
-    from datetime import datetime
-    now = datetime.now()
-    routine.trigger_value = now.strftime("%H:%M")
-    return {"status": "success", "message": "A rotina foi ajustada para rodar agora!"}
+    routine.is_active = not routine.is_active
+    db.commit()
+    return {"status": "success", "is_active": routine.is_active}
+
+@router.post("/routines/{routine_id}/test")
+def test_routine(routine_id: int, db: Session = Depends(get_db)):
+    """Dispara a rotina instantaneamente para testes, sem alterar a agenda."""
+    import threading
+    threading.Thread(target=_dispatch_routine_test, args=(routine_id,), daemon=True).start()
+    return {"status": "success", "message": "A rotina foi enviada para execução!"}
+
+def _dispatch_routine_test(routine_id: int):
+    import asyncio
+    from core.services.scheduler import execute_routine_now
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(execute_routine_now(routine_id))
 
 # --- CONFIGURAÇÕES ---
 

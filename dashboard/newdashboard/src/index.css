@@ -33,6 +33,9 @@ html,
 body,
 #root {
   height: 100%;
+  overscroll-behavior-y: none; /* Prevent pull-to-refresh on mobile */
+  touch-action: manipulation; /* Prevent double tap zoom */
+  -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
 }
 
 body {

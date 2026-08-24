@@ -57,7 +57,7 @@ class YouTubeSkill(Skill):
     def _stop(self, context: Dict[str, Any]) -> str:
         ws_tasks = context.get("ws_tasks")
         device_id = context.get("device_id")
-        if ws_tasks and device_id:
+        if ws_tasks is not None and device_id:
             ws_tasks.append({
                 "device_id": device_id,
                 "payload": {"type": "stop_audio"}
@@ -83,7 +83,7 @@ class YouTubeSkill(Skill):
 
         ws_tasks = context.get("ws_tasks")
         device_id = context.get("device_id")
-        if ws_tasks and device_id and stream_url:
+        if ws_tasks is not None and device_id and stream_url:
             ws_tasks.append({
                 "device_id": device_id,
                 "payload": {"type": "play_audio", "url": stream_url}

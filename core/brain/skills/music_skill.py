@@ -107,7 +107,7 @@ class MusicSkill(Skill):
     def _fallback_to_yt(self, query: str, context: Dict[str, Any]) -> Dict[str, Any]:
         ws_tasks = context.get("ws_tasks")
         device_id = context.get("device_id")
-        if not ws_tasks or not device_id:
+        if ws_tasks is None or not device_id:
             logger.warning("Fallback YT ignorado: contexto sem ws_tasks ou device_id")
             return {
                 "direct_response": "Não encontrei dispositivos online no Spotify.",
@@ -153,7 +153,7 @@ class MusicSkill(Skill):
                 if not device_id:
                     ws_tasks = context.get("ws_tasks")
                     device_id_ctx = context.get("device_id")
-                    if ws_tasks and device_id_ctx:
+                    if ws_tasks is not None and device_id_ctx:
                         ws_tasks.append({
                             "device_id": device_id_ctx,
                             "payload": {"type": "stop_audio"}

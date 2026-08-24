@@ -154,40 +154,74 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         </div>
       </aside>
 
-      {/* Mobile Floating Menu Button */}
-      <button 
-        onClick={() => setMobileMenuOpen(true)}
-        className="md:hidden fixed bottom-6 left-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brass-600 text-white shadow-[0_8px_32px_rgba(212,162,78,0.4)] transition-transform active:scale-95"
-      >
-        <Menu className="h-6 w-6" />
-      </button>
+      {/* Mobile Bottom Navigation Bar */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 flex h-20 items-center justify-between px-4 pb-4 pt-2 border-t border-white/5 bg-[rgba(11,12,14,0.95)] backdrop-blur-2xl">
+        <button
+          onClick={() => { onTabChange('visao-geral'); setMobileMenuOpen(false); }}
+          className={cn("flex flex-col items-center justify-center gap-1.5 w-[20%]", activeTab === 'visao-geral' ? "text-brass-300" : "text-zinc-500 hover:text-zinc-300")}
+        >
+          <LayoutGrid className={cn("h-[22px] w-[22px] transition-transform", activeTab === 'visao-geral' && "scale-110")} />
+          <span className="text-[10px] font-medium tracking-wide">Casa</span>
+        </button>
 
-      {/* Mobile Sidebar Overlay */}
+        <button
+          onClick={() => { onTabChange('dispositivos'); setMobileMenuOpen(false); }}
+          className={cn("flex flex-col items-center justify-center gap-1.5 w-[20%]", activeTab === 'dispositivos' ? "text-brass-300" : "text-zinc-500 hover:text-zinc-300")}
+        >
+          <SlidersHorizontal className={cn("h-[22px] w-[22px] transition-transform", activeTab === 'dispositivos' && "scale-110")} />
+          <span className="text-[10px] font-medium tracking-wide">Ambientes</span>
+        </button>
+
+        {/* Empty space for the floating centered WebMic */}
+        <div className="w-[20%] flex-shrink-0" />
+
+        <button
+          onClick={() => { onTabChange('rotinas'); setMobileMenuOpen(false); }}
+          className={cn("flex flex-col items-center justify-center gap-1.5 w-[20%]", activeTab === 'rotinas' ? "text-brass-300" : "text-zinc-500 hover:text-zinc-300")}
+        >
+          <Clock className={cn("h-[22px] w-[22px] transition-transform", activeTab === 'rotinas' && "scale-110")} />
+          <span className="text-[10px] font-medium tracking-wide">Rotinas</span>
+        </button>
+
+        <button
+          onClick={() => setMobileMenuOpen(true)}
+          className={cn("flex flex-col items-center justify-center gap-1.5 w-[20%]", mobileMenuOpen ? "text-brass-300" : "text-zinc-500 hover:text-zinc-300")}
+        >
+          <Menu className={cn("h-[22px] w-[22px] transition-transform", mobileMenuOpen && "scale-110")} />
+          <span className="text-[10px] font-medium tracking-wide">Menu</span>
+        </button>
+      </nav>
+
+      {/* Mobile Menu BottomSheet */}
       {mobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-50 flex">
+        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end">
           {/* Backdrop */}
           <div 
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in"
             onClick={() => setMobileMenuOpen(false)}
           />
           
-          {/* Drawer */}
-          <aside className="relative flex w-[280px] flex-col bg-[linear-gradient(180deg,rgba(19,20,23,0.95)_0%,rgba(11,12,14,0.98)_100%)] px-5 py-5 shadow-2xl animate-in slide-in-from-left-full duration-300">
+          {/* BottomSheet */}
+          <aside className="relative flex max-h-[85vh] w-full flex-col rounded-t-[2.5rem] border-t border-white/10 bg-[linear-gradient(180deg,rgba(19,20,23,0.98)_0%,rgba(11,12,14,1)_100%)] px-6 py-8 shadow-2xl animate-in slide-in-from-bottom-full duration-300">
+            {/* Grab handle */}
+            <div className="absolute top-3 left-1/2 h-1.5 w-12 -translate-x-1/2 rounded-full bg-white/10" />
+
             {/* Logo */}
             <div className="mb-8 flex items-center justify-between">
-              <div className="flex items-center gap-4 rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-4">
+              <div className="flex items-center gap-4 rounded-2xl">
                 <AlfredoOrb state={alfredoState} size="sm" pulse={false} className="shrink-0" />
                 <div className="flex flex-col">
-                  <h2 className="text-[16px] font-semibold text-[color:var(--text-primary)]">Alfredo OS</h2>
+                  <h2 className="text-[18px] font-semibold text-[color:var(--text-primary)]">Alfredo OS</h2>
+                  <span className="text-[11px] font-semibold tracking-[0.2em] text-[color:var(--text-tertiary)] uppercase">Menu Completo</span>
                 </div>
               </div>
-              <button onClick={() => setMobileMenuOpen(false)} className="rounded-full p-2 text-zinc-400 hover:bg-white/5">
-                <X className="h-6 w-6" />
+              <button onClick={() => setMobileMenuOpen(false)} className="rounded-full bg-white/5 p-2 text-zinc-400 hover:bg-white/10 active:scale-95">
+                <X className="h-5 w-5" />
               </button>
             </div>
 
             {/* Navigation */}
-            <nav className="flex min-h-0 flex-grow flex-col gap-6 overflow-y-auto pr-1">
+            <nav className="flex min-h-0 flex-grow flex-col gap-6 overflow-y-auto pb-8 scrollbar-hide">
               {navSections.map((section) => {
                 const SectionIcon = section.icon;
                 return (
@@ -196,7 +230,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
                       <SectionIcon className="h-4 w-4 text-brass-400/80" />
                       <span className="alfredo-section-label">{section.label}</span>
                     </div>
-                    <div className="flex flex-col gap-1.5">
+                    <div className="grid grid-cols-2 gap-2">
                       {section.items.map((item) => {
                         const isActive = activeTab === item.id;
                         const Icon = item.icon;
@@ -208,14 +242,14 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
                               setMobileMenuOpen(false);
                             }}
                             className={cn(
-                              'relative flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-[14px]',
+                              'relative flex flex-col items-center justify-center gap-2 rounded-2xl border border-white/5 px-2 py-4 text-[13px] transition-all active:scale-95',
                               isActive
-                                ? 'bg-brass-500/15 text-brass-300'
-                                : 'text-[color:var(--text-secondary)]'
+                                ? 'bg-brass-500/15 text-brass-300 border-brass-500/20'
+                                : 'bg-white/[0.02] text-[color:var(--text-secondary)] hover:bg-white/[0.05]'
                             )}
                           >
-                            <Icon className={cn('h-5 w-5 shrink-0', isActive ? 'text-brass-300' : 'text-[color:var(--text-tertiary)]')} />
-                            <span className="font-medium">{item.label}</span>
+                            <Icon className={cn('h-6 w-6 shrink-0', isActive ? 'text-brass-300' : 'text-[color:var(--text-tertiary)]')} strokeWidth={isActive ? 2 : 1.5} />
+                            <span className="font-medium tracking-wide">{item.label}</span>
                           </button>
                         );
                       })}

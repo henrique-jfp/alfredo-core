@@ -5,12 +5,25 @@ tomadas) via Home Assistant. Segue o mesmo padrão de tv_skill.py:
   - execute_tool(self, arguments, context)
   - Resolução de cômodo em 3 etapas (target_room → room_id → fallback)
   - Retorna dict com direct_response para evitar segunda chamada ao Gemini
+
+v2 – Otimizações:
+  - Prioriza cenas do HA (scene.*) sobre entidades individuais
+  - Executa chamadas ao HA em background thread (não bloqueia o TTS)
+  - Retry com backoff em caso de falha de rede
+  - Resposta sempre "Ok." para latência mínima
+  - Suporta múltiplos comandos (batch) na mesma requisição
 """
 import logging
-from typing import Dict, Any
+import threading
+import time
+from typing import Dict, Any, List
 
 logger = logging.getLogger("alfredo.smart_home_skill")
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# RESOLUÇÃO DE CÔMODO
+# ═══════════════════════════════════════════════════════════════════════════
 
 def _resolve_room_id(db, target_room: str | None, fallback_room_id: str | None) -> str | None:
     """Resolve um cômodo em 3 etapas, igual à tv_skill.py:
@@ -23,39 +36,45 @@ def _resolve_room_id(db, target_room: str | None, fallback_room_id: str | None) 
 
     room_row = None
 
-    # Etapa 1 — nome do cômodo informado pelo usuário
+    # Etapa 1 — target_room informado pelo parser
     if target_room:
         t = target_room.lower().strip()
-        t_clean = t.replace(" do ", " ").replace(" da ", " ").replace(" de ", " ").replace(" no ", " ").replace(" na ", " ")
-        t_clean = " ".join(t_clean.split())
 
-        # Tenta match exato por nome
-        room_row = (
-            db.query(models.Room)
-            .filter(models.Room.name.ilike(t_clean))
-            .first()
-        )
-        if not room_row:
-            # Tenta por room_id (ex: "ROOM_LIVING", "ROOM_OFFICE")
+        # Se já veio como ROOM_* (do parser data-driven), busca direto
+        if t.startswith("room_"):
             room_row = (
                 db.query(models.Room)
-                .filter(models.Room.room_id.ilike(f"%{t_clean}%"))
+                .filter(models.Room.room_id == target_room)
                 .first()
             )
-        if not room_row:
-            # Tenta substring no nome limpo
+        else:
+            # Tenta match por nome (sem artigos/preposições)
+            t_clean = t.replace(" do ", " ").replace(" da ", " ").replace(" de ", " ").replace(" no ", " ").replace(" na ", " ")
+            t_clean = " ".join(t_clean.split())
+
             room_row = (
                 db.query(models.Room)
-                .filter(models.Room.name.ilike(f"%{t_clean}%"))
+                .filter(models.Room.name.ilike(t_clean))
                 .first()
             )
-        if not room_row:
-            # Tenta substring no nome original
-            room_row = (
-                db.query(models.Room)
-                .filter(models.Room.name.ilike(f"%{t}%"))
-                .first()
-            )
+            if not room_row:
+                room_row = (
+                    db.query(models.Room)
+                    .filter(models.Room.room_id.ilike(f"%{t_clean}%"))
+                    .first()
+                )
+            if not room_row:
+                room_row = (
+                    db.query(models.Room)
+                    .filter(models.Room.name.ilike(f"%{t_clean}%"))
+                    .first()
+                )
+            if not room_row:
+                room_row = (
+                    db.query(models.Room)
+                    .filter(models.Room.name.ilike(f"%{t}%"))
+                    .first()
+                )
 
     # Etapa 2 — cômodo físico de onde o usuário falou
     if not room_row and fallback_room_id:
@@ -72,12 +91,11 @@ def _resolve_room_id(db, target_room: str | None, fallback_room_id: str | None) 
     return room_row.room_id if room_row else None
 
 
-def _resolve_devices(
-    db,
-    room_id: str,
-    device_type: str | None = None,
-    device_name: str | None = None,
-):
+# ═══════════════════════════════════════════════════════════════════════════
+# RESOLUÇÃO DE DISPOSITIVOS
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _resolve_devices(db, room_id: str, device_type: str | None = None, device_name: str | None = None):
     """Retorna lista de SmartDevice do cômodo, opcionalmente filtrados."""
     from core.brain.memory import models
 
@@ -94,14 +112,167 @@ def _resolve_devices(
     return q.all()
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# SELEÇÃO INTELIGENTE DE CENA vs ENTIDADE
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _pick_best_device(devices: list, action: str, device_name: str | None, device_type: str | None) -> list:
+    """Dado uma lista de dispositivos, seleciona o melhor subconjunto
+    priorizando cenas do HA (scene.*) sobre entidades individuais.
+
+    REGRAS IMPORTANTES (baseadas no hardware físico):
+      - LUZ é um TOGGLE: scene.luz_* liga E desliga (mesmo botão RF)
+        → Para turn_on E turn_off de luz, usa scene.luz_*
+        → NUNCA usar scene.desligar_* para desligar só a luz!
+      - VENTILADOR off: usa scene.desligar_ventilador_*
+      - "DESLIGAR TUDO": usa scene.desligar_* (master off)
+        → Só quando device_name="desligar" (pedido explícito)
+    """
+    if not devices:
+        return []
+
+    scenes = [d for d in devices if d.entity_id.startswith("scene.")]
+    non_scenes = [d for d in devices if not d.entity_id.startswith("scene.")]
+
+    # Se buscou por nome específico (ex: "ventilador 3", "desligar"), retorna direto
+    if device_name:
+        return devices
+
+    if not scenes:
+        return non_scenes
+
+    # ── LUZ: sempre usa a cena "luz" (toggle físico) ──────────────
+    if device_type == "light":
+        # Pega cenas que NÃO são "desligar" (ou seja, scene.luz_*)
+        luz_scenes = [s for s in scenes if "desligar" not in s.friendly_name.lower()]
+        if luz_scenes:
+            return [luz_scenes[0]]
+        return non_scenes  # Fallback para entidade light.* real
+
+    # ── VENTILADOR ────────────────────────────────────────────────
+    if device_type == "fan":
+        if action == "turn_off":
+            # Desligar ventilador → usa scene.desligar_ventilador_*
+            off_scenes = [s for s in scenes if "desligar" in s.friendly_name.lower()]
+            if off_scenes:
+                return [off_scenes[0]]
+        else:
+            # Ligar ventilador (genérico sem velocidade) → primeiro que não é "desligar"
+            on_scenes = [s for s in scenes if "desligar" not in s.friendly_name.lower()]
+            if on_scenes:
+                return [on_scenes[0]]
+        return non_scenes
+
+    # ── VENTILAÇÃO / EXAUSTÃO ─────────────────────────────────────
+    if device_type in ("ventilation", "exhaust"):
+        # Só tem uma cena por tipo, retorna a primeira
+        return [scenes[0]] if scenes else non_scenes
+
+    # ── TV (IR Hub) ───────────────────────────────────────────────
+    if device_type == "tv":
+        # TV via IR é normalmente um botão único (toggle), então
+        # usamos a primeira cena disponível independentemente do nome
+        if scenes:
+            return [scenes[0]]
+        return non_scenes
+
+    # ── GENÉRICO (tomada, etc.) ───────────────────────────────────
+    if action == "turn_off":
+        off_scenes = [s for s in scenes if "desligar" in s.friendly_name.lower()]
+        if off_scenes:
+            return [off_scenes[0]]
+    else:
+        on_scenes = [s for s in scenes if "desligar" not in s.friendly_name.lower()]
+        if on_scenes:
+            return [on_scenes[0]]
+
+    return non_scenes if non_scenes else devices
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EXECUÇÃO EM BACKGROUND (NÃO BLOQUEIA O PIPELINE)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _execute_ha_calls(jobs: List[Dict[str, Any]]):
+    """Executa todas as chamadas ao Home Assistant em background.
+
+    Cada job é um dict:
+      entity_id: str
+      action: str (turn_on | turn_off | toggle | activate_scene)
+      kwargs: dict (brightness, speed, color, etc.)
+
+    Retry: até 2 tentativas com backoff exponencial (100ms, 200ms).
+    """
+    from core.services.home_assistant import HomeAssistantManager
+
+    ha = HomeAssistantManager()
+    t0 = time.monotonic()
+    ok_count = 0
+    fail_count = 0
+
+    for job in jobs:
+        entity_id = job["entity_id"]
+        action = job["action"]
+        kwargs = job.get("kwargs", {})
+        is_scene = entity_id.startswith("scene.")
+
+        for attempt in range(3):
+            try:
+                if action == "activate_scene" or (action == "turn_on" and is_scene):
+                    ha.activate_scene(entity_id)
+                elif action == "turn_on":
+                    ha.turn_on(entity_id, **kwargs)
+                elif action == "turn_off":
+                    if is_scene:
+                        ha.activate_scene(entity_id)  # Cena de desligar = ativa a cena
+                    else:
+                        ha.turn_off(entity_id)
+                elif action == "toggle":
+                    ha.toggle(entity_id)
+                elif action == "set_brightness":
+                    ha.set_brightness(entity_id, kwargs.get("brightness", 128))
+                elif action == "set_speed":
+                    ha.set_speed(entity_id, kwargs.get("speed", "medium"))
+                elif action == "set_color":
+                    if hasattr(ha, "set_color"):
+                        ha.set_color(entity_id, rgb_color=kwargs.get("color", [255, 255, 255]))
+                    else:
+                        ha.turn_on(entity_id)  # Fallback
+
+                ok_count += 1
+                break  # Sucesso, sem retry
+
+            except Exception as e:
+                if attempt < 2:
+                    wait = 0.1 * (attempt + 1)
+                    logger.warning(f"Retry {attempt+1}/2 para {entity_id}: {e} (aguardando {wait}s)")
+                    time.sleep(wait)
+                else:
+                    logger.error(f"Falha permanente ao controlar {entity_id}: {e}")
+                    fail_count += 1
+
+    elapsed = (time.monotonic() - t0) * 1000
+    logger.info(
+        f"HA background: {ok_count} ok, {fail_count} falhas, "
+        f"{len(jobs)} chamadas em {elapsed:.0f}ms"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SKILL PRINCIPAL
+# ═══════════════════════════════════════════════════════════════════════════
+
 class SmartHomeSkill:
     """Controla dispositivos de casa inteligente via Home Assistant."""
 
     def execute_tool(self, arguments: Dict[str, Any], context: Dict[str, Any]) -> str | dict:
+        """Ponto de entrada principal. Recebe argumentos do parser e contexto do pipeline."""
+
         action = arguments.get("action")
         device_type = arguments.get("device_type")
         device_name = arguments.get("device_name")
         target_room = arguments.get("target_room")
+        scene_prefix = arguments.get("scene_prefix")
 
         db = context.get("db")
         fallback_room_id = context.get("room_id")
@@ -115,97 +286,70 @@ class SmartHomeSkill:
         # ── Resolve o cômodo ──────────────────────────────────────────
         resolved_room_id = _resolve_room_id(db, target_room, fallback_room_id)
         if not resolved_room_id:
-            return {
-                "direct_response": (
-                    "Não encontrei nenhum cômodo cadastrado. "
-                    "Peça ao dono da casa para cadastrar os cômodos no painel de controle."
-                )
-            }
+            return {"direct_response": "Não encontrei nenhum cômodo cadastrado."}
 
-        # ── Busca o(s) dispositivo(s) ─────────────────────────────────
+        logger.info(f"SmartHome: action={action}, type={device_type}, name={device_name}, room={resolved_room_id}")
+
+        # ── Busca dispositivos ────────────────────────────────────────
         devices = _resolve_devices(db, resolved_room_id, device_type, device_name)
+
         if not devices:
+            # Tenta sem device_name (pode ser que "ventilador 3" não esteja exato)
             if device_name:
-                msg = f"Não encontrei nenhum dispositivo com o nome '{device_name}'"
-            elif device_type:
-                tipo_pt = _translate_device_type(device_type)
-                msg = f"Não encontrei nenhum(a) {tipo_pt} cadastrado(a) nesse cômodo"
-            else:
-                msg = "Não encontrei nenhum dispositivo cadastrado nesse cômodo"
-            return {"direct_response": f"{msg}. Primeiro cadastre os dispositivos no painel de controle."}
+                devices = _resolve_devices(db, resolved_room_id, device_type, None)
 
-        # ── Executa a ação no Home Assistant (ou Tuya Hub Local) ──────────────
-        from core.services.home_assistant import HomeAssistantManager
-        from core.services.tuya_hub import tuya_hub_manager
-        
-        # 1. Primeiro tenta ver se tem um controle direto via Tuya Hub Local para RF/IR
-        # Ex: action="turn_on", device_type="fan" -> command_name="turn_on"
-        # Só tentamos Tuya direto se houver um command_name correspondente na tabela
-        tuya_cmd = None
-        if device_type in ["fan", "tv", "air_conditioner"]:
-            # Mapeamento simples action -> command_name do Tuya (turn_on, turn_off, etc)
-            cmd_name = action
-            if action == "set_speed":
-                speed = arguments.get("speed", arguments.get("value", "1"))
-                cmd_name = f"speed_{speed}"
-                
-            from core.brain.memory import models
-            tuya_cmd = db.query(models.TuyaCommand).filter(
-                models.TuyaCommand.room_id == resolved_room_id,
-                models.TuyaCommand.device_type == device_type,
-                models.TuyaCommand.command_name == cmd_name
-            ).first()
-
-        if tuya_cmd:
-            logger.info(f"Encontrou comando Tuya Local ({tuya_cmd.protocol}) para {device_type} em {resolved_room_id}")
-            hub = db.query(models.TuyaHub).filter(models.TuyaHub.id == tuya_cmd.hub_id).first()
-            if hub:
-                if tuya_cmd.protocol.lower() == "rf":
-                    tuya_hub_manager.send_rf(hub.device_id, hub.ip_address, hub.local_key, tuya_cmd.payload_base64, version=hub.version)
-                else:
-                    tuya_hub_manager.send_ir(hub.device_id, hub.ip_address, hub.local_key, tuya_cmd.payload_base64, version=hub.version)
+            if not devices:
+                logger.warning(f"Nenhum dispositivo encontrado: room={resolved_room_id}, type={device_type}, name={device_name}")
                 return {"direct_response": "Ok."}
 
-        # 2. Fallback: Executa via Home Assistant se não for um comando direto do Hub
-        ha = HomeAssistantManager()
-        action_pt = _translate_action(action)
-        results = []
+        # ── Seleciona os melhores dispositivos (cena vs entidade) ─────
+        selected = _pick_best_device(devices, action, device_name, device_type)
 
-        for dev in devices:
-            try:
-                if action == "turn_on":
-                    ha.turn_on(dev.entity_id)
-                elif action == "turn_off":
-                    ha.turn_off(dev.entity_id)
-                elif action == "toggle":
-                    ha.toggle(dev.entity_id)
-                elif action == "set_brightness":
-                    b = arguments.get("brightness", arguments.get("value", 128))
-                    ha.set_brightness(dev.entity_id, int(b))
-                elif action == "set_color":
-                    c = arguments.get("color", "white")
-                    ha.set_color(dev.entity_id, c)
-                elif action == "set_speed":
-                    speed = arguments.get("speed", arguments.get("value", "medium"))
-                    ha.set_speed(dev.entity_id, speed)
-                else:
-                    return {"direct_response": f"Ação '{action}' não é suportada para dispositivos inteligentes."}
+        if not selected:
+            logger.warning(f"Nenhum dispositivo selecionado após filtragem: room={resolved_room_id}")
+            return {"direct_response": "Ok."}
 
-                results.append(dev.friendly_name)
-            except Exception as e:
-                logger.error(f"Erro ao controlar {dev.entity_id}: {e}")
-                results.append(f"{dev.friendly_name} (falha)")
+        # ── Monta os jobs para execução em background ─────────────────
+        jobs = []
+        for dev in selected:
+            is_scene = dev.entity_id.startswith("scene.")
 
-        if not results:
-            return {"direct_response": "Nenhum dispositivo foi controlado."}
+            if action == "turn_off" and is_scene:
+                # Cena de desligar: ativamos a cena (que internamente desliga)
+                jobs.append({
+                    "entity_id": dev.entity_id,
+                    "action": "activate_scene",
+                })
+            elif action == "turn_on" and is_scene:
+                jobs.append({
+                    "entity_id": dev.entity_id,
+                    "action": "activate_scene",
+                })
+            else:
+                jobs.append({
+                    "entity_id": dev.entity_id,
+                    "action": action,
+                    "kwargs": {
+                        k: v for k, v in {
+                            "brightness": arguments.get("brightness"),
+                            "speed": arguments.get("speed"),
+                            "color": arguments.get("color"),
+                        }.items() if v is not None
+                    },
+                })
 
-        # ── Resposta direta minimalista ──────────────────────────────
-        # O usuário pediu para ser o mais rápido possível: só "Ok."
-        # (O TTS de uma palavra de 2 letras é virtualmente instantâneo)
+        logger.info(f"SmartHome: despachando {len(jobs)} job(s) em background: "
+                     f"{[j['entity_id'] for j in jobs]}")
+
+        # ── Dispara em background (não bloqueia!) ─────────────────────
+        threading.Thread(target=_execute_ha_calls, args=(jobs,), daemon=True).start()
+
         return {"direct_response": "Ok."}
 
 
-# ── helpers de tradução ────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+# HELPERS DE TRADUÇÃO (usados por outros módulos)
+# ═══════════════════════════════════════════════════════════════════════════
 
 def _translate_action(action: str) -> str:
     mapping = {
@@ -226,5 +370,7 @@ def _translate_device_type(dt: str) -> str:
         "switch": "tomada",
         "lock": "fechadura",
         "sensor": "sensor",
+        "ventilation": "ventilação",
+        "exhaust": "exaustão",
     }
     return mapping.get(dt, dt)

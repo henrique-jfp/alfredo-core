@@ -127,6 +127,47 @@ class HomeAssistantManager:
             return self._call_service(domain, "set_speed", entity_id, speed=speed)
         raise ValueError(f"set_speed não suportado para domínio '{domain}'")
 
+    def set_color(self, entity_id: str, rgb_color: list[int]):
+        """Define a cor (RGB) de uma lâmpada inteligente."""
+        domain = entity_id.split(".")[0]
+        if domain != "light":
+            raise ValueError(f"set_color suportado apenas para 'light', recebido '{domain}'")
+        logger.info(f"Definindo cor de {entity_id} para RGB {rgb_color}")
+        return self._call_service(domain, "turn_on", entity_id, rgb_color=rgb_color)
+
+    def set_color_temp(self, entity_id: str, kelvin: int):
+        """Define a temperatura de cor de uma lâmpada inteligente (Kelvin)."""
+        domain = entity_id.split(".")[0]
+        if domain != "light":
+            raise ValueError(f"set_color_temp suportado apenas para 'light', recebido '{domain}'")
+        logger.info(f"Definindo temperatura de {entity_id} para {kelvin}K")
+        return self._call_service(domain, "turn_on", entity_id, color_temp_kelvin=kelvin)
+
+    def activate_scene(self, entity_id: str):
+        """Ativa uma cena do Home Assistant (scene.*).
+
+        Usada para os comandos RF/IR da casa (ex: "scene.luz_sala") — ações
+        instantâneas que o HA executa localmente no hub CozyLife/Tuya, sem
+        depender de internet. Diferente de turn_on (que exige entidade light
+        existente), a cena apenas dispara a automação gravada no hub.
+        """
+        domain = entity_id.split(".")[0]
+        if domain != "scene":
+            raise ValueError(f"activate_scene espera entity_id scene.* (recebeu '{entity_id}')")
+        logger.info(f"Ativando cena {entity_id}")
+        return self._call_service("scene", "turn_on", entity_id)
+
+    def list_states(self) -> list[dict]:
+        """Retorna todos os estados do Home Assistant (GET /api/states)."""
+        return self._request("GET", "/api/states")
+
+    def get_state(self, entity_id: str) -> dict | None:
+        """Obtém o estado atual de uma entidade (público).
+
+        Retorna None se a entidade não existir ou a consulta falhar.
+        """
+        return self._get_state(entity_id)
+
     def is_connected(self) -> bool:
         """Verifica se o Home Assistant está acessível (GET /api/)."""
         if not self.base_url:

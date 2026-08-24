@@ -395,19 +395,19 @@ export function OverviewTab() {
         variants={sectionVariants}
         initial="hidden"
         animate="visible"
-        className="grid gap-5 xl:grid-cols-[1.45fr_0.95fr]"
+        className="grid gap-5 xl:grid-cols-[1.45fr_0.95fr] min-w-0"
       >
         {/* --- Recent conversations --- */}
-        <section className="alfredo-card flex min-h-0 flex-col p-5 md:p-6">
+        <section className="alfredo-card flex min-h-0 min-w-0 flex-col p-5 md:p-6">
           <SectionHeading
             eyebrow="Atividade"
             title="Conversas recentes"
             action={
               <button
                 onClick={() => setIsHistoryModalOpen(true)}
-                className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)] hover:bg-white/[0.06] hover:text-[color:var(--text-primary)] transition-colors"
+                className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)] hover:bg-white/[0.06] hover:text-[color:var(--text-primary)] transition-colors shrink-0"
               >
-                Ver histórico completo
+                Ver histórico
               </button>
             }
           />
@@ -428,8 +428,8 @@ export function OverviewTab() {
                 return (
                   <div key={item.id} className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]">
                     <div className="flex items-start justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--text-tertiary)]">
-                      <span className="truncate">{item.room_id} • {item.device_id}</span>
-                      <div className="flex flex-col items-end gap-1 text-right">
+                      <div className="truncate min-w-0 flex-1">{item.room_id} • {item.device_id}</div>
+                      <div className="flex flex-col items-end gap-1 text-right shrink-0">
                         <span>{rioTime}</span>
                         {(item.latency_ms || (isLatest ? lastCommandLatencyMs : null)) ? (
                           <span className="rounded-full border border-white/5 bg-black/30 px-2 py-0.5 text-[9px] tracking-[0.16em] text-[color:var(--text-secondary)]">
@@ -439,7 +439,7 @@ export function OverviewTab() {
                       </div>
                     </div>
                     <div className="mt-3 flex gap-3">
-                      <StatusPulse label="" tone={alfredoState === 'error' ? 'danger' : 'brass'} className="mt-0.5 w-2.5 h-2.5 [&>span]:hidden" />
+                      <StatusPulse label="" tone={alfredoState === 'error' ? 'danger' : 'brass'} className="mt-0.5 w-2.5 h-2.5 shrink-0 [&>span]:hidden" />
                       <div className="min-w-0 flex-1">
                         <p className="line-clamp-2 text-[14px] font-medium text-[color:var(--text-primary)]">{item.input_text}</p>
                         <p className="mt-2 rounded-xl border border-white/5 bg-black/20 px-3 py-2 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">

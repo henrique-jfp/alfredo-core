@@ -72,6 +72,8 @@ export const api = {
     body: JSON.stringify(data)
   }),
   deleteRoutine: (id: number) => fetchFromAPI<{ success: boolean }>(`/api/dashboard/routines/${id}`, { method: 'DELETE' }),
+  toggleRoutine: (id: number) => fetchFromAPI<{ is_active: boolean }>(`/api/dashboard/routines/${id}/toggle`, { method: 'PATCH' }),
+  testRoutine: (id: number) => fetchFromAPI<{ success: boolean }>(`/api/dashboard/routines/${id}/test`, { method: 'POST' }),
   getDreams: () => fetchFromAPI<{ history: any[]; word_freq: Record<string, number> }>('/api/dashboard/dreams'),
   createDream: (text: string) => fetchFromAPI<{ success: boolean; dream: unknown }>('/api/dashboard/dreams', {
     method: 'POST',

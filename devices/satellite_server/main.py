@@ -129,11 +129,13 @@ class AudioConfig:
 
     # Ganho de software aplicado ANTES do OWW/VAD (não afeta gravação enviada).
     # Ajuda quando o usuário está distante do microfone (sofá x TV).
-    # 2.0x é um bom equilíbrio entre captar voz distante e não saturar
-    # com o som da TV. Se a TV ficar muito alta, reduzir via .env.
-    # Ajustável via .env: ALFREDO_SOFTWARE_GAIN=1.5
+    # 1.2x é um bom equilíbrio entre captar voz distante e não saturar.
+    # Se ficar muito alto (ex: 2.0x), a voz de perto "clipa" (estoura),
+    # o que destrói o reconhecimento de voz, mas faz a TV distante
+    # ser compreendida perfeitamente.
+    # Ajustável via .env: ALFREDO_SOFTWARE_GAIN=1.2
     software_gain: float = field(
-        default_factory=lambda: float(os.getenv("ALFREDO_SOFTWARE_GAIN", "2.0"))
+        default_factory=lambda: float(os.getenv("ALFREDO_SOFTWARE_GAIN", "1.2"))
     )
 
     server_url: str = field(
@@ -562,6 +564,13 @@ def _speak_offline(text: str) -> None:
 def _handle_time(text: str) -> bool:
     if not _has_any(text, WORD_TIME):
         return False
+    try:
+        import shutil
+        if shutil.which("espeak-ng") is None:
+            log.warning("⚠️ [OFFLINE] espeak-ng ausente — enviando pedido de hora ao servidor")
+            return False
+    except Exception:
+        return False
     now = datetime.now()
     frase = f"Agora são {now.hour} horas e {now.minute} minutos."
     log.info("⚡ [OFFLINE] Hora solicitada: %s", frase)
@@ -637,22 +646,19 @@ def open_input_stream(
     device_index: Optional[int], device_channels: int, samplerate: float, callback
 ) -> sd.InputStream:
     """Abre o stream tentando a taxa preferida e depois o sample rate nativo do device."""
-    attempts: list[float] = []
-    preferred_rate = float(CFG.rate)
-    native_rate = float(samplerate or CFG.rate)
+    attempts: list[float] = [48000.0, 16000.0, float(samplerate or CFG.rate)]
 
-    for rate in (preferred_rate, native_rate):
-        if rate in attempts:
-            continue
-        attempts.append(rate)
+    for rate in attempts:
         try:
             log.info("🎚️ [ÁUDIO] Tentando abrir InputStream em %s Hz...", rate)
+            STATE.hardware_rate = rate
+            multiplier = int(rate / CFG.rate) if rate >= CFG.rate else 1
             return sd.InputStream(
                 device=device_index,
                 samplerate=rate,
                 channels=device_channels,
                 dtype=CFG.dtype,
-                blocksize=CFG.blocksize,
+                blocksize=CFG.blocksize * multiplier,
                 callback=callback,
             )
         except Exception as exc:
@@ -1078,10 +1084,17 @@ def _audio_processing_worker() -> None:
     s = STATE
     log.info("🎛️ [WORKER] Iniciado thread de processamento de áudio")
 
+    last_audio_time = time.time()
+
     while not s._audio_worker_stop.is_set():
         try:
             bytes_data = s.audio_queue.get(timeout=0.5)
+            last_audio_time = time.time()
         except queue.Empty:
+            if time.time() - last_audio_time > 5.0:
+                log.critical("🚨 [WATCHDOG] Nenhum áudio recebido do microfone há >5s! O stream ALSA travou silenciosamente. Forçando restart do serviço.")
+                import os
+                os._exit(1)
             continue
 
         try:
@@ -1089,6 +1102,12 @@ def _audio_processing_worker() -> None:
             # O scipy filter é a operação mais pesada; está aqui no worker, não no
             # callback, para não causar buffer overflow.
             float32_data = np.frombuffer(bytes_data, dtype=np.int16).astype(np.float32)
+
+            if getattr(s, "hardware_rate", cfg.rate) == 48000.0:
+                from scipy.signal import decimate
+                # decimate(x, q=3) aplica um filtro Chebyshev tipo I anti-aliasing antes de downsample
+                float32_data = decimate(float32_data, 3)
+
             cleaned = clean_audio(float32_data, s)
             bytes_data = cleaned.astype(np.int16).tobytes()
 

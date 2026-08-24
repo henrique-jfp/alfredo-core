@@ -317,11 +317,13 @@ class TVSkill:
             config = db.query(models.TVConfig).filter(models.TVConfig.room_id == room_id).first()
 
         # Fallback: Se não achou de nenhum jeito, pega a primeira TV que existir configurada
-        if not config:
+        # Mas APENAS se o usuário não pediu um cômodo específico
+        if not config and not target_room:
             config = db.query(models.TVConfig).filter(models.TVConfig.ip_address != None).first()
 
         if not config or not config.ip_address:
-            return "Não encontrei nenhuma TV configurada na rede. Por favor, configure o IP da TV no painel de controle."
+            room_str = f" do(a) {target_room}" if target_room else ""
+            return f"Não encontrei nenhuma TV configurada{room_str} na rede."
 
         tv = SamsungTVManager(
             ip=config.ip_address,

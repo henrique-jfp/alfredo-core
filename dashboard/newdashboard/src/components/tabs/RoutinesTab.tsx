@@ -16,6 +16,18 @@ const DAYS = [
   { label: 'S', value: 6 },
 ];
 
+export type ActionBlock = {
+  id: string;
+  device_type: 'light' | 'fan' | 'tv' | 'tts' | 'command';
+  location?: string;
+  state?: 'on' | 'off';
+  speed?: 'low' | 'medium' | 'high' | 'off';
+  action?: 'power_on' | 'power_off' | 'open_app';
+  app_name?: string;
+  content?: string;
+  text?: string;
+};
+
 export function RoutinesTab() {
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [showHelp, setShowHelp] = useState(false);
@@ -23,18 +35,16 @@ export function RoutinesTab() {
     name: string;
     trigger_type: string;
     trigger_value: string;
-    action_type: string;
-    action_value: string;
     room_id: string;
     days_of_week: number[];
+    actions_list: ActionBlock[];
   }>({
     name: '',
     trigger_type: 'time',
     trigger_value: '',
-    action_type: 'command',
-    action_value: '',
     room_id: DEFAULT_ROOM,
     days_of_week: [0, 1, 2, 3, 4, 5, 6],
+    actions_list: [],
   });
 
   useEffect(() => {
@@ -61,39 +71,103 @@ export function RoutinesTab() {
     }
   };
 
-  const handleSave = async () => {
-    if (!formData.name || !formData.trigger_value || !formData.action_value) return;
+  const handleToggle = async (id: number) => {
     try {
-      const payload = {
-        ...formData,
-        days_of_week: formData.days_of_week.join(','),
-      };
-      const newRoutine = await api.createRoutine(payload);
-      setRoutines([newRoutine, ...routines]);
-      setFormData({ ...formData, name: '', trigger_value: '', action_value: '', days_of_week: [0, 1, 2, 3, 4, 5, 6] });
+      const res = await api.toggleRoutine(id);
+      setRoutines(routines.map(r => r.id === id ? { ...r, is_active: res.is_active } : r));
     } catch (e) {
       console.error(e);
     }
   };
 
-  const roomLabel = ROOM_LABELS[formData.room_id as keyof typeof ROOM_LABELS] || formData.room_id;
-  const preview = `${formData.days_of_week.length === 7 ? 'Todos os dias' : `${formData.days_of_week.length} dia(s)`}, às ${formData.trigger_value || '07:00'}, em ${roomLabel}, executo: "${formData.action_value || '...'}"`;
+  const handleTest = async (id: number) => {
+    try {
+      await api.testRoutine(id);
+      alert('Rotina enviada para execucao!');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!formData.name || !formData.trigger_value || formData.actions_list.length === 0) return;
+    try {
+      const payload = {
+        name: formData.name,
+        trigger_type: formData.trigger_type,
+        trigger_value: formData.trigger_value,
+        room_id: formData.room_id,
+        action_type: 'multi_action',
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        action_value: JSON.stringify(formData.actions_list.map(({id, ...rest}) => rest)),
+        days_of_week: formData.days_of_week.join(','),
+      };
+      const newRoutine = await api.createRoutine(payload);
+      setRoutines([newRoutine, ...routines]);
+      setFormData({ ...formData, name: '', trigger_value: '', actions_list: [], days_of_week: [0, 1, 2, 3, 4, 5, 6] });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const addAction = () => {
+    const newAction: ActionBlock = {
+      id: Math.random().toString(36).substring(2, 9),
+      device_type: 'light',
+      location: formData.room_id,
+      state: 'on'
+    };
+    setFormData({ ...formData, actions_list: [...formData.actions_list, newAction] });
+  };
+
+  const updateAction = (id: string, updates: Partial<ActionBlock>) => {
+    setFormData({
+      ...formData,
+      actions_list: formData.actions_list.map(a => a.id === id ? { ...a, ...updates } : a)
+    });
+  };
+
+  const removeAction = (id: string) => {
+    setFormData({
+      ...formData,
+      actions_list: formData.actions_list.filter(a => a.id !== id)
+    });
+  };
+
+  const formatActionList = (routine: Routine) => {
+    if (routine.action_type === 'multi_action') {
+      try {
+        const actions = JSON.parse(routine.action_value) as ActionBlock[];
+        return actions.map((a, i) => {
+          if (a.device_type === 'light') return `Luz ${a.location || 'ambiente'} (${a.state === 'on' ? 'Ligar' : 'Desligar'})`;
+          if (a.device_type === 'fan') return `Ventilador (${a.speed || 'on'})`;
+          if (a.device_type === 'tv') return `TV (${a.action === 'power_on' ? 'Ligar' : a.action === 'power_off' ? 'Desligar' : 'App'})`;
+          if (a.device_type === 'tts') return `Falar: "${a.content}"`;
+          if (a.device_type === 'command') return `Comando: "${a.text}"`;
+          return a.device_type;
+        }).join(' → ');
+      } catch {
+        return routine.action_value;
+      }
+    }
+    return `Comando simulado: "${routine.action_value}"`;
+  };
 
   return (
     <div className="relative flex h-full flex-col gap-5 overflow-y-auto pb-10 pr-2">
       <Modal open={showHelp} onClose={() => setShowHelp(false)} title="Como criar rotinas?" maxWidth="max-w-md">
         <ul className="space-y-3 text-sm text-[color:var(--text-secondary)]">
           <li><strong className="text-[color:var(--text-primary)]">Nome:</strong> apenas para você identificar.</li>
-          <li><strong className="text-[color:var(--text-primary)]">Horário:</strong> o disparo exato.</li>
+          <li><strong className="text-[color:var(--text-primary)]">Horario:</strong> o disparo exato.</li>
           <li><strong className="text-[color:var(--text-primary)]">Sala:</strong> o cômodo onde atua.</li>
-          <li><strong className="text-[color:var(--text-primary)]">Comando:</strong> o que o Alfredo vai executar.</li>
+          <li><strong className="text-[color:var(--text-primary)]">Blocos de Acao:</strong> adicione um ou mais comandos específicos ou mensagens de voz que rodarão em sequencia.</li>
         </ul>
       </Modal>
 
       <SectionHeading
-        eyebrow="Automação"
-        title="Rotinas automáticas"
-        subtitle="A tela deixou de ser um formulário isolado e virou uma composição de lista, preview e criação."
+        eyebrow="Automacao"
+        title="Rotinas e Cenas"
+        subtitle="Construa rotinas avancadas usando blocos visuais para ligar luzes, enviar avisos por voz ou executar comandos na casa."
         action={<StatusPulse label="Agendamento ativo" tone="success" />}
       />
 
@@ -101,8 +175,8 @@ export function RoutinesTab() {
         <div className="alfredo-card flex min-h-0 flex-col p-5 md:p-6">
           <SectionHeading
             eyebrow="Minhas rotinas"
-            title="Execuções salvas"
-            subtitle="Quando o espaço está vazio, ele explica o próximo passo e não apenas reclama da ausência."
+            title="Execucoes salvas"
+            subtitle="Gerencie as rotinas ativas da sua casa."
             action={
               <button onClick={() => setShowHelp(true)} className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]">
                 <HelpCircle className="h-3.5 w-3.5" />
@@ -117,12 +191,12 @@ export function RoutinesTab() {
                 icon={Sparkles}
                 tone="brass"
                 title="Crie sua primeira rotina"
-                description="O Alfredo passa a agir sozinho nos horários certos assim que você salva a primeira automação."
+                description="O Alfredo passa a agir sozinho nos horarios certos assim que voce salva a primeira automacao."
                 className="flex-1"
               />
             ) : (
               routines.map((rt) => (
-                <div key={rt.id} className={cn('alfredo-card p-4', !rt.is_active && 'opacity-55 grayscale')}>
+                <div key={rt.id} className={cn('alfredo-card p-4 transition-all', !rt.is_active && 'opacity-50 grayscale')}>
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-3">
@@ -151,14 +225,17 @@ export function RoutinesTab() {
                         </span>
                       </div>
 
-                      <p className="mt-4 rounded-2xl border border-white/5 bg-black/20 px-4 py-3 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
-                        "{rt.action_value}"
+                      <p className="mt-4 rounded-2xl border border-white/5 bg-black/20 px-4 py-3 text-[13px] leading-relaxed text-[color:var(--text-secondary)] truncate">
+                        {formatActionList(rt)}
                       </p>
                     </div>
 
                     <div className="flex shrink-0 flex-col gap-2">
-                      <StatusPulse label={rt.is_active ? 'Ativa' : 'Pausada'} tone={rt.is_active ? 'success' : 'warning'} />
+                      <button onClick={() => handleToggle(rt.id)} className="w-full">
+                        <StatusPulse label={rt.is_active ? 'Ativa' : 'Pausada'} tone={rt.is_active ? 'success' : 'warning'} />
+                      </button>
                       <button
+                        onClick={() => handleTest(rt.id)}
                         className="alfredo-pill justify-center border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]"
                         aria-label="Executar rotina"
                       >
@@ -184,11 +261,8 @@ export function RoutinesTab() {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <div className="alfredo-section-label">Nova rotina</div>
-                <h2 className="mt-2 text-[18px] font-semibold text-[color:var(--text-primary)]">Criação com preview</h2>
+                <h2 className="mt-2 text-[18px] font-semibold text-[color:var(--text-primary)]">Construtor Visual</h2>
               </div>
-              <button onClick={() => setShowHelp(true)} className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]" title="Como usar" aria-label="Ajuda">
-                <HelpCircle className="h-3.5 w-3.5" />
-              </button>
             </div>
 
             <div className="mt-5 flex flex-col gap-4">
@@ -196,9 +270,18 @@ export function RoutinesTab() {
                 <label className="alfredo-section-label">Nome da rotina</label>
                 <input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} type="text" placeholder="Ex: Bom dia" className="alfredo-input mt-1" />
               </div>
-              <div>
-                <label className="alfredo-section-label">Horário</label>
-                <input value={formData.trigger_value} onChange={(e) => setFormData({ ...formData, trigger_value: e.target.value })} type="time" className="alfredo-input mt-1" />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="alfredo-section-label">Horario</label>
+                  <input value={formData.trigger_value} onChange={(e) => setFormData({ ...formData, trigger_value: e.target.value })} type="time" className="alfredo-input mt-1" />
+                </div>
+                <div>
+                  <label className="alfredo-section-label">Sala padrao</label>
+                  <select value={formData.room_id} onChange={(e) => setFormData({ ...formData, room_id: e.target.value })} className="alfredo-input mt-1 appearance-none cursor-pointer">
+                    <option value={ROOM_IDS.LIVING}>Sala de Estar</option>
+                    <option value={ROOM_IDS.BEDROOM}>Quarto</option>
+                  </select>
+                </div>
               </div>
               <div>
                 <label className="alfredo-section-label">Dias da semana</label>
@@ -228,34 +311,93 @@ export function RoutinesTab() {
                   })}
                 </div>
               </div>
-              <div>
-                <label className="alfredo-section-label">Sala</label>
-                <select value={formData.room_id} onChange={(e) => setFormData({ ...formData, room_id: e.target.value })} className="alfredo-input mt-1 appearance-none cursor-pointer">
-                  <option value={ROOM_IDS.LIVING}>Sala de Estar</option>
-                  <option value={ROOM_IDS.BEDROOM}>Quarto</option>
-                </select>
-              </div>
-              <div>
-                <label className="alfredo-section-label">Comando simulado</label>
-                <input value={formData.action_value} onChange={(e) => setFormData({ ...formData, action_value: e.target.value })} type="text" placeholder="Ex: como está o clima" className="alfredo-input mt-1" />
+
+              <div className="mt-2 border-t border-white/5 pt-4">
+                <label className="alfredo-section-label mb-3 block">Blocos de Acao ({formData.actions_list.length})</label>
+                <div className="space-y-3">
+                  {formData.actions_list.map((action, idx) => (
+                    <div key={action.id} className="alfredo-card p-4 relative flex flex-col gap-3 border border-white/10 bg-white/[0.02]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-brass-400">Acao {idx + 1}</span>
+                        <button onClick={() => removeAction(action.id)} className="text-rose-400/70 hover:text-rose-400 transition-colors">
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                      
+                      <select value={action.device_type} onChange={(e) => updateAction(action.id, { device_type: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                        <option value="light">Controle de Luz</option>
+                        <option value="fan">Ventilador</option>
+                        <option value="tv">Televisão</option>
+                        <option value="tts">Falar Mensagem (TTS)</option>
+                        <option value="command">Comando Livre da IA</option>
+                      </select>
+
+                      {action.device_type === 'light' && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <select value={action.location || formData.room_id} onChange={(e) => updateAction(action.id, { location: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                            <option value={ROOM_IDS.LIVING}>Sala</option>
+                            <option value={ROOM_IDS.BEDROOM}>Quarto</option>
+                          </select>
+                          <select value={action.state || 'on'} onChange={(e) => updateAction(action.id, { state: e.target.value as 'on'|'off' })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                            <option value="on">Ligar</option>
+                            <option value="off">Desligar</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {action.device_type === 'fan' && (
+                        <div className="grid grid-cols-2 gap-2">
+                           <select value={action.location || formData.room_id} onChange={(e) => updateAction(action.id, { location: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                            <option value={ROOM_IDS.LIVING}>Sala</option>
+                            <option value={ROOM_IDS.BEDROOM}>Quarto</option>
+                          </select>
+                          <select value={action.speed || 'medium'} onChange={(e) => updateAction(action.id, { speed: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                            <option value="off">Desligar</option>
+                            <option value="low">Velocidade 1 (Baixa)</option>
+                            <option value="medium">Velocidade 2 (Media)</option>
+                            <option value="high">Velocidade 3 (Alta)</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {action.device_type === 'tv' && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <select value={action.action || 'power_on'} onChange={(e) => updateAction(action.id, { action: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                            <option value="power_on">Ligar TV</option>
+                            <option value="power_off">Desligar TV</option>
+                            <option value="open_app">Abrir App</option>
+                          </select>
+                          {action.action === 'open_app' && (
+                            <input value={action.app_name || ''} onChange={(e) => updateAction(action.id, { app_name: e.target.value })} type="text" placeholder="Ex: netflix" className="alfredo-input py-2 text-sm" />
+                          )}
+                        </div>
+                      )}
+
+                      {action.device_type === 'tts' && (
+                        <input value={action.content || ''} onChange={(e) => updateAction(action.id, { content: e.target.value })} type="text" placeholder="Ex: Bom dia! Hora de acordar." className="alfredo-input py-2 text-sm" />
+                      )}
+
+                      {action.device_type === 'command' && (
+                        <input value={action.text || ''} onChange={(e) => updateAction(action.id, { text: e.target.value })} type="text" placeholder="Ex: toque musica relaxante" className="alfredo-input py-2 text-sm" />
+                      )}
+                    </div>
+                  ))}
+                  
+                  <button onClick={addAction} className="alfredo-pill mt-2 w-full justify-center border-dashed border-white/20 text-[color:var(--text-secondary)] hover:bg-white/[0.05] transition-colors">
+                    <PlusCircle className="h-4 w-4" />
+                    Adicionar Bloco de Acao
+                  </button>
+                </div>
               </div>
 
               <button
                 onClick={handleSave}
-                className="alfredo-pill mt-2 justify-center border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] shadow-[0_0_24px_rgba(212,162,78,0.18)]"
+                disabled={formData.actions_list.length === 0}
+                className="alfredo-pill mt-4 justify-center border-brass-500/25 bg-brass-500 text-[color:var(--bg-base)] shadow-[0_0_24px_rgba(212,162,78,0.18)] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <PlusCircle className="h-4 w-4" />
-                Salvar rotina
+                Salvar rotina ({formData.actions_list.length} acoes)
               </button>
             </div>
-          </div>
-
-          <div className="alfredo-card p-5 md:p-6">
-            <div className="alfredo-section-label">Preview ao vivo</div>
-            <div className="mt-2 text-[18px] font-semibold text-[color:var(--text-primary)]">O que vai acontecer</div>
-            <p className="mt-3 rounded-2xl border border-white/5 bg-black/20 px-4 py-4 text-[13px] leading-relaxed text-[color:var(--text-secondary)]">
-              {preview}
-            </p>
           </div>
         </div>
       </div>

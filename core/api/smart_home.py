@@ -188,31 +188,20 @@ def delete_smart_device(device_id: int, db: Session = Depends(get_db)):
 # ── Endpoint offline / direto (sem LLM) ────────────────────────────────
 
 class SmartHomeOfflineRequest(BaseModel):
-    """Requisição para controle direto de dispositivo inteligente.
-    
-    Bypassa completamente o LLM/Gemini — chamada REST direta ao Home Assistant.
-    Usado pelo satélite (modo offline) e pelo dashboard (modo rápido).
-    
-    Se `entity_id` for informado, controla apenas aquele device.
-    Se apenas `room_id` e `device_type` forem informados, busca no banco
-    e controla todos os devices do tipo na sala.
-    """
-    action: str = "turn_on"  # "turn_on" | "turn_off" | "toggle"
+    """Requisição para controle direto de dispositivo inteligente."""
+    action: str = "turn_on"  # "turn_on" | "turn_off" | "toggle" | "set_color" | "set_color_temp" | "set_brightness"
     entity_id: Optional[str] = None
     device_type: Optional[str] = None
     room_id: Optional[str] = None
+    rgb_color: Optional[list[int]] = None
+    brightness: Optional[int] = None
+    color_temp: Optional[int] = None
 
 
 @router.post("/smart-home/offline")
 def smart_home_offline(req: SmartHomeOfflineRequest, db: Session = Depends(get_db)):
     """
     ⚡ ENDPOINT OFFLINE — controle direto de dispositivos sem LLM.
-    
-    Se `entity_id` for fornecido, controla direto no Home Assistant.
-    Se não, busca os dispositivos pelo `room_id` + `device_type` no banco local.
-    
-    Retorna status imediato — sem TTS, sem resposta por voz.
-    O cliente (satélite/dashboard) decide se quer反馈 acionar um beep ou "ok".
     """
     from core.services.home_assistant import HomeAssistantManager
 
@@ -224,14 +213,24 @@ def smart_home_offline(req: SmartHomeOfflineRequest, db: Session = Depends(get_d
         entity_ids = [e.strip() for e in req.entity_id.split(",")]
         for eid in entity_ids:
             try:
-                if req.action == "turn_on":
-                    ha.turn_on(eid)
-                elif req.action == "turn_off":
+                current_action = req.action
+                if eid.startswith("scene.") and current_action == "toggle":
+                    current_action = "turn_on"
+                    
+                if current_action == "turn_on":
+                    ha.turn_on(eid, brightness=req.brightness)
+                elif current_action == "turn_off":
                     ha.turn_off(eid)
-                elif req.action == "toggle":
+                elif current_action == "toggle":
                     ha.toggle(eid)
+                elif current_action == "set_color" and req.rgb_color:
+                    ha.set_color(eid, req.rgb_color)
+                elif current_action == "set_color_temp" and req.color_temp:
+                    ha.set_color_temp(eid, req.color_temp)
+                elif current_action == "set_brightness" and req.brightness is not None:
+                    ha.set_brightness(eid, req.brightness)
                 else:
-                    raise HTTPException(status_code=400, detail=f"Ação inválida: {req.action}")
+                    raise HTTPException(status_code=400, detail=f"Ação inválida ou parâmetros faltando: {current_action}")
                 results.append(eid)
             except Exception as e:
                 logger = logging.getLogger("alfredo.api.smart_home")

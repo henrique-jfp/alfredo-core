@@ -260,113 +260,114 @@ export function WebMic() {
   };
 
   return (
-    <div className="fixed bottom-24 right-4 z-50 flex items-center gap-3 md:bottom-8 md:right-8">
-      
-      {micError && (
-        <div className="absolute bottom-20 right-0 alfredo-card whitespace-nowrap px-4 py-3 text-[13px] text-rose-400 border-rose-500/20 shadow-[0_0_24px_rgba(248,113,113,0.18)]">
-          {micError}
-        </div>
-      )}
-
-      {/* Output Target Selector */}
-      <div className="relative">
-        <button 
-          onClick={() => setShowDropdown(!showDropdown)}
-          className="alfredo-card flex items-center gap-2 rounded-full px-4 py-2 text-[13px] text-[color:var(--text-secondary)] transition-colors hover:border-brass-500/20 hover:bg-white/[0.04]"
-          title="Onde o Alfredo vai falar?"
-        >
-          <span className="font-medium tracking-wide opacity-50 uppercase text-[10px]">Responder no</span>
-          {targetDevice ? (
-            <><MonitorSpeaker className="h-4 w-4 text-brass-400" /> {availableSatellites.find(s => s.device_id === targetDevice)?.name || targetDevice}</>
-          ) : (
-            <><Smartphone className="h-4 w-4 text-emerald-400" /> Celular</>
-          )}
-          <ChevronDown className="h-3 w-3 opacity-50" />
-        </button>
-
-        {showDropdown && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
-            <div className="absolute bottom-full right-0 mb-2 z-50 w-48 rounded-2xl border border-white/10 bg-[rgba(15,16,20,0.95)] backdrop-blur-xl p-2 shadow-2xl animate-in fade-in slide-in-from-bottom-2">
-              <div className="flex flex-col gap-1">
-                <button
-                  onClick={() => { setTargetDevice(null); setShowDropdown(false); }}
-                  className={cn("flex items-center gap-3 rounded-xl px-3 py-2 text-left text-[13px] transition-colors", targetDevice === null ? "bg-white/10 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-white")}
-                >
-                  <Smartphone className="h-4 w-4" />
-                  <span>Este Celular</span>
-                </button>
-                
-                {availableSatellites.length > 0 && <div className="my-1 h-px w-full bg-white/5" />}
-                
-                {availableSatellites.map(sat => (
-                  <button
-                    key={sat.device_id}
-                    onClick={() => { setTargetDevice(sat.device_id); setShowDropdown(false); }}
-                    className={cn("flex items-center gap-3 rounded-xl px-3 py-2 text-left text-[13px] transition-colors", targetDevice === sat.device_id ? "bg-brass-500/15 text-brass-300" : "text-zinc-400 hover:bg-white/5 hover:text-white")}
-                  >
-                    <MonitorSpeaker className="h-4 w-4" />
-                    <span className="truncate">{sat.name}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
+    <>
+      {/* Target Device Dropdown and Visual Indicators - Posicionados no topo do Mic no mobile, ou na esquerda no desktop */}
+      <div className="fixed bottom-[6.5rem] left-1/2 z-[60] flex -translate-x-1/2 flex-col items-center gap-3 md:bottom-8 md:right-[5.5rem] md:left-auto md:translate-x-0 md:flex-row">
+        {micError && (
+          <div className="alfredo-card whitespace-nowrap px-4 py-3 text-[13px] text-rose-400 border-rose-500/20 shadow-[0_0_24px_rgba(248,113,113,0.18)]">
+            {micError}
+          </div>
         )}
+
+        {(isRecording || isProcessing || isPlaying) && (
+          <div className="alfredo-card flex items-center gap-2 rounded-full px-4 py-2">
+            {isRecording && <StatusPulse label="Ouvindo" tone="danger" />}
+            {isProcessing && (
+              <span className="alfredo-pill border-brass-500/20 bg-brass-500/10 text-brass-300">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Pensando
+              </span>
+            )}
+            {isPlaying && <StatusPulse label="Falando" tone="info" icon={Volume2} />}
+          </div>
+        )}
+
+        {/* Output Target Selector */}
+        <div className="relative">
+          <button 
+            onClick={() => setShowDropdown(!showDropdown)}
+            className="flex h-[42px] w-[42px] items-center justify-center rounded-full border border-white/5 bg-[rgba(15,16,20,0.95)] text-[color:var(--text-secondary)] shadow-[0_8px_32px_rgba(0,0,0,0.4)] transition-all hover:bg-white/[0.04] active:scale-95"
+            title="Onde o Alfredo vai falar?"
+          >
+            {targetDevice ? (
+              <MonitorSpeaker className="h-[18px] w-[18px] text-brass-400" />
+            ) : (
+              <Smartphone className="h-[18px] w-[18px] text-emerald-400" />
+            )}
+          </button>
+
+          {showDropdown && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
+              <div className="absolute bottom-full left-1/2 md:left-auto md:right-0 mb-3 z-50 w-48 -translate-x-1/2 md:translate-x-0 rounded-2xl border border-white/10 bg-[rgba(15,16,20,0.95)] backdrop-blur-xl p-2 shadow-2xl animate-in fade-in slide-in-from-bottom-2">
+                <div className="flex flex-col gap-1">
+                  <button
+                    onClick={() => { setTargetDevice(null); setShowDropdown(false); }}
+                    className={cn("flex items-center gap-3 rounded-xl px-3 py-2 text-left text-[13px] transition-colors", targetDevice === null ? "bg-white/10 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-white")}
+                  >
+                    <Smartphone className="h-4 w-4" />
+                    <span>Este Celular</span>
+                  </button>
+                  
+                  {availableSatellites.length > 0 && <div className="my-1 h-px w-full bg-white/5" />}
+                  
+                  {availableSatellites.map(sat => (
+                    <button
+                      key={sat.device_id}
+                      onClick={() => { setTargetDevice(sat.device_id); setShowDropdown(false); }}
+                      className={cn("flex items-center gap-3 rounded-xl px-3 py-2 text-left text-[13px] transition-colors", targetDevice === sat.device_id ? "bg-brass-500/15 text-brass-300" : "text-zinc-400 hover:bg-white/5 hover:text-white")}
+                    >
+                      <MonitorSpeaker className="h-4 w-4" />
+                      <span className="truncate">{sat.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Visual Indicator */}
-      {(isRecording || isProcessing || isPlaying) && (
-        <div className="alfredo-card flex items-center gap-2 rounded-full px-4 py-2">
-          {isRecording && <StatusPulse label="Ouvindo" tone="danger" />}
-          {isProcessing && (
-            <span className="alfredo-pill border-brass-500/20 bg-brass-500/10 text-brass-300">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Pensando
-            </span>
+      {/* Main Mic Button - Centralizado no Mobile (um pouco acima da bottom bar), Direita no Desktop */}
+      <div className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 md:bottom-8 md:right-8 md:left-auto md:translate-x-0 flex items-center gap-3">
+        <button
+          onClick={() => {
+            if (isRecording) {
+              stopRecording();
+            } else {
+              startRecording();
+            }
+          }}
+          disabled={isProcessing || isPlaying}
+          className={cn(
+            "flex h-[72px] w-[72px] md:h-16 md:w-16 shrink-0 items-center justify-center rounded-full text-white transition-all duration-300 shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
+            isRecording
+              ? "bg-rose-600 shadow-[0_0_30px_rgba(225,29,72,0.42)] scale-110"
+              : isProcessing
+              ? "bg-brass-600 cursor-not-allowed"
+              : isPlaying
+              ? "bg-blue-600 shadow-[0_0_30px_rgba(59,130,246,0.35)]"
+              : "bg-gradient-to-br from-brass-400 to-brass-600 text-[color:var(--bg-base)] shadow-[0_8px_24px_rgba(212,162,78,0.35)] hover:scale-105"
           )}
-          {isPlaying && <StatusPulse label="Falando" tone="info" icon={Volume2} />}
-        </div>
-      )}
+        >
+          {isRecording ? (
+            <Square className="w-8 h-8 md:w-6 md:h-6 fill-current" />
+          ) : isProcessing ? (
+            <Loader2 className="w-8 h-8 md:w-6 md:h-6 animate-spin" />
+          ) : isPlaying ? (
+            <Volume2 className="w-8 h-8 md:w-6 md:h-6 animate-pulse" />
+          ) : (
+            <Mic className="w-8 h-8 md:w-6 md:h-6" />
+          )}
+        </button>
 
-      {/* Main Button */}
-      <button
-        onClick={() => {
-          if (isRecording) {
-            stopRecording();
-          } else {
-            startRecording();
-          }
-        }}
-        disabled={isProcessing || isPlaying}
-        className={cn(
-          "flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-white transition-all duration-300",
-          isRecording
-            ? "bg-rose-600 shadow-[0_0_30px_rgba(225,29,72,0.42)] scale-110"
-            : isProcessing
-            ? "bg-brass-600 cursor-not-allowed"
-            : isPlaying
-            ? "bg-blue-600 shadow-[0_0_30px_rgba(59,130,246,0.35)]"
-            : "bg-gradient-to-br from-brass-400 to-brass-600 text-[color:var(--bg-base)] shadow-[0_0_24px_rgba(212,162,78,0.22)] hover:scale-105"
-        )}
-      >
-        {isRecording ? (
-          <Square className="w-6 h-6 fill-current" />
-        ) : isProcessing ? (
-          <Loader2 className="w-6 h-6 animate-spin" />
-        ) : isPlaying ? (
-          <Volume2 className="w-6 h-6 animate-pulse" />
-        ) : (
-          <Mic className="w-6 h-6" />
-        )}
-      </button>
-
-      {/* Hidden Audio Player */}
-      <audio 
-        ref={audioPlayerRef} 
-        onEnded={() => setIsPlaying(false)}
-        className="hidden" 
-      />
-    </div>
+        {/* Hidden Audio Player */}
+        <audio 
+          ref={audioPlayerRef} 
+          onEnded={() => setIsPlaying(false)}
+          className="hidden" 
+        />
+      </div>
+    </>
   );
 }
