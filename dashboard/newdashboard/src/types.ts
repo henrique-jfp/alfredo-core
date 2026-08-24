@@ -1,6 +1,8 @@
 export const ROOM_IDS = {
   LIVING: 'ROOM_LIVING',
   BEDROOM: 'ROOM_BEDROOM',
+  LAURA: 'ROOM_LAURA',
+  OFFICE: 'ROOM_OFFICE',
 } as const;
 
 export type RoomId = (typeof ROOM_IDS)[keyof typeof ROOM_IDS];
@@ -8,6 +10,8 @@ export type RoomId = (typeof ROOM_IDS)[keyof typeof ROOM_IDS];
 export const ROOM_LABELS: Record<RoomId, string> = {
   [ROOM_IDS.LIVING]: 'Sala de Estar',
   [ROOM_IDS.BEDROOM]: 'Quarto',
+  [ROOM_IDS.LAURA]: 'Quarto da Laura',
+  [ROOM_IDS.OFFICE]: 'Escritório',
 };
 
 export const DEFAULT_ROOM = ROOM_IDS.LIVING;
