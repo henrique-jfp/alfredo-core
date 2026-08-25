@@ -22,7 +22,7 @@ const HOUSE_DEVICES = {
   tv: [ROOM_IDS.LIVING, ROOM_IDS.BEDROOM],
 };
 
-type ActionCategory = 'smart_home' | 'climate' | 'news' | 'music' | 'calendar' | 'web_search' | 'custom_prompt';
+type ActionCategory = 'smart_home' | 'climate' | 'news' | 'music' | 'calendar' | 'web_search' | 'safety' | 'custom_prompt';
 
 export type ActionBlock = {
   id: string;
@@ -40,6 +40,8 @@ export type ActionBlock = {
   music_query?: string;
   // Web Search
   search_query?: string;
+  // Safety
+  safety_areas?: string;
   // Custom
   prompt_text?: string;
 };
@@ -128,6 +130,9 @@ export function RoutinesTab() {
         sentences.push(`Toque ${block.music_query || 'alguma música boa'} no Spotify.`);
       } else if (block.category === 'web_search') {
         if (block.search_query?.trim()) sentences.push(`Pesquise na internet sobre: ${block.search_query.trim()} e me resuma os resultados.`);
+      } else if (block.category === 'safety') {
+        if (block.safety_areas?.trim()) sentences.push(`Verifique alertas de segurança, tiroteios e trânsito nas áreas: ${block.safety_areas.trim()}.`);
+        else sentences.push(`Verifique alertas gerais de segurança e trânsito no Rio de Janeiro.`);
       } else if (block.category === 'custom_prompt') {
         if (block.prompt_text?.trim()) sentences.push(block.prompt_text.trim());
       }
@@ -350,6 +355,7 @@ export function RoutinesTab() {
                         <option value="calendar">Calendário & Eventos</option>
                         <option value="music">Tocar Música (Spotify)</option>
                         <option value="web_search">Pesquisa na Internet</option>
+                        <option value="safety">Segurança e Rotas (Rio)</option>
                         <option value="custom_prompt">Comando Livre (Qualquer Skill)</option>
                       </select>
 
@@ -424,6 +430,10 @@ export function RoutinesTab() {
 
                       {action.category === 'web_search' && (
                          <input value={action.search_query || ''} onChange={(e) => updateAction(action.id, { search_query: e.target.value })} type="text" placeholder="Ex: Cotação do Dólar hoje, Jogo do Brasil..." className="alfredo-input py-2 text-sm" />
+                      )}
+
+                      {action.category === 'safety' && (
+                         <input value={action.safety_areas || ''} onChange={(e) => updateAction(action.id, { safety_areas: e.target.value })} type="text" placeholder="Locais (Ex: Avenida Brasil, Tijuca, Linha Amarela...)" className="alfredo-input py-2 text-sm" />
                       )}
 
                       {action.category === 'custom_prompt' && (
