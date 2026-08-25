@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../lib/api';
-import { Clock, PlusCircle, HelpCircle, X, Play, Trash2, ChevronRight, Sparkles } from 'lucide-react';
+import { Clock, PlusCircle, HelpCircle, X, Play, Trash2, ChevronRight, Sparkles, MessageSquare } from 'lucide-react';
 import { Routine, DEFAULT_ROOM, ROOM_LABELS, ROOM_IDS, RoomId } from '../../types';
 import { EmptyState, SectionHeading, StatusPulse } from '../ui/DashboardPrimitives';
 import { Modal } from '../ui/Modal';
@@ -16,23 +16,30 @@ const DAYS = [
   { label: 'S', value: 6 },
 ];
 
-// O Mapeamento exato da casa do usuário
 const HOUSE_DEVICES = {
   light: [ROOM_IDS.LIVING, ROOM_IDS.BEDROOM, ROOM_IDS.LAURA, ROOM_IDS.OFFICE],
   fan: [ROOM_IDS.LIVING, ROOM_IDS.BEDROOM, ROOM_IDS.LAURA],
   tv: [ROOM_IDS.LIVING, ROOM_IDS.BEDROOM],
 };
 
+type ActionCategory = 'smart_home' | 'climate' | 'news' | 'music' | 'calendar' | 'custom_prompt';
+
 export type ActionBlock = {
   id: string;
-  device_type: 'light' | 'fan' | 'tv' | 'tts' | 'command';
+  category: ActionCategory;
+  // Smart Home
+  device_type?: 'light' | 'fan' | 'tv';
   location?: RoomId | string;
   state?: 'on' | 'off';
   speed?: 'low' | 'medium' | 'high' | 'off';
   action?: 'power_on' | 'power_off' | 'open_app';
   app_name?: string;
-  content?: string;
-  text?: string;
+  // Weather
+  weather_type?: 'current' | 'forecast';
+  // Music
+  music_query?: string;
+  // Custom
+  prompt_text?: string;
 };
 
 export function RoutinesTab() {
@@ -40,14 +47,12 @@ export function RoutinesTab() {
   const [showHelp, setShowHelp] = useState(false);
   const [formData, setFormData] = useState<{
     name: string;
-    trigger_type: string;
     trigger_value: string;
     room_id: string;
     days_of_week: number[];
     actions_list: ActionBlock[];
   }>({
     name: '',
-    trigger_type: 'time',
     trigger_value: '',
     room_id: DEFAULT_ROOM,
     days_of_week: [0, 1, 2, 3, 4, 5, 6],
@@ -90,23 +95,54 @@ export function RoutinesTab() {
   const handleTest = async (id: number) => {
     try {
       await api.testRoutine(id);
-      alert('Rotina enviada para execucao!');
+      alert('Rotina enviada para execução!');
     } catch (e) {
       console.error(e);
     }
   };
 
+  const generatePromptFromBlocks = (blocks: ActionBlock[]): string => {
+    const sentences: string[] = [];
+    for (const block of blocks) {
+      if (block.category === 'smart_home') {
+        const roomName = ROOM_LABELS[block.location as RoomId] || block.location || 'o cômodo';
+        if (block.device_type === 'light') {
+          sentences.push(block.state === 'on' ? `Ligue a luz d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName}.` : `Desligue a luz d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName}.`);
+        } else if (block.device_type === 'fan') {
+          if (block.speed === 'off') sentences.push(`Desligue o ventilador d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName}.`);
+          else sentences.push(`Ligue o ventilador d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName} na velocidade ${block.speed === 'low' ? 'baixa' : block.speed === 'medium' ? 'média' : 'alta'}.`);
+        } else if (block.device_type === 'tv') {
+          if (block.action === 'power_off') sentences.push(`Desligue a TV d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName}.`);
+          else if (block.action === 'open_app') sentences.push(`Abra o aplicativo ${block.app_name || 'Netflix'} na TV d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName}.`);
+          else sentences.push(`Ligue a TV d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName}.`);
+        }
+      } else if (block.category === 'climate') {
+        sentences.push(block.weather_type === 'current' ? 'Me dê a previsão do tempo atual.' : 'Me dê a previsão do tempo para o dia todo.');
+      } else if (block.category === 'news') {
+        sentences.push('Me dê um resumo das principais notícias de hoje.');
+      } else if (block.category === 'calendar') {
+        sentences.push('Faça um resumo dos meus eventos e compromissos do calendário para hoje.');
+      } else if (block.category === 'music') {
+        sentences.push(`Toque ${block.music_query || 'alguma música boa'} no Spotify.`);
+      } else if (block.category === 'custom_prompt') {
+        if (block.prompt_text?.trim()) sentences.push(block.prompt_text.trim());
+      }
+    }
+    return sentences.join(' ');
+  };
+
   const handleSave = async () => {
-    if (!formData.name || !formData.trigger_value || formData.actions_list.length === 0) return;
+    const finalPrompt = generatePromptFromBlocks(formData.actions_list);
+    if (!formData.name || !formData.trigger_value || !finalPrompt) return;
+    
     try {
       const payload = {
         name: formData.name,
-        trigger_type: formData.trigger_type,
+        trigger_type: 'time',
         trigger_value: formData.trigger_value,
         room_id: formData.room_id,
-        action_type: 'multi_action',
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        action_value: JSON.stringify(formData.actions_list.map(({id, ...rest}) => rest)),
+        action_type: 'simulate_command', // Back to LLM natural language!
+        action_value: finalPrompt,
         days_of_week: formData.days_of_week.join(','),
       };
       const newRoutine = await api.createRoutine(payload);
@@ -120,11 +156,11 @@ export function RoutinesTab() {
   const addAction = () => {
     const newAction: ActionBlock = {
       id: Math.random().toString(36).substring(2, 9),
+      category: 'smart_home',
       device_type: 'light',
       location: formData.room_id,
       state: 'on'
     };
-    // Fix location if not available for default device_type (light is available everywhere)
     setFormData({ ...formData, actions_list: [...formData.actions_list, newAction] });
   };
 
@@ -134,11 +170,10 @@ export function RoutinesTab() {
       actions_list: formData.actions_list.map(a => {
         if (a.id === id) {
            const merged = { ...a, ...updates };
-           // If changing device_type, ensure the current location is valid for it
            if (updates.device_type) {
               const dt = updates.device_type as keyof typeof HOUSE_DEVICES;
               if (HOUSE_DEVICES[dt] && !HOUSE_DEVICES[dt].includes(merged.location as any)) {
-                 merged.location = HOUSE_DEVICES[dt][0]; // Fallback to first valid room
+                 merged.location = HOUSE_DEVICES[dt][0];
               }
            }
            return merged;
@@ -155,40 +190,19 @@ export function RoutinesTab() {
     });
   };
 
-  const formatActionList = (routine: Routine) => {
-    if (routine.action_type === 'multi_action') {
-      try {
-        const actions = JSON.parse(routine.action_value) as ActionBlock[];
-        return actions.map((a, i) => {
-          if (a.device_type === 'light') return `Luz ${ROOM_LABELS[a.location as RoomId] || a.location} (${a.state === 'on' ? 'Ligar' : 'Desligar'})`;
-          if (a.device_type === 'fan') return `Ventilador ${ROOM_LABELS[a.location as RoomId] || a.location} (${a.speed || 'on'})`;
-          if (a.device_type === 'tv') return `TV ${ROOM_LABELS[a.location as RoomId] || a.location} (${a.action === 'power_on' ? 'Ligar' : a.action === 'power_off' ? 'Desligar' : 'App'})`;
-          if (a.device_type === 'tts') return `Falar: "${a.content}"`;
-          if (a.device_type === 'command') return `Comando: "${a.text}"`;
-          return a.device_type;
-        }).join(' → ');
-      } catch {
-        return routine.action_value;
-      }
-    }
-    return `Comando simulado: "${routine.action_value}"`;
-  };
-
   return (
     <div className="relative flex h-full flex-col gap-5 overflow-y-auto pb-10 pr-2">
-      <Modal open={showHelp} onClose={() => setShowHelp(false)} title="Como criar rotinas?" maxWidth="max-w-md">
+      <Modal open={showHelp} onClose={() => setShowHelp(false)} title="Como montar rotinas inteligentes?" maxWidth="max-w-md">
         <ul className="space-y-3 text-sm text-[color:var(--text-secondary)]">
-          <li><strong className="text-[color:var(--text-primary)]">Nome:</strong> apenas para você identificar.</li>
-          <li><strong className="text-[color:var(--text-primary)]">Horário:</strong> o disparo exato.</li>
-          <li><strong className="text-[color:var(--text-primary)]">Sala:</strong> o cômodo onde atua.</li>
-          <li><strong className="text-[color:var(--text-primary)]">Blocos de Ação:</strong> adicione comandos estruturados baseados nos cômodos e aparelhos existentes.</li>
+          <li><strong className="text-[color:var(--text-primary)]">Super Prompt:</strong> O Alfredo junta todos os blocos que você adicionar e converte em um único super-comando para a Inteligência Artificial executar na sequência.</li>
+          <li><strong className="text-[color:var(--text-primary)]">Todos os Sistemas:</strong> Você pode mesclar Casa Inteligente, Notícias, Spotify, Clima, etc. Tudo em uma rotina só!</li>
         </ul>
       </Modal>
 
       <SectionHeading
         eyebrow="Automação"
-        title="Rotinas automáticas"
-        subtitle="A tela deixou de ser um formulário isolado e virou uma composição de lista, preview e criação."
+        title="Construtor Universal de Rotinas"
+        subtitle="Monte sua rotina encadeando blocos visuais. O Alfredo irá compor o prompt perfeito e executar todas as habilidades em sequência!"
         action={<StatusPulse label="Agendamento ativo" tone="success" />}
       />
 
@@ -196,8 +210,8 @@ export function RoutinesTab() {
         <div className="alfredo-card flex min-h-0 flex-col p-5 md:p-6">
           <SectionHeading
             eyebrow="Minhas rotinas"
-            title="Execuções salvas"
-            subtitle="Quando o espaço está vazio, ele explica o próximo passo e não apenas reclama da ausência."
+            title="Rotinas Ativas"
+            subtitle="Aqui estão os super-comandos que o Alfredo vai executar."
             action={
               <button onClick={() => setShowHelp(true)} className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]">
                 <HelpCircle className="h-3.5 w-3.5" />
@@ -232,22 +246,8 @@ export function RoutinesTab() {
                         </div>
                       </div>
 
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <span className="alfredo-pill border-brass-500/20 bg-brass-500/10 text-brass-300">
-                          <Clock className="h-3.5 w-3.5" />
-                          {rt.trigger_value}
-                        </span>
-                        <span className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]">
-                          <ChevronRight className="h-3.5 w-3.5" />
-                          {rt.days_of_week ? (rt.days_of_week.split(',').length === 7 ? 'Todos os dias' : `${rt.days_of_week.split(',').length} dia(s)`) : 'Todos os dias'}
-                        </span>
-                        <span className="alfredo-pill border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]">
-                          {ROOM_LABELS[rt.room_id as keyof typeof ROOM_LABELS] || rt.room_id}
-                        </span>
-                      </div>
-
-                      <p className="mt-4 rounded-2xl border border-white/5 bg-black/20 px-4 py-3 text-[13px] leading-relaxed text-[color:var(--text-secondary)] truncate">
-                        {formatActionList(rt)}
+                      <p className="mt-4 rounded-2xl border border-white/5 bg-black/20 px-4 py-3 text-[13px] italic leading-relaxed text-brass-200/70 truncate">
+                        "{rt.action_value}"
                       </p>
                     </div>
 
@@ -255,18 +255,10 @@ export function RoutinesTab() {
                       <button onClick={() => handleToggle(rt.id)} className="w-full">
                         <StatusPulse label={rt.is_active ? 'Ativa' : 'Pausada'} tone={rt.is_active ? 'success' : 'warning'} />
                       </button>
-                      <button
-                        onClick={() => handleTest(rt.id)}
-                        className="alfredo-pill justify-center border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]"
-                        aria-label="Executar rotina"
-                      >
+                      <button onClick={() => handleTest(rt.id)} className="alfredo-pill justify-center border-white/10 bg-white/[0.03] text-[color:var(--text-secondary)]">
                         <Play className="h-3.5 w-3.5" />
                       </button>
-                      <button
-                        onClick={() => handleDelete(rt.id)}
-                        className="alfredo-pill justify-center border-rose-500/20 bg-rose-500/10 text-rose-400"
-                        aria-label={`Excluir rotina ${rt.name}`}
-                      >
+                      <button onClick={() => handleDelete(rt.id)} className="alfredo-pill justify-center border-rose-500/20 bg-rose-500/10 text-rose-400">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -282,14 +274,14 @@ export function RoutinesTab() {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <div className="alfredo-section-label">NOVA ROTINA</div>
-                <h2 className="mt-2 text-[18px] font-semibold text-[color:var(--text-primary)]">Criação com preview</h2>
+                <h2 className="mt-2 text-[18px] font-semibold text-[color:var(--text-primary)]">Montador de Prompt</h2>
               </div>
             </div>
 
             <div className="mt-5 flex flex-col gap-4">
               <div>
                 <label className="alfredo-section-label">NOME DA ROTINA</label>
-                <input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} type="text" placeholder="Ex: Bom dia" className="alfredo-input mt-1" />
+                <input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} type="text" placeholder="Ex: Bom dia Alfredo" className="alfredo-input mt-1" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -297,7 +289,7 @@ export function RoutinesTab() {
                   <input value={formData.trigger_value} onChange={(e) => setFormData({ ...formData, trigger_value: e.target.value })} type="time" className="alfredo-input mt-1" />
                 </div>
                 <div>
-                  <label className="alfredo-section-label">SALA PADRÃO</label>
+                  <label className="alfredo-section-label">SATÉLITE QUE VAI FALAR</label>
                   <select value={formData.room_id} onChange={(e) => setFormData({ ...formData, room_id: e.target.value })} className="alfredo-input mt-1 appearance-none cursor-pointer">
                     <option value={ROOM_IDS.LIVING}>Sala de Estar</option>
                     <option value={ROOM_IDS.BEDROOM}>Quarto</option>
@@ -336,7 +328,7 @@ export function RoutinesTab() {
               </div>
 
               <div className="mt-2 border-t border-white/5 pt-4">
-                <label className="alfredo-section-label mb-3 block">BLOCOS DE AÇÃO ({formData.actions_list.length})</label>
+                <label className="alfredo-section-label mb-3 block">BLOCOS / SKILLS ({formData.actions_list.length})</label>
                 <div className="space-y-3">
                   {formData.actions_list.map((action, idx) => (
                     <div key={action.id} className="alfredo-card p-4 relative flex flex-col gap-3 border border-white/10 bg-white/[0.02]">
@@ -347,78 +339,113 @@ export function RoutinesTab() {
                         </button>
                       </div>
                       
-                      <select value={action.device_type} onChange={(e) => updateAction(action.id, { device_type: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
-                        <option value="light">Controle de Luz</option>
-                        <option value="fan">Ventilador</option>
-                        <option value="tv">Televisão</option>
-                        <option value="tts">Falar Mensagem (TTS)</option>
-                        <option value="command">Comando Livre da IA</option>
+                      <select value={action.category} onChange={(e) => updateAction(action.id, { category: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer border-brass-500/20 text-brass-100">
+                        <option value="smart_home">Controles de Casa (Luz/Ventilador/TV)</option>
+                        <option value="climate">Clima & Previsão</option>
+                        <option value="news">Notícias do Dia</option>
+                        <option value="calendar">Calendário & Eventos</option>
+                        <option value="music">Tocar Música (Spotify)</option>
+                        <option value="custom_prompt">Comando Livre (Qualquer Skill)</option>
                       </select>
 
-                      {action.device_type === 'light' && (
-                        <div className="grid grid-cols-2 gap-2">
-                          <select value={action.location || formData.room_id} onChange={(e) => updateAction(action.id, { location: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
-                            {HOUSE_DEVICES.light.map(roomId => (
-                               <option key={roomId} value={roomId}>{ROOM_LABELS[roomId as RoomId]}</option>
-                            ))}
+                      {action.category === 'smart_home' && (
+                        <>
+                          <select value={action.device_type} onChange={(e) => updateAction(action.id, { device_type: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                            <option value="light">Luzes Inteligentes</option>
+                            <option value="fan">Ventiladores</option>
+                            <option value="tv">Televisões</option>
                           </select>
-                          <select value={action.state || 'on'} onChange={(e) => updateAction(action.id, { state: e.target.value as 'on'|'off' })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
-                            <option value="on">Ligar</option>
-                            <option value="off">Desligar</option>
-                          </select>
-                        </div>
-                      )}
 
-                      {action.device_type === 'fan' && (
-                        <div className="grid grid-cols-2 gap-2">
-                           <select value={action.location || formData.room_id} onChange={(e) => updateAction(action.id, { location: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
-                             {HOUSE_DEVICES.fan.map(roomId => (
-                               <option key={roomId} value={roomId}>{ROOM_LABELS[roomId as RoomId]}</option>
-                             ))}
-                          </select>
-                          <select value={action.speed || 'medium'} onChange={(e) => updateAction(action.id, { speed: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
-                            <option value="off">Desligar</option>
-                            <option value="low">Velocidade 1 (Baixa)</option>
-                            <option value="medium">Velocidade 2 (Média)</option>
-                            <option value="high">Velocidade 3 (Alta)</option>
-                          </select>
-                        </div>
-                      )}
-
-                      {action.device_type === 'tv' && (
-                        <div className="grid grid-cols-2 gap-2">
-                          <select value={action.location || formData.room_id} onChange={(e) => updateAction(action.id, { location: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
-                             {HOUSE_DEVICES.tv.map(roomId => (
-                               <option key={roomId} value={roomId}>{ROOM_LABELS[roomId as RoomId]}</option>
-                             ))}
-                          </select>
-                          <select value={action.action || 'power_on'} onChange={(e) => updateAction(action.id, { action: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
-                            <option value="power_on">Ligar TV</option>
-                            <option value="power_off">Desligar TV</option>
-                            <option value="open_app">Abrir App</option>
-                          </select>
-                          {action.action === 'open_app' && (
-                            <input value={action.app_name || ''} onChange={(e) => updateAction(action.id, { app_name: e.target.value })} type="text" placeholder="Ex: netflix" className="alfredo-input py-2 text-sm col-span-2" />
+                          {action.device_type === 'light' && (
+                            <div className="grid grid-cols-2 gap-2">
+                              <select value={action.location || formData.room_id} onChange={(e) => updateAction(action.id, { location: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                                {HOUSE_DEVICES.light.map(roomId => (
+                                   <option key={roomId} value={roomId}>{ROOM_LABELS[roomId as RoomId]}</option>
+                                ))}
+                              </select>
+                              <select value={action.state || 'on'} onChange={(e) => updateAction(action.id, { state: e.target.value as 'on'|'off' })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                                <option value="on">Ligar</option>
+                                <option value="off">Desligar</option>
+                              </select>
+                            </div>
                           )}
-                        </div>
+
+                          {action.device_type === 'fan' && (
+                            <div className="grid grid-cols-2 gap-2">
+                               <select value={action.location || formData.room_id} onChange={(e) => updateAction(action.id, { location: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                                 {HOUSE_DEVICES.fan.map(roomId => (
+                                   <option key={roomId} value={roomId}>{ROOM_LABELS[roomId as RoomId]}</option>
+                                 ))}
+                              </select>
+                              <select value={action.speed || 'medium'} onChange={(e) => updateAction(action.id, { speed: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                                <option value="off">Desligar</option>
+                                <option value="low">Velocidade 1 (Baixa)</option>
+                                <option value="medium">Velocidade 2 (Média)</option>
+                                <option value="high">Velocidade 3 (Alta)</option>
+                              </select>
+                            </div>
+                          )}
+
+                          {action.device_type === 'tv' && (
+                            <div className="grid grid-cols-2 gap-2">
+                              <select value={action.location || formData.room_id} onChange={(e) => updateAction(action.id, { location: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                                 {HOUSE_DEVICES.tv.map(roomId => (
+                                   <option key={roomId} value={roomId}>{ROOM_LABELS[roomId as RoomId]}</option>
+                                 ))}
+                              </select>
+                              <select value={action.action || 'power_on'} onChange={(e) => updateAction(action.id, { action: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                                <option value="power_on">Ligar TV</option>
+                                <option value="power_off">Desligar TV</option>
+                                <option value="open_app">Abrir App Específico</option>
+                              </select>
+                              {action.action === 'open_app' && (
+                                <input value={action.app_name || ''} onChange={(e) => updateAction(action.id, { app_name: e.target.value })} type="text" placeholder="Ex: netflix, youtube, disney" className="alfredo-input py-2 text-sm col-span-2" />
+                              )}
+                            </div>
+                          )}
+                        </>
                       )}
 
-                      {action.device_type === 'tts' && (
-                        <input value={action.content || ''} onChange={(e) => updateAction(action.id, { content: e.target.value })} type="text" placeholder="Ex: Bom dia! Hora de acordar." className="alfredo-input py-2 text-sm" />
+                      {action.category === 'climate' && (
+                        <select value={action.weather_type || 'current'} onChange={(e) => updateAction(action.id, { weather_type: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                          <option value="current">Tempo Atual (Agora)</option>
+                          <option value="forecast">Previsão (Restante do Dia)</option>
+                        </select>
                       )}
 
-                      {action.device_type === 'command' && (
-                        <input value={action.text || ''} onChange={(e) => updateAction(action.id, { text: e.target.value })} type="text" placeholder="Ex: toque musica relaxante" className="alfredo-input py-2 text-sm" />
+                      {action.category === 'music' && (
+                         <input value={action.music_query || ''} onChange={(e) => updateAction(action.id, { music_query: e.target.value })} type="text" placeholder="Ex: playlist jazz, The Beatles..." className="alfredo-input py-2 text-sm" />
+                      )}
+
+                      {action.category === 'custom_prompt' && (
+                        <textarea 
+                           value={action.prompt_text || ''} 
+                           onChange={(e) => updateAction(action.id, { prompt_text: e.target.value })} 
+                           placeholder="Digite qualquer comando como se falasse com o Alfredo. Ex: Crie uma rotina de treino pra mim hoje." 
+                           className="alfredo-input py-2 text-sm resize-none h-20" 
+                        />
                       )}
                     </div>
                   ))}
                   
                   <button onClick={addAction} className="alfredo-pill mt-2 w-full justify-center border-dashed border-white/20 text-[color:var(--text-secondary)] hover:bg-white/[0.05] transition-colors">
                     <PlusCircle className="h-4 w-4" />
-                    Adicionar Bloco de Ação
+                    Adicionar Habilidade / Ação
                   </button>
                 </div>
               </div>
+
+              {formData.actions_list.length > 0 && (
+                <div className="mt-2 bg-black/40 rounded-xl p-4 border border-white/5">
+                   <div className="flex items-center gap-2 mb-2">
+                     <MessageSquare className="h-4 w-4 text-brass-400" />
+                     <span className="text-xs font-bold text-brass-400">PROMPT GERADO</span>
+                   </div>
+                   <p className="text-sm text-brass-100/80 leading-relaxed italic">
+                     "{generatePromptFromBlocks(formData.actions_list)}"
+                   </p>
+                </div>
+              )}
 
               <button
                 onClick={handleSave}
