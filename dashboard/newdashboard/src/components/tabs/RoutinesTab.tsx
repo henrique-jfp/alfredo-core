@@ -22,7 +22,7 @@ const HOUSE_DEVICES = {
   tv: [ROOM_IDS.LIVING, ROOM_IDS.BEDROOM],
 };
 
-type ActionCategory = 'smart_home' | 'climate' | 'news' | 'music' | 'calendar' | 'custom_prompt';
+type ActionCategory = 'smart_home' | 'climate' | 'news' | 'music' | 'calendar' | 'web_search' | 'custom_prompt';
 
 export type ActionBlock = {
   id: string;
@@ -38,6 +38,8 @@ export type ActionBlock = {
   weather_type?: 'current' | 'forecast';
   // Music
   music_query?: string;
+  // Web Search
+  search_query?: string;
   // Custom
   prompt_text?: string;
 };
@@ -124,6 +126,8 @@ export function RoutinesTab() {
         sentences.push('Faça um resumo dos meus eventos e compromissos do calendário para hoje.');
       } else if (block.category === 'music') {
         sentences.push(`Toque ${block.music_query || 'alguma música boa'} no Spotify.`);
+      } else if (block.category === 'web_search') {
+        if (block.search_query?.trim()) sentences.push(`Pesquise na internet sobre: ${block.search_query.trim()} e me resuma os resultados.`);
       } else if (block.category === 'custom_prompt') {
         if (block.prompt_text?.trim()) sentences.push(block.prompt_text.trim());
       }
@@ -345,6 +349,7 @@ export function RoutinesTab() {
                         <option value="news">Notícias do Dia</option>
                         <option value="calendar">Calendário & Eventos</option>
                         <option value="music">Tocar Música (Spotify)</option>
+                        <option value="web_search">Pesquisa na Internet</option>
                         <option value="custom_prompt">Comando Livre (Qualquer Skill)</option>
                       </select>
 
@@ -415,6 +420,10 @@ export function RoutinesTab() {
 
                       {action.category === 'music' && (
                          <input value={action.music_query || ''} onChange={(e) => updateAction(action.id, { music_query: e.target.value })} type="text" placeholder="Ex: playlist jazz, The Beatles..." className="alfredo-input py-2 text-sm" />
+                      )}
+
+                      {action.category === 'web_search' && (
+                         <input value={action.search_query || ''} onChange={(e) => updateAction(action.id, { search_query: e.target.value })} type="text" placeholder="Ex: Cotação do Dólar hoje, Jogo do Brasil..." className="alfredo-input py-2 text-sm" />
                       )}
 
                       {action.category === 'custom_prompt' && (
