@@ -138,7 +138,22 @@ class SchedulerManager:
                 tts_filename = None
                 if timer.timer_type == "timer":
                     if timer.message:
-                        text_to_speak = f"Com licença! O timer '{timer.message}' finalizou!"
+                        from core.brain.router import get_router
+                        import asyncio
+                        
+                        router = get_router()
+                        context = {
+                            "room_id": timer.room_id if timer.room_id != "all" else "ROOM_LIVING",
+                            "device_id": "timer_system",
+                            "db": db,
+                            "ws_tasks": []
+                        }
+                        
+                        prompt = f"Um alarme/lembrete agendado pelo usuário acabou de tocar. A mensagem do lembrete é: '{timer.message}'. Fale diretamente para o usuário de forma amigável, proativa e natural, avisando que o tempo esgotou e entregando o recado."
+                        
+                        text_to_speak = await asyncio.to_thread(router.process, prompt, context)
+                        if not text_to_speak or text_to_speak.strip() == "Ok.":
+                            text_to_speak = f"Com licença! O timer '{timer.message}' finalizou!"
                     else:
                         dur = timer.duration_seconds
                         if dur < 60:
@@ -149,7 +164,23 @@ class SchedulerManager:
                         else:
                             hrs = dur // 3600
                             desc = f"{hrs} hora{'s' if hrs > 1 else ''}"
-                        text_to_speak = f"Com licença, o seu timer de {desc} finalizou!"
+                            
+                        from core.brain.router import get_router
+                        import asyncio
+                        
+                        router = get_router()
+                        context = {
+                            "room_id": timer.room_id if timer.room_id != "all" else "ROOM_LIVING",
+                            "device_id": "timer_system",
+                            "db": db,
+                            "ws_tasks": []
+                        }
+                        
+                        prompt = f"Um cronômetro/timer de {desc} que o usuário pediu acabou de tocar (o usuário não especificou o motivo). Avise ele de forma natural, amigável e direta que o tempo de {desc} acabou."
+                        
+                        text_to_speak = await asyncio.to_thread(router.process, prompt, context)
+                        if not text_to_speak or text_to_speak.strip() == "Ok.":
+                            text_to_speak = f"Com licença, o seu timer de {desc} finalizou!"
                     
                     tts_filename = f"timer_{timer.id}_{int(time.time())}.wav"
                     temp_dir = os.path.join(os.getcwd(), "tmp")
@@ -278,7 +309,21 @@ class SchedulerManager:
                         continue
 
                     tempo_str = self._format_reminder_time(r)
-                    text_to_speak = f"Com licença! Você tem um compromisso {tempo_str}: {event.title}, às {hora_str}."
+                    
+                    from core.brain.router import get_router
+                    import asyncio
+                    router = get_router()
+                    context = {
+                        "room_id": event.room_id if event.room_id != "all" else "ROOM_LIVING",
+                        "device_id": "event_system",
+                        "db": db,
+                        "ws_tasks": []
+                    }
+                    prompt = f"Fale diretamente com o usuário para lembrá-lo proativamente que ele tem um compromisso {tempo_str}. O compromisso é '{event.title}' às {hora_str}. Seja natural, direto e amigável (sem enrolação)."
+                    
+                    text_to_speak = await asyncio.to_thread(router.process, prompt, context)
+                    if not text_to_speak or text_to_speak.strip() == "Ok.":
+                        text_to_speak = f"Com licença! Você tem um compromisso {tempo_str}: {event.title}, às {hora_str}."
 
                     logger.info(f"Evento '{event.title}': lembrando {r} min antes (notified: {notified_str})")
 
