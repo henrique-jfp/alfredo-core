@@ -334,4 +334,17 @@ class TrafficSkill(Skill):
                 f"cerca de {clean_dur} de viagem (sem trânsito em tempo real)."
             )
 
+        # HACK: LLMs leves têm dificuldade de chamar 2 tools. Se o texto pedir segurança, chamamos internamente.
+        text_lower = kwargs.get("_text", "").lower()
+        if any(w in text_lower for w in ["tiro", "operaç", "alagamento", "interdi", "seguran", "ocorrênc", "enchente"]):
+            try:
+                from core.brain.skills.safety_skill import SafetySkill
+                safety = SafetySkill()
+                # Checa segurança usando o destino como área
+                safety_res = safety.execute_tool({"areas": [destination]}, context)
+                if safety_res.get("direct_response"):
+                    response["direct_response"] += " " + safety_res["direct_response"]
+            except Exception as e:
+                logger.error(f"Erro ao injetar SafetySkill no trânsito: {e}")
+
         return response
