@@ -126,6 +126,8 @@ async def _true_streaming_pipeline(
 
                 # Edge-TTS streaming: yield chunk a chunk sem buffer acumulado
                 clean = re.sub(r'[\U00010000-\U0010ffff]', '', sentence)
+                # Remove formatação markdown que o TTS tentaria ler (ex: asteriscos, hashtags)
+                clean = re.sub(r'[*#_~`]', '', clean)
                 if not clean.strip():
                     continue
 
