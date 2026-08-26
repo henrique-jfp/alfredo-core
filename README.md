@@ -180,6 +180,7 @@ O agente decide sozinho quando e como acionar cada skill. Atualmente são **19 s
 | 🕒 **TimeTool** | Hora e data atuais. |
 | 🌤️ **WeatherTool** | Previsão do tempo atual e estendida (até 5 dias) via Open-Meteo. Cache em banco. |
 | 🚗 **TrafficTool** | Tempo de deslocamento entre origens e destinos salvos via Google Maps API. |
+| 🚨 **SafetySkill** | Monitoramento em tempo real de incidentes de segurança (Fogo Cruzado) e interdições de trânsito (Centro de Operações Rio). Acionado automaticamente em conjunto com rotas ou sob demanda. Requer credenciais em `.env`. |
 | 🌍 **TranslateTool** | Tradução entre idiomas e mini-aulas de idiomas (`"Como se fala obrigado em inglês?"`). |
 
 ### 🎓 Habilidades Especiais

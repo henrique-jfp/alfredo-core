@@ -99,14 +99,13 @@ class TrafficSkill(Skill):
             if gmaps_key:
                 logger.info("Buscando rota na Routes API v2 do Google (com Trânsito)...")
 
-                try:
-                    orig_lat_f = float(orig_lat)
-                    orig_lon_f = float(orig_lon)
-                    dest_lat_f = float(dest_lat)
-                    dest_lon_f = float(dest_lon)
-                except (ValueError, TypeError):
-                    logger.warning("Coordenadas inválidas para Routes API.")
-                    return {"error": "Coordenadas inválidas para calcular rota."}
+                def build_waypoint(lat_or_addr, lon):
+                    try:
+                        lat_f, lon_f = float(lat_or_addr), float(lon)
+                        return {"location": {"latLng": {"latitude": lat_f, "longitude": lon_f}}}
+                    except (ValueError, TypeError):
+                        # Se não for coordenada, assume que é endereço em texto (suportado pela Routes API v2)
+                        return {"address": str(lat_or_addr)}
 
                 url = "https://routes.googleapis.com/directions/v2:computeRoutes"
                 req_headers = {
@@ -115,12 +114,8 @@ class TrafficSkill(Skill):
                     "X-Goog-FieldMask": "routes.duration,routes.staticDuration,routes.distanceMeters",
                 }
                 body = {
-                    "origin": {
-                        "location": {"latLng": {"latitude": orig_lat_f, "longitude": orig_lon_f}}
-                    },
-                    "destination": {
-                        "location": {"latLng": {"latitude": dest_lat_f, "longitude": dest_lon_f}}
-                    },
+                    "origin": build_waypoint(orig_lat, orig_lon),
+                    "destination": build_waypoint(dest_lat, dest_lon),
                     "travelMode": "DRIVE",
                     "routingPreference": "TRAFFIC_AWARE",
                     # Routes API exige timestamp futuro; adiciona 2s de margem

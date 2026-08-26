@@ -28,6 +28,7 @@ from core.brain.skills.smart_home_skill import SmartHomeSkill
 from core.brain.skills.book_reading_skill import BookReadingSkill
 from core.brain.skills.web_search_skill import WebSearchSkill
 from core.brain.skills.ambience_skill import AmbienceSkill
+from core.brain.skills.safety_skill import SafetySkill
 from core.services.key_manager import (
     next_gemini_key, next_groq_key,
     mark_gemini_cooldown, mark_groq_cooldown,
@@ -67,7 +68,8 @@ class AgentRouter:
             "manage_book_reading": BookReadingSkill(),
             "web_search": WebSearchSkill(),
             "set_ambient": AmbienceSkill(),
-            "stop_ambient": AmbienceSkill()
+            "stop_ambient": AmbienceSkill(),
+            "check_route_incidents": SafetySkill()
         }
         # Groq client será criado sob demanda com a chave selecionada
         self._groq_client_cache = {}
@@ -596,6 +598,19 @@ class AgentRouter:
                                 }
                             },
                             "required": ["query"]
+                        }
+                    },
+                    {
+                        "name": "check_route_incidents",
+                        "description": "VERIFICAR SEGURANÇA E INCIDENTES: Use OBRIGATORIAMENTE se o usuário perguntar sobre tiroteio, operação policial, alagamento, interdição, via fechada ou segurança no trajeto/bairro.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "areas": {
+                                    "type": "string",
+                                    "description": "Nome do bairro ou via para checar (ex: 'Ilha do Governador', 'Linha Vermelha'). Pode ser uma lista separada por vírgula."
+                                }
+                            }
                         }
                     }
                 ]
