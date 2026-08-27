@@ -251,12 +251,20 @@ def get_ambientes(db: Session = Depends(get_db)):
                     "stateKnown": False
                 })
                 
-            off_scene = f"scene.desligar_{prefix}"
-            if off_scene in state_dict or prefix in ["sala", "casal", "quarto_laura"]:
+            if prefix == "sala":
+                off_scene = "scene.desligar_sala"
+            elif prefix == "casal":
+                off_scene = "scene.desligar_quarto_casal"
+            elif prefix == "quarto_laura":
+                off_scene = "scene.desligar_quarto_laura"
+            else:
+                off_scene = f"scene.desligar_{prefix}"
+
+            if off_scene in state_dict or prefix in ["sala", "casal"]:
                 devices.append({
                     "type": "power_off",
                     "name": "Desligar Tudo",
-                    "entity_id": f"text_command:desligar tudo {room_name_lower}",
+                    "entity_id": off_scene,
                     "state": "unknown",
                     "stateKnown": False
                 })
