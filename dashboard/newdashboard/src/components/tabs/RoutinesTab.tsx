@@ -28,12 +28,11 @@ export type ActionBlock = {
   id: string;
   category: ActionCategory;
   // Smart Home
-  device_type?: 'light' | 'fan' | 'tv';
   location?: RoomId | string;
-  state?: 'on' | 'off';
-  speed?: 'low' | 'medium' | 'high' | 'off';
-  action?: 'power_on' | 'power_off' | 'open_app';
+  device_type?: 'light' | 'fan' | 'tv';
+  action?: string;
   app_name?: string;
+  color_name?: string;
   // Weather
   weather_type?: 'current' | 'forecast';
   // Music
@@ -110,15 +109,25 @@ export function RoutinesTab() {
     for (const block of blocks) {
       if (block.category === 'smart_home') {
         const roomName = ROOM_LABELS[block.location as RoomId] || block.location || 'o cômodo';
+        const art = roomName === 'Sala de Estar' ? 'da ' : 'do ';
+        
         if (block.device_type === 'light') {
-          sentences.push(block.state === 'on' ? `Ligue a luz d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName}.` : `Desligue a luz d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName}.`);
+          if (block.action === 'change_color' && block.color_name) sentences.push(`Mude a cor da luz ${art}${roomName} para ${block.color_name}.`);
+          else if (block.action === 'power_off') sentences.push(`Desligue a luz ${art}${roomName}.`);
+          else sentences.push(`Ligue a luz ${art}${roomName}.`);
         } else if (block.device_type === 'fan') {
-          if (block.speed === 'off') sentences.push(`Desligue o ventilador d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName}.`);
-          else sentences.push(`Ligue o ventilador d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName} na velocidade ${block.speed === 'low' ? 'baixa' : block.speed === 'medium' ? 'média' : 'alta'}.`);
+          if (block.action === 'turn_on_light') sentences.push(`Acenda a luz do ventilador ${art}${roomName}.`);
+          else if (block.action === 'turn_off_light') sentences.push(`Apague a luz do ventilador ${art}${roomName}.`);
+          else if (block.action === 'power_off') sentences.push(`Desligue apenas o ventilador ${art}${roomName}.`);
+          else if (block.action === 'turn_off_all') sentences.push(`Desligue tudo (luz e ventilador) ${art}${roomName}.`);
+          else if (block.action?.startsWith('set_speed_')) sentences.push(`Ligue o ventilador ${art}${roomName} na velocidade ${block.action.split('_')[2]}.`);
+          else if (block.action === 'ventilation') sentences.push(`Ligue o ventilador ${art}${roomName} no modo ventilação.`);
+          else if (block.action === 'exhaustion') sentences.push(`Ligue o ventilador ${art}${roomName} no modo exaustão.`);
+          else sentences.push(`Ligue o ventilador ${art}${roomName}.`);
         } else if (block.device_type === 'tv') {
-          if (block.action === 'power_off') sentences.push(`Desligue a TV d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName}.`);
-          else if (block.action === 'open_app') sentences.push(`Abra o aplicativo ${block.app_name || 'Netflix'} na TV d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName}.`);
-          else sentences.push(`Ligue a TV d${roomName.startsWith('E') ? 'o ' : 'a '}${roomName}.`);
+          if (block.action === 'power_off') sentences.push(`Desligue a TV ${art}${roomName}.`);
+          else if (block.action === 'open_app') sentences.push(`Abra o aplicativo ${block.app_name || 'Netflix'} na TV ${art}${roomName}.`);
+          else sentences.push(`Ligue a TV ${art}${roomName}.`);
         }
       } else if (block.category === 'climate') {
         sentences.push(block.weather_type === 'current' ? 'Me dê a previsão do tempo atual.' : 'Me dê a previsão do tempo para o dia todo.');
@@ -360,61 +369,65 @@ export function RoutinesTab() {
                       </select>
 
                       {action.category === 'smart_home' && (
-                        <>
-                          <select value={action.device_type} onChange={(e) => updateAction(action.id, { device_type: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
-                            <option value="light">Luzes Inteligentes</option>
-                            <option value="fan">Ventiladores</option>
-                            <option value="tv">Televisões</option>
+                        <div className="flex flex-col space-y-2">
+                          <select value={action.location || formData.room_id} onChange={(e) => updateAction(action.id, { location: e.target.value, device_type: undefined, action: undefined })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                            <option value={ROOM_IDS.LIVING}>{ROOM_LABELS[ROOM_IDS.LIVING]}</option>
+                            <option value={ROOM_IDS.BEDROOM}>{ROOM_LABELS[ROOM_IDS.BEDROOM]}</option>
+                            <option value={ROOM_IDS.LAURA}>{ROOM_LABELS[ROOM_IDS.LAURA]}</option>
+                            <option value={ROOM_IDS.OFFICE}>{ROOM_LABELS[ROOM_IDS.OFFICE]}</option>
+                          </select>
+
+                          <select value={action.device_type || ''} onChange={(e) => updateAction(action.id, { device_type: e.target.value as any, action: undefined })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                            <option value="" disabled>Selecione um dispositivo...</option>
+                            {HOUSE_DEVICES.light.includes(action.location as string || formData.room_id) && <option value="light">Luz Inteligente</option>}
+                            {HOUSE_DEVICES.fan.includes(action.location as string || formData.room_id) && <option value="fan">Ventilador de Teto (c/ Luz)</option>}
+                            {HOUSE_DEVICES.tv.includes(action.location as string || formData.room_id) && <option value="tv">Televisão</option>}
                           </select>
 
                           {action.device_type === 'light' && (
-                            <div className="grid grid-cols-2 gap-2">
-                              <select value={action.location || formData.room_id} onChange={(e) => updateAction(action.id, { location: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
-                                {HOUSE_DEVICES.light.map(roomId => (
-                                   <option key={roomId} value={roomId}>{ROOM_LABELS[roomId as RoomId]}</option>
-                                ))}
+                            <div className="grid grid-cols-1 gap-2">
+                              <select value={action.action || 'power_on'} onChange={(e) => updateAction(action.id, { action: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                                <option value="power_on">Ligar Luz</option>
+                                <option value="power_off">Desligar Luz</option>
+                                <option value="change_color">Mudar Cor (Cores e Tons)</option>
                               </select>
-                              <select value={action.state || 'on'} onChange={(e) => updateAction(action.id, { state: e.target.value as 'on'|'off' })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
-                                <option value="on">Ligar</option>
-                                <option value="off">Desligar</option>
-                              </select>
+                              {action.action === 'change_color' && (
+                                <input value={action.color_name || ''} onChange={(e) => updateAction(action.id, { color_name: e.target.value })} type="text" placeholder="Ex: azul, verde, branco quente..." className="alfredo-input py-2 text-sm w-full" />
+                              )}
                             </div>
                           )}
 
                           {action.device_type === 'fan' && (
-                            <div className="grid grid-cols-2 gap-2">
-                               <select value={action.location || formData.room_id} onChange={(e) => updateAction(action.id, { location: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
-                                 {HOUSE_DEVICES.fan.map(roomId => (
-                                   <option key={roomId} value={roomId}>{ROOM_LABELS[roomId as RoomId]}</option>
-                                 ))}
-                              </select>
-                              <select value={action.speed || 'medium'} onChange={(e) => updateAction(action.id, { speed: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
-                                <option value="off">Desligar</option>
-                                <option value="low">Velocidade 1 (Baixa)</option>
-                                <option value="medium">Velocidade 2 (Média)</option>
-                                <option value="high">Velocidade 3 (Alta)</option>
-                              </select>
-                            </div>
+                            <select value={action.action || 'power_on'} onChange={(e) => updateAction(action.id, { action: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                              <option value="power_on">Ligar (Ventilador)</option>
+                              <option value="power_off">Desligar (Apenas Ventilador)</option>
+                              <option value="turn_on_light">Ligar (Apenas Luz do Ventilador)</option>
+                              <option value="turn_off_light">Desligar (Apenas Luz do Ventilador)</option>
+                              <option value="turn_off_all">Desligar Tudo (Luz e Ventilador)</option>
+                              <option value="set_speed_1">Velocidade 1 (Mínima)</option>
+                              <option value="set_speed_2">Velocidade 2</option>
+                              <option value="set_speed_3">Velocidade 3</option>
+                              <option value="set_speed_4">Velocidade 4</option>
+                              <option value="set_speed_5">Velocidade 5</option>
+                              <option value="set_speed_6">Velocidade 6 (Máxima)</option>
+                              <option value="ventilation">Modo Ventilação</option>
+                              <option value="exhaustion">Modo Exaustão</option>
+                            </select>
                           )}
 
                           {action.device_type === 'tv' && (
-                            <div className="grid grid-cols-2 gap-2">
-                              <select value={action.location || formData.room_id} onChange={(e) => updateAction(action.id, { location: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
-                                 {HOUSE_DEVICES.tv.map(roomId => (
-                                   <option key={roomId} value={roomId}>{ROOM_LABELS[roomId as RoomId]}</option>
-                                 ))}
-                              </select>
-                              <select value={action.action || 'power_on'} onChange={(e) => updateAction(action.id, { action: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
+                            <div className="grid grid-cols-1 gap-2">
+                              <select value={action.action || 'power_on'} onChange={(e) => updateAction(action.id, { action: e.target.value })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer">
                                 <option value="power_on">Ligar TV</option>
                                 <option value="power_off">Desligar TV</option>
                                 <option value="open_app">Abrir App Específico</option>
                               </select>
                               {action.action === 'open_app' && (
-                                <input value={action.app_name || ''} onChange={(e) => updateAction(action.id, { app_name: e.target.value })} type="text" placeholder="Ex: netflix, youtube, disney" className="alfredo-input py-2 text-sm col-span-2" />
+                                <input value={action.app_name || ''} onChange={(e) => updateAction(action.id, { app_name: e.target.value })} type="text" placeholder="Ex: Netflix, Youtube, Disney" className="alfredo-input py-2 text-sm w-full" />
                               )}
                             </div>
                           )}
-                        </>
+                        </div>
                       )}
 
                       {action.category === 'climate' && (
