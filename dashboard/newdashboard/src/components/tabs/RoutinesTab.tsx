@@ -171,13 +171,12 @@ export function RoutinesTab() {
     }
   };
 
-  const addAction = () => {
+  const addAction = (isSmartHome: boolean = true) => {
     const newAction: ActionBlock = {
       id: Math.random().toString(36).substring(2, 9),
-      category: 'smart_home',
-      device_type: 'light',
+      category: isSmartHome ? 'smart_home' : 'climate',
+      device_type: isSmartHome ? 'light' : undefined,
       location: formData.room_id,
-      state: 'on'
     };
     setFormData({ ...formData, actions_list: [...formData.actions_list, newAction] });
   };
@@ -357,16 +356,17 @@ export function RoutinesTab() {
                         </button>
                       </div>
                       
-                      <select value={action.category} onChange={(e) => updateAction(action.id, { category: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer border-brass-500/20 text-brass-100">
-                        <option value="smart_home">Controles de Casa (Luz/Ventilador/TV)</option>
-                        <option value="climate">Clima & Previsão</option>
-                        <option value="news">Notícias do Dia</option>
-                        <option value="calendar">Calendário & Eventos</option>
-                        <option value="music">Tocar Música (Spotify)</option>
-                        <option value="web_search">Pesquisa na Internet</option>
-                        <option value="safety">Segurança e Rotas (Rio)</option>
-                        <option value="custom_prompt">Comando Livre (Qualquer Skill)</option>
-                      </select>
+                      {action.category !== 'smart_home' && (
+                        <select value={action.category} onChange={(e) => updateAction(action.id, { category: e.target.value as any })} className="alfredo-input py-2 text-sm appearance-none cursor-pointer border-brass-500/20 text-brass-100">
+                          <option value="climate">Clima & Previsão</option>
+                          <option value="news">Notícias do Dia</option>
+                          <option value="calendar">Calendário & Eventos</option>
+                          <option value="music">Tocar Música (Spotify)</option>
+                          <option value="web_search">Pesquisa na Internet</option>
+                          <option value="safety">Segurança e Rotas (Rio)</option>
+                          <option value="custom_prompt">Comando Livre (Qualquer Skill)</option>
+                        </select>
+                      )}
 
                       {action.category === 'smart_home' && (
                         <div className="flex flex-col space-y-2">
@@ -460,10 +460,16 @@ export function RoutinesTab() {
                     </div>
                   ))}
                   
-                  <button onClick={addAction} className="alfredo-pill mt-2 w-full justify-center border-dashed border-white/20 text-[color:var(--text-secondary)] hover:bg-white/[0.05] transition-colors">
-                    <PlusCircle className="h-4 w-4" />
-                    Adicionar Habilidade / Ação
-                  </button>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <button onClick={() => addAction(true)} className="alfredo-pill w-full justify-center border-dashed border-white/20 text-[color:var(--text-secondary)] hover:bg-white/[0.05] transition-colors">
+                      <PlusCircle className="h-4 w-4" />
+                      Adicionar Ação de Casa
+                    </button>
+                    <button onClick={() => addAction(false)} className="alfredo-pill w-full justify-center border-dashed border-white/20 text-[color:var(--text-secondary)] hover:bg-white/[0.05] transition-colors">
+                      <Sparkles className="h-4 w-4" />
+                      Adicionar Skill / Lógica
+                    </button>
+                  </div>
                 </div>
               </div>
 
