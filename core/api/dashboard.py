@@ -242,7 +242,7 @@ def get_ambientes(db: Session = Depends(get_db)):
                 })
                 
             # TV (usando text_command para passar pelo roteador)
-            if prefix in ["sala", "casal", "quarto_laura"]:
+            if prefix in ["sala", "casal"]:
                 devices.append({
                     "type": "tv",
                     "name": "Televisão",
@@ -252,7 +252,7 @@ def get_ambientes(db: Session = Depends(get_db)):
                 })
                 
             off_scene = f"scene.desligar_{prefix}"
-            if off_scene in state_dict or prefix in ["sala", "casal", "quarto_laura", "escritorio"]:
+            if off_scene in state_dict or prefix in ["sala", "casal", "quarto_laura"]:
                 devices.append({
                     "type": "power_off",
                     "name": "Desligar Tudo",
