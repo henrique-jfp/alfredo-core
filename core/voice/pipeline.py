@@ -117,20 +117,21 @@ async def _true_streaming_pipeline(
                 if sentence is None:
                     break
 
+                # Strip emojis and markdown before anything else
+                clean = re.sub(r'[\U00010000-\U0010ffff]', '', sentence)
+                clean = re.sub(r'[*#_~`]', '', clean)
+                
+                if not clean.strip():
+                    continue
+
                 # Cache hit: < 1ms, retorna imediatamente sem chamar o Edge-TTS
-                cached = await tts_engine.get_cached_audio(sentence)
+                cached = await tts_engine.get_cached_audio(clean)
                 if cached:
-                    logger.debug(f"TTS cache hit: '{sentence[:40]}'")
+                    logger.debug(f"TTS cache hit: '{clean[:40]}'")
                     await audio_queue.put(cached)
                     continue
 
                 # Edge-TTS streaming: yield chunk a chunk sem buffer acumulado
-                clean = re.sub(r'[\U00010000-\U0010ffff]', '', sentence)
-                # Remove formatação markdown que o TTS tentaria ler (ex: asteriscos, hashtags)
-                clean = re.sub(r'[*#_~`]', '', clean)
-                if not clean.strip():
-                    continue
-
                 try:
                     communicate = edge_tts.Communicate(
                         clean, tts_engine.current_voice_name, rate='+15%'

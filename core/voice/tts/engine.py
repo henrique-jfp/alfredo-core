@@ -104,6 +104,7 @@ class TTSEngine:
         """Gera áudio via Edge-TTS, salva em cache e retorna os bytes MP3."""
         cache_key = self._get_cache_key(text)
         clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+        clean_text = re.sub(r'[*#_~`]', '', clean_text)
         
         # Gera via Edge-TTS
         mp3_chunks = []
@@ -135,6 +136,7 @@ class TTSEngine:
     async def synthesize_wav(self, text: str, output_filepath: str):
         import uuid, shutil
         clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+        clean_text = re.sub(r'[*#_~`]', '', clean_text)
         logger.info(f"Sintetizando áudio na nuvem para o texto: '{clean_text}'")
 
         pattern = r'<lang="([^"]+)">(.*?)</lang>'
@@ -204,6 +206,7 @@ class TTSEngine:
 
     async def stream_audio_generator(self, text: str):
         clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+        clean_text = re.sub(r'[*#_~`]', '', clean_text)
         logger.info(f"Iniciando stream TTS para: '{clean_text}'")
 
         pattern = r'<lang="([^"]+)">(.*?)(?:</lang>|$)'
@@ -238,6 +241,7 @@ class TTSEngine:
 
         async for sentence in text_generator:
             clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', sentence)
+            clean_text = re.sub(r'[*#_~`]', '', clean_text)
             if not clean_text.strip():
                 continue
             pattern = r'<lang="([^"]+)">(.*?)(?:</lang>|$)'
@@ -406,6 +410,7 @@ class PiperTTS:
         async for sentence in text_generator:
             clean_text = re.sub(r'</?lang[^>]*>', '', sentence)
             clean_text = re.sub(r'[\U00010000-\U0010ffff]', '', clean_text).strip()
+            clean_text = re.sub(r'[*#_~`]', '', clean_text)
             if not clean_text:
                 continue
 
